@@ -1,0 +1,117 @@
+\documentclass[a4paper, 12pt]{article}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{url}
+\usepackage{xcolor}
+\usepackage[square,numbers,sort&compress]{natbib}
+\bibliographystyle{elsarticle-num}
+
+
+\definecolor{munsell}{rgb}{0.0, 0.5, 0.69}
+\newcommand\cmnt[1]{\textcolor{munsell}{#1}}
+
+\topmargin=0cm
+\topskip=0cm
+\textheight=25cm
+\headheight=0cm
+\headsep=0cm
+\oddsidemargin=0cm
+\evensidemargin=0cm
+\textwidth=16cm
+\parindent=0cm
+\parskip=12pt
+
+\renewcommand{\baselinestretch}{1.2}
+
+\begin{document}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Filled out by the candidate! %%%%%%%%%%%%%%%%%%%%%%%%%%
+\newcommand{\ImeKandidata}{Vito} % Name
+\newcommand{\PriimekKandidata}{Levstik} % Surname
+\newcommand{\VpisnaStevilka}{63240453} % Enrollment number
+\newcommand{\StudyProgramme}{Computer and information science, MAG} % Study programme
+\newcommand{\NaslovBivalisca}{Ulica Jožefe Lackove 28a, 2250 Ptuj, Slovenija} % the candidate address
+\newcommand{\SLONaslov}{Ocenjevanje volatilnosti z Markovskim prehajanjem na finančnih trgih s sekvenčnimi Monte Carlo metodami} % Slovenian title
+\newcommand{\ENGNaslov}{Estimating Markov switching volatility in financial markets using sequential Monte Carlo methods} % English title
+%%%%%%%%%%%%%%%%%%%%%%%%%% End of filling in  %%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\newcommand{\ProblemParagraph}{\noindent\textbf{Problem \& State of the Art.} }
+\newcommand{\ContributionsParagraph}{\noindent\textbf{Expected Contributions / Technical outcome. } }
+\newcommand{\MethodologyParagraph}{\noindent\textbf{Methodology \& Validation. } }
+
+\newcommand{\Kandidat}{\ImeKandidata~\PriimekKandidata}
+\noindent
+\Kandidat\\
+\NaslovBivalisca \\
+Study programme: \StudyProgramme \\
+Enrollment number: \VpisnaStevilka
+\bigskip
+
+{\bf Committee for Student Affairs}\\
+Univerza v Ljubljani, Fakulteta za računalništvo in informatiko\\
+Večna pot 113, 1000 Ljubljana\\
+
+{\Large\bf
+{\centering
+    The master’s thesis topic proposal \\%[2mm]
+\large Candidate: \Kandidat \\[10mm]}}
+
+
+I, \Kandidat, a student of the 2nd cycle study programme at the Faculty of computer and information science, am submitting a thesis topic proposal to be considered by the Committee for Student Affairs with the following title:
+
+%\hfill\begin{minipage}{\dimexpr\textwidth-2cm}
+Slovenian: {\bf \SLONaslov}\\
+English: {\bf \ENGNaslov}
+%\end{minipage}
+
+This topic was already approved last year: \textit{NO}
+ 
+I declare that the mentors listed below have approved the submission of the thesis topic proposal described in the remainder of this document.
+
+I would like to write the thesis in English with the following reason: It is encouraged to write the thesis in English for Data Science students, hence I would like to follow this recommendation.
+
+I propose the following mentor:
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Filled in by the candidate! %%%%%%%%%%%%%%%%%%%%%%%%%%
+\hfill\begin{minipage}{\dimexpr\textwidth-2cm}
+Name, surname and title: izr. prof. dr. Jure Demšar\\
+Institution: Fakulteta za računalništvo in informatiko, Univerza v Ljubljani
+E-mail: jure.demsar@fri.uni-lj.si
+\end{minipage}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% End of filling in %%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\bigskip
+
+\hfill Ljubljana, \today. \newpage
+
+
+\section*{Key-words}
+
+Bayesian inference, sequential Monte Carlo, Markov switching models, financial time series, stochastic volatility
+
+\section*{Detailed thesis proposal}
+
+\ProblemParagraph
+Understanding and forecasting financial market volatility is essential for risk management, portfolio allocation, and derivatives pricing \cite{AndersenBollerslev1998}. 
+Market volatility often exhibits sudden changes, alternating between low and high volatility regimes. 
+Markov switching stochastic volatility (MSSV) models capture these dynamics by modeling latent volatility and discrete market regimes \cite{SoLamLi1998}. 
+In such models, sequential Monte Carlo (SMC) methods are tools for estimating latent states \cite{doucet2001sequential}, but many approaches rely on known parameters or simplified dynamics \cite{VirbickaitėLopes2019,CarvalhoLopes2007,BaoChiarellaKang2018}. 
+Full Bayesian inference that jointly estimates latent states and all model parameters is less commonly implemented, particularly for real-world financial time series, leaving scope for methodological development and empirical evaluation.
+
+\ContributionsParagraph
+This thesis will develop a Bayesian inference framework for MSSV models using SMC methods. The main contributions are:
+(1) the implementation of Bayesian inference framework using PMCMC \cite{AndrieuDoucetHolenstein2010} and SMC² \cite{ChopinJacobPapaspiliopoulos2012} to jointly infer latent volatility, regime states, and model parameters;
+(2) a comparison of SMC-based inference with conventional MCMC methods; and
+(3) an analysis on equity and cryptocurrency data evaluating the forecasting performance of MSSV models relative to standard volatility benchmarks such as GARCH \cite{Bollerslev1986}.
+
+\MethodologyParagraph
+The methodology will be implemented in Python and validated using both simulated and real financial time series. Performance of SMC methods will be evaluated against conventional MCMC methods, with a focus on computational cost and estimation efficiency.
+In addition, the MSSV model’s forecasting ability will be compared to standard volatility models such as GARCH, using realized volatility as the benchmark.
+
+ 
+\bibliography{bib/references}
+ 
+\end{document}

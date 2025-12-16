@@ -1,0 +1,87 @@
+\begin{thebibliography}{1}
+\expandafter\ifx\csname url\endcsname\relax
+  \def\url#1{\texttt{#1}}\fi
+\expandafter\ifx\csname urlprefix\endcsname\relax\def\urlprefix{URL }\fi
+\expandafter\ifx\csname href\endcsname\relax
+  \def\href#1#2{#2} \def\path#1{#1}\fi
+
+\bibitem{AndersenBollerslev1998}
+T.~G. Andersen, T.~Bollerslev,
+  \href{http://www.jstor.org/stable/2527343}{Answering the skeptics: Yes,
+  standard volatility models do provide accurate forecasts}, International
+  Economic Review 39~(4) (1998) 885--905.
+\newline\urlprefix\url{http://www.jstor.org/stable/2527343}
+
+\bibitem{SoLamLi1998}
+M.~K.~P. So, K.~Lam, W.~K. Li, \href{http://www.jstor.org/stable/1392580}{A
+  stochastic volatility model with markov switching}, Journal of Business \&
+  Economic Statistics 16~(2) (1998) 244--253.
+\newline\urlprefix\url{http://www.jstor.org/stable/1392580}
+
+\bibitem{doucet2001sequential}
+A.~Doucet, A.~Smith, N.~de~Freitas, N.~Gordon,
+  \href{https://books.google.si/books?id=uxX-koqKtMMC}{Sequential Monte Carlo
+  Methods in Practice}, Information Science and Statistics, Springer New York,
+  2001.
+\newline\urlprefix\url{https://books.google.si/books?id=uxX-koqKtMMC}
+
+\bibitem{VirbickaitėLopes2019}
+A.~Virbickaitė, H.~F. Lopes,
+  \href{https://onlinelibrary.wiley.com/doi/abs/10.1002/asmb.2434}{Bayesian
+  semiparametric markov switching stochastic volatility model}, Applied
+  Stochastic Models in Business and Industry 35~(4) (2019) 978--997.
+\newblock \href
+  {http://arxiv.org/abs/https://onlinelibrary.wiley.com/doi/pdf/10.1002/asmb.2434}
+  {\path{arXiv:https://onlinelibrary.wiley.com/doi/pdf/10.1002/asmb.2434}},
+  \href {https://doi.org/https://doi.org/10.1002/asmb.2434}
+  {\path{doi:https://doi.org/10.1002/asmb.2434}}.
+\newline\urlprefix\url{https://onlinelibrary.wiley.com/doi/abs/10.1002/asmb.2434}
+
+\bibitem{CarvalhoLopes2007}
+C.~M. Carvalho, H.~F. Lopes,
+  \href{https://www.sciencedirect.com/science/article/pii/S0167947306002349}{Simulation-based
+  sequential analysis of markov switching stochastic volatility models},
+  Computational Statistics \& Data Analysis 51~(9) (2007) 4526--4542.
+\newblock \href {https://doi.org/https://doi.org/10.1016/j.csda.2006.07.019}
+  {\path{doi:https://doi.org/10.1016/j.csda.2006.07.019}}.
+\newline\urlprefix\url{https://www.sciencedirect.com/science/article/pii/S0167947306002349}
+
+\bibitem{BaoChiarellaKang2018}
+Y.~Bao, C.~Chiarella, B.~Kang,
+  \href{https://doi.org/10.1093/oxfordhb/9780199844371.013.9}{Particle filters
+  for markov-switching stochastic volatility models}, in: The Oxford Handbook
+  of Computational Economics and Finance, Oxford University Press, 2018, pp.
+  248--265.
+\newblock \href {https://doi.org/10.1093/oxfordhb/9780199844371.013.9}
+  {\path{doi:10.1093/oxfordhb/9780199844371.013.9}}.
+\newline\urlprefix\url{https://doi.org/10.1093/oxfordhb/9780199844371.013.9}
+
+\bibitem{AndrieuDoucetHolenstein2010}
+C.~Andrieu, A.~Doucet, R.~Holenstein,
+  \href{https://rss.onlinelibrary.wiley.com/doi/abs/10.1111/j.1467-9868.2009.00736.x}{Particle
+  markov chain monte carlo methods}, Journal of the Royal Statistical Society:
+  Series B (Statistical Methodology) 72~(3) (2010) 269--342.
+\newblock \href
+  {http://arxiv.org/abs/https://rss.onlinelibrary.wiley.com/doi/pdf/10.1111/j.1467-9868.2009.00736.x}
+  {\path{arXiv:https://rss.onlinelibrary.wiley.com/doi/pdf/10.1111/j.1467-9868.2009.00736.x}},
+  \href {https://doi.org/https://doi.org/10.1111/j.1467-9868.2009.00736.x}
+  {\path{doi:https://doi.org/10.1111/j.1467-9868.2009.00736.x}}.
+\newline\urlprefix\url{https://rss.onlinelibrary.wiley.com/doi/abs/10.1111/j.1467-9868.2009.00736.x}
+
+\bibitem{ChopinJacobPapaspiliopoulos2012}
+N.~Chopin, P.~E. Jacob, O.~Papaspiliopoulos,
+  \href{https://arxiv.org/abs/1101.1528}{{SMC}$^2$: an efficient algorithm for
+  sequential analysis of state-space models} (2012).
+\newblock \href {http://arxiv.org/abs/1101.1528} {\path{arXiv:1101.1528}}.
+\newline\urlprefix\url{https://arxiv.org/abs/1101.1528}
+
+\bibitem{Bollerslev1986}
+T.~Bollerslev,
+  \href{https://www.sciencedirect.com/science/article/pii/0304407686900631}{Generalized
+  autoregressive conditional heteroskedasticity}, Journal of Econometrics
+  31~(3) (1986) 307--327.
+\newblock \href {https://doi.org/https://doi.org/10.1016/0304-4076(86)90063-1}
+  {\path{doi:https://doi.org/10.1016/0304-4076(86)90063-1}}.
+\newline\urlprefix\url{https://www.sciencedirect.com/science/article/pii/0304407686900631}
+
+\end{thebibliography}
