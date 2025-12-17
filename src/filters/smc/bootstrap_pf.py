@@ -2,7 +2,7 @@ import numpy as np
 from src.models.base import StateSpaceModel
 
 class BootstrapParticleFilter:
-    def __init__(self, model : StateSpaceModel, n_particles : int, resampler, rng=None):
+    def __init__(self, model : StateSpaceModel, n_particles : int, resampler):
         self.model = model
         self.N = n_particles
         self.resampler = resampler
@@ -28,7 +28,7 @@ class BootstrapParticleFilter:
             ]
 
             # Weighting
-            weights = np.array([
+            weights *= np.array([
                 self.model.likelihood(y[t], theta, p)
                 for p in particles
             ])
@@ -43,5 +43,6 @@ class BootstrapParticleFilter:
 
             # Resampling
             particles = self.resampler(particles, weights, self.model.rng)
+            weights.fill(1.0 / self.N)
 
         return history
