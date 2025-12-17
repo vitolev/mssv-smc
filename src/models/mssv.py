@@ -17,17 +17,24 @@ class MSSVModelParams:
             raise ValueError("Parameters mu, phi, sigma_eta, and P must have the same length.")
 
 class MSSVModel(StateSpaceModel):
-    def __init__(self, rng=None):
-        """
-        Markov-Switching Stochastic Volatility Model
+    """
+    Markov-Switching Stochastic Volatility Model
 
-        Args:
-            theta (MSSVModelParams): Model parameters.
-            rng: Random number generator.
-        """
+    A model used for capturing regime-switching behavior in financial time series, by modeling
+    the log-volatility as a latent variable that switches between different regimes.
+
+    Model definition:
+        s_0 ~ Uniform{1, ..., K}
+        h_0 | s_0 ~ N(mu_{s_0}, sigma_eta_{s_0}^2)
+        s_t | s_{t-1} ~ Categorical(P_{s_{t-1}, :))
+        h_t | h_{t-1}, s_t ~ N(mu_{s_t} + phi_{s_t} * (h_{t-1} - mu_{s_t}), sigma_eta_{s_t}^2)
+        y_t | h_t ~ N(0, exp(h_t))
+    """
+    def __init__(self, rng=None):
+
         super().__init__(rng)
 
-    def sample_initial_state(self, theta : MSSVModelParams):
+    def sample_initial(self, theta : MSSVModelParams):
         """
         Sample the initial state (h0, s0) given initial parameters theta.
         """
@@ -35,7 +42,7 @@ class MSSVModel(StateSpaceModel):
         h0 = self.rng.normal(theta.mu[s0], theta.sigma_eta[s0])
         return (h0, s0)
 
-    def sample_transition(self, theta : MSSVModelParams, state: tuple):
+    def sample_next(self, theta : MSSVModelParams, state: tuple):
         """
         Sample the next state (h_t, s_t) given previous state and new parameters theta.
         """
@@ -50,6 +57,23 @@ class MSSVModel(StateSpaceModel):
         )
 
         return (h_t, s_t)
+    
+    def approx_expected_next(self, theta : MSSVModelParams, state: tuple):
+        """
+        Compute the approximation of expected next state given current state and parameters theta.
+        """
+        h_t, s_t = state
+        h_new = 0.0
+        for i in range(len(theta.mu)):
+            p_i = theta.P[s_t][i]   # Transition probability to regime i
+            h_new += p_i * (
+                theta.mu[i]
+                + theta.phi[i] * (h_t - theta.mu[i])
+            )
+        
+        s_new = np.argmax(theta.P[s_t])
+        return (h_new, s_new)
+
     
     def likelihood(self, y_t, theta : MSSVModelParams, state: tuple):
         """

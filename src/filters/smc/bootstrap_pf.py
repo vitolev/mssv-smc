@@ -17,13 +17,13 @@ class BootstrapParticleFilter:
 
         # ----- Initialization -----
         for i in range(self.N):
-            particles[i] = self.model.sample_initial_state(theta)
+            particles[i] = self.model.sample_initial(theta)
 
         # ----- Main loop -----
         for t in range(T):
             # Propagation
             particles = [
-                self.model.sample_transition(theta, p)
+                self.model.sample_next(theta, p)
                 for p in particles
             ]
 

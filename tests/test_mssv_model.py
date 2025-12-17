@@ -32,7 +32,7 @@ def test_sample_initial_state():
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
-    h0, s0 = model.sample_initial_state(params)
+    h0, s0 = model.sample_initial(params)
 
     assert isinstance(h0, float)
     assert isinstance(s0, int)
@@ -50,14 +50,14 @@ def test_sample_transition():
     )
 
     state = (0.5, 0)
-    h1, s1 = model.sample_transition(params, state)
+    h1, s1 = model.sample_next(params, state)
 
     assert s1 == 0  # forced by P
     assert isinstance(h1, float)
 
     params.P = [[0.0, 1.0], [1.0, 0.0]]  # switch regimes
     state = (0.5, 0)
-    h2, s2 = model.sample_transition(params, state)
+    h2, s2 = model.sample_next(params, state)
 
     assert s2 == 1  # forced by P
     assert isinstance(h2, float)
