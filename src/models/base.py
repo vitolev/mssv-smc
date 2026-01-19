@@ -11,23 +11,23 @@ class StateSpaceModel(ABC):
         self.rng = rng or np.random.default_rng()
 
     @abstractmethod
-    def sample_initial(self, theta):
+    def sample_initial_state(self, theta):
         """
         Sample the initial state x_0 given parameters theta.
         """
         pass
 
     @abstractmethod
-    def sample_next(self, theta, state):
+    def sample_next_state(self, theta, state):
         """
         Sample the next state x_t given previous state x_{t-1} and parameters theta.
         """
         pass
 
     @abstractmethod
-    def approx_expected_next(self, theta, state):
+    def expected_next_state(self, theta, state):
         """
-        Compute the approximation of expected next state given current state and parameters theta.
+        Compute the expected next state given current state and parameters theta.
         """
         pass
 

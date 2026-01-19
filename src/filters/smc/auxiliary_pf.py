@@ -17,14 +17,14 @@ class AuxiliaryParticleFilter:
 
         # ----- Initialization -----
         for i in range(self.N):
-            particles[i] = self.model.sample_initial(theta)
+            particles[i] = self.model.sample_initial_state(theta)
 
         # ----- Main loop -----
         for t in range(T):
 
             # ===== Auxiliary weights (look-ahead) =====
             predicted_states = [
-                self.model.approx_expected_next(theta, p)
+                self.model.expected_next_state(theta, p)
                 for p in particles
             ]
 
@@ -42,11 +42,16 @@ class AuxiliaryParticleFilter:
                 self.model.rng
             )
 
+            # Cache predicted states for chosen ancestors
+            ancestor_predicted = [
+                predicted_states[idx] for idx in ancestor_indices
+            ]
+
             # ===== Propagation =====
             new_particles = []
             for idx in ancestor_indices:
                 x_prev = particles[idx]
-                x_new = self.model.sample_next(theta, x_prev)
+                x_new = self.model.sample_next_state(theta, x_prev)
                 new_particles.append(x_new)
 
             particles = new_particles
@@ -54,7 +59,7 @@ class AuxiliaryParticleFilter:
             # ===== Weight correction =====
             weights = np.array([
                 self.model.likelihood(y[t], theta, particles[i]) /
-                self.model.likelihood(y[t], theta, predicted_states[ancestor_indices[i]])
+                self.model.likelihood(y[t], theta, ancestor_predicted[i])
                 for i in range(self.N)
             ])
 

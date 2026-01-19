@@ -30,14 +30,14 @@ class LGModel(StateSpaceModel):
     def __init__(self, rng=None):
         super().__init__(rng)
 
-    def sample_initial(self, theta):
+    def sample_initial_state(self, theta):
         return self.rng.normal(0, 1)
 
-    def sample_next(self, theta: LGModelParams, x_prev):
+    def sample_next_state(self, theta: LGModelParams, x_prev):
         return self.rng.normal(theta.a * x_prev, theta.sigma_x)
     
-    def approx_expected_next(self, theta: LGModelParams, x_prev):
-        ## For LGModel, the expected next state is simply a * x_prev, so there is no approximation needed.
+    def expected_next_state(self, theta: LGModelParams, x_prev):
+        # For LGModel, the expected next state is simply a * x_prev.
         return theta.a * x_prev
     
     def likelihood(self, y, theta: LGModelParams, x):
