@@ -1,13 +1,15 @@
 import numpy as np
 from scipy.stats import norm
-from src.models.base import StateSpaceModel
+from src.models.base import StateSpaceModel, StateSpaceModelParams
 from typing import List
 
-class MSSVModelParams:
+class MSSVModelParams(StateSpaceModelParams):
     """
     Container for MSSV model parameters.
     """
     def __init__(self, mu: List[float], phi: List[float], sigma_eta: List[float], P: List[List[float]]):
+        super().__init__()
+        
         self.mu = np.array(mu)
         self.phi = np.array(phi)
         self.sigma_eta = np.array(sigma_eta)
@@ -46,9 +48,20 @@ class MSSVModel(StateSpaceModel):
     def __init__(self, rng=None):
         super().__init__(rng)
 
+    def sample_observation(self, theta : MSSVModelParams, state: tuple):
+        """
+        Sample an observation y_t given state x_t = (h_t, s_t) and parameters theta.
+
+        y_t ~ p(y_t | x_t, theta)
+        """
+        h_t, _ = state
+        return self.rng.normal(0.0, np.exp(0.5 * h_t))
+
     def sample_initial_state(self, theta : MSSVModelParams):
         """
-        Sample the initial state (h0, s0) given initial parameters theta.
+        Sample the initial state x_0 = (h_0, s_0) given initial parameters theta.
+
+        x_0 ~ p(x_0 | theta)
         """
         K = len(theta.mu)
         # Create one-hot encoding for regime
@@ -61,7 +74,9 @@ class MSSVModel(StateSpaceModel):
 
     def sample_next_state(self, theta : MSSVModelParams, state: tuple):
         """
-        Sample the next state (h_t, s_t) given previous state and new parameters theta.
+        Sample the next state x_t = (h_t, s_t) given previous state x_t-1 and new parameters theta.
+
+        x_t ~ p(x_t | x_{t-1}, theta)
         """
         h_prev, s_prev = state
         K = len(theta.mu)
@@ -84,6 +99,8 @@ class MSSVModel(StateSpaceModel):
     def expected_next_state(self, theta : MSSVModelParams, state: tuple):
         """
         Compute the expected next state given current state and parameters theta.
+
+        E[x_t | x_{t-1}, theta]
         """
         h_prev, s_prev = state
 
@@ -98,7 +115,6 @@ class MSSVModel(StateSpaceModel):
             )
 
         return (h_exp, s_exp)
-
     
     def likelihood(self, y_t, theta : MSSVModelParams, state: tuple):
         """
@@ -116,5 +132,54 @@ class MSSVModel(StateSpaceModel):
         h_t, _ = state
         return norm.logpdf(y_t, loc=0.0, scale=np.exp(0.5 * h_t))
     
+    def state_transition(self, theta : MSSVModelParams, state_prev: tuple, state_next: tuple):
+        """
+        Compute the state transition probability p(x_t | x_{t-1}, theta).
+
+        p(x_t | x_{t-1}, theta) = p(s_t | s_{t-1}, theta) * p(h_t | h_{t-1}, s_t, theta)
+        """
+        h_prev, s_prev = state_prev
+        h_next, s_next = state_next
+
+        K = len(theta.mu)
+
+        # Regime transition probability
+        index_prev = np.argmax(s_prev)
+        index_next = np.argmax(s_next)
+        p_s = theta.P[index_prev, index_next]
+
+        # Volatility transition probability
+        mean_h = (
+            theta.mu[index_next]
+            + theta.phi[index_next] * (h_prev - theta.mu[index_next])
+        )
+        p_h = norm.pdf(h_next, loc=mean_h, scale=theta.sigma_eta[index_next])
+
+        return p_s * p_h
+    
+    def log_state_transition(self, theta : MSSVModelParams, state_prev: tuple, state_next: tuple):
+        """
+        Compute the log of the state transition probability log p(x_t | x_{t-1}, theta).
+
+        log p(x_t | x_{t-1}, theta) = log p(s_t | s_{t-1}, theta) + log p(h_t | h_{t-1}, s_t, theta)
+        """
+        h_prev, s_prev = state_prev
+        h_next, s_next = state_next
+
+        K = len(theta.mu)
+
+        # Regime transition log-probability
+        index_prev = np.argmax(s_prev)
+        index_next = np.argmax(s_next)
+        log_p_s = np.log(theta.P[index_prev, index_next])
+
+        # Volatility transition log-probability
+        mean_h = (
+            theta.mu[index_next]
+            + theta.phi[index_next] * (h_prev - theta.mu[index_next])
+        )
+        log_p_h = norm.logpdf(h_next, loc=mean_h, scale=theta.sigma_eta[index_next])
+
+        return log_p_s + log_p_h
 
 

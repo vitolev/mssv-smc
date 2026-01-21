@@ -30,6 +30,9 @@ class LGModel(StateSpaceModel):
     def __init__(self, rng=None):
         super().__init__(rng)
 
+    def sample_observation(self, theta: LGModelParams, state):
+        return self.rng.normal(theta.b * state, theta.sigma_y)
+
     def sample_initial_state(self, theta):
         return self.rng.normal(0, 1)
 
@@ -45,3 +48,9 @@ class LGModel(StateSpaceModel):
     
     def log_likelihood(self, y, theta: LGModelParams, x):
         return norm.logpdf(y, loc=theta.b * x, scale=theta.sigma_y)
+    
+    def state_transition(self, theta: LGModelParams, x_prev, x_next):
+        return norm.pdf(x_next, loc=theta.a * x_prev, scale=theta.sigma_x)
+    
+    def log_state_transition(self, theta: LGModelParams, x_prev, x_next):
+        return norm.logpdf(x_next, loc=theta.a * x_prev, scale=theta.sigma_x)
