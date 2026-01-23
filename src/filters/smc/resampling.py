@@ -1,34 +1,47 @@
 import numpy as np
+from src.models.mssv import MSSVModelState
+from src.models.lgm import LGModelState
+from src.models.base import StateSpaceModelState
 
-def systematic_resampling(particles, weights, rng=None):
+def systematic_resampling(particles: StateSpaceModelState, weights: np.ndarray, rng: np.random.Generator = None) -> StateSpaceModelState:
     """
     Systematic resampling for particle filters.
 
-    Args:
-        particles (list): Current particle states
-        weights (np.ndarray): Normalized weights (sum to 1)
-        rng (np.random.Generator or None)
+    Parameters
+    ----------
+        particles: StateSpaceModelState
+            State of particles to be resampled. Only support LGModelState and MSSVModelState. 
+        weights: np.ndarray
+            Normalized weights (sum to 1)
+        rng: np.random.Generator or None
 
-    Returns:
-        resampled_particles (list): New list of equally weighted particles
+    Returns
+    -------
+        resampled_particles: StateSpaceModelState
+            New state of equally weighted particles
     """
     if rng is None:
         rng = np.random.default_rng()
 
-    N = len(particles)
-    
-    # Cumulative sum of weights
+    N = len(weights)
     cdf = np.cumsum(weights)
-    
-    # Start point: uniform in [0, 1/N)
+
+    # Systematic points
     u0 = rng.uniform(0, 1.0 / N)
-    # Equally spaced points
     u = u0 + np.arange(N) / N
 
-    # Find which particle each u corresponds to
+    # Indices of particles to pick
     indices = np.searchsorted(cdf, u)
 
-    # Resample particles
-    resampled_particles = [particles[i] for i in indices]
-    
-    return resampled_particles
+    # Resample particles (vectorized)
+    if isinstance(particles, LGModelState):
+        x_resampled = particles.x_t[indices].copy()
+        return LGModelState(x_resampled)
+
+    elif isinstance(particles, MSSVModelState):
+        h_resampled = particles.h_t[indices].copy()
+        s_resampled = particles.s_t[indices].copy()
+        return MSSVModelState(h_resampled, s_resampled)
+
+    else:
+        raise ValueError("Unknown particle state type")

@@ -1,8 +1,8 @@
 import numpy as np
-from src.models.base import StateSpaceModel
+from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
 from scipy.stats import norm
 
-class LGModelParams:
+class LGModelParams(StateSpaceModelParams):
     """
     Container for LGSSM model parameters.
     """
@@ -14,6 +14,13 @@ class LGModelParams:
 
         if sigma_x <= 0 or sigma_y <= 0:
             raise ValueError("Standard deviations sigma_x and sigma_y must be positive.")
+
+class LGModelState(StateSpaceModelState):
+    """
+    Container for LGSSM model state.
+    """
+    def __init__(self, x_t: np.ndarray):
+        self.x_t = x_t  # shape (N,)
 
 class LGModel(StateSpaceModel):
     """
@@ -30,27 +37,54 @@ class LGModel(StateSpaceModel):
     def __init__(self, rng=None):
         super().__init__(rng)
 
-    def sample_observation(self, theta: LGModelParams, state):
-        return self.rng.normal(theta.b * state, theta.sigma_y)
+    def sample_observation(self, theta: LGModelParams, state: LGModelState) -> np.ndarray:
+        """
+        Sample observation y_t | x_t
+        """
+        return self.rng.normal(theta.b * state.x_t, theta.sigma_y)
 
-    def sample_initial_state(self, theta):
-        return self.rng.normal(0, 1)
+    def sample_initial_state(self, theta: LGModelParams, size: int = 1) -> LGModelState:
+        """
+        Sample initial latent states x_0 ~ N(0,1)
+        """
+        x0 = self.rng.normal(0.0, 1.0, size=size)
+        return LGModelState(x0)
 
-    def sample_next_state(self, theta: LGModelParams, x_prev):
-        return self.rng.normal(theta.a * x_prev, theta.sigma_x)
-    
-    def expected_next_state(self, theta: LGModelParams, x_prev):
-        # For LGModel, the expected next state is simply a * x_prev.
-        return theta.a * x_prev
-    
-    def likelihood(self, y, theta: LGModelParams, x):
-        return norm.pdf(y, loc=theta.b * x, scale=theta.sigma_y)
-    
-    def log_likelihood(self, y, theta: LGModelParams, x):
-        return norm.logpdf(y, loc=theta.b * x, scale=theta.sigma_y)
-    
-    def state_transition(self, theta: LGModelParams, x_prev, x_next):
-        return norm.pdf(x_next, loc=theta.a * x_prev, scale=theta.sigma_x)
-    
-    def log_state_transition(self, theta: LGModelParams, x_prev, x_next):
-        return norm.logpdf(x_next, loc=theta.a * x_prev, scale=theta.sigma_x)
+    def sample_next_state(self, theta: LGModelParams, state: LGModelState) -> LGModelState:
+        """
+        Sample x_t | x_{t-1}
+        """
+        x_prev = state.x_t
+        x_next = self.rng.normal(theta.a * x_prev, theta.sigma_x)
+        return LGModelState(x_next)
+
+    def expected_next_state(self, theta: LGModelParams, state: LGModelState) -> LGModelState:
+        """
+        E[x_t | x_{t-1}] = a * x_{t-1}
+        """
+        x_exp = theta.a * state.x_t
+        return LGModelState(x_exp)
+
+    def likelihood(self, y: float, theta: LGModelParams, state: LGModelState) -> np.ndarray:
+        """
+        Likelihood p(y_t | x_t)
+        """
+        return norm.pdf(y, loc=theta.b * state.x_t, scale=theta.sigma_y)
+
+    def log_likelihood(self, y: float, theta: LGModelParams, state: LGModelState) -> np.ndarray:
+        """
+        Log-likelihood log p(y_t | x_t)
+        """
+        return norm.logpdf(y, loc=theta.b * state.x_t, scale=theta.sigma_y)
+
+    def state_transition(self, theta: LGModelParams, state_prev: LGModelState, state_next: LGModelState) -> np.ndarray:
+        """
+        Transition probability p(x_t | x_{t-1})
+        """
+        return norm.pdf(state_next.x_t, loc=theta.a * state_prev.x_t, scale=theta.sigma_x)
+
+    def log_state_transition(self, theta: LGModelParams, state_prev: LGModelState, state_next: LGModelState) -> np.ndarray:
+        """
+        Log transition probability log p(x_t | x_{t-1})
+        """
+        return norm.logpdf(state_next.x_t, loc=theta.a * state_prev.x_t, scale=theta.sigma_x)

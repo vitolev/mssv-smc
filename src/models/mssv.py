@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.stats import norm
-from src.models.base import StateSpaceModel, StateSpaceModelParams
-from typing import List
+from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
+from typing import List, Tuple
 
 class MSSVModelParams(StateSpaceModelParams):
     """
@@ -19,18 +19,18 @@ class MSSVModelParams(StateSpaceModelParams):
         if any(param is None for param in [mu, phi, sigma_eta, P]):
             if rng is None or num_regimes is None:
                 raise ValueError("RNG and num_regimes must be provided when sampling from prior.")
-            self.mu = []
-            self.phi = []
-            self.sigma_eta = []
-            self.P = []
+            mu = []
+            phi = []
+            sigma_eta = []
+            P = []
 
             for _ in range(num_regimes):
-                self.mu.append(rng.normal(0, 10))
-                self.phi.append(rng.uniform(0, 1))
-                self.sigma_eta.append(rng.uniform(0.1, 2.0))
+                mu.append(rng.normal(0, 10))
+                phi.append(rng.uniform(0, 1))
+                sigma_eta.append(rng.uniform(0.1, 2.0))
 
             P_matrix = rng.dirichlet(np.ones(num_regimes), size=num_regimes)
-            self.P = P_matrix.tolist()
+            P = P_matrix.tolist()
 
             self.mu = np.array(mu)
             self.phi = np.array(phi)
@@ -56,6 +56,16 @@ class MSSVModelParams(StateSpaceModelParams):
             if any(abs(sum(row) - 1.0) > 1e-8 for row in P):
                 raise ValueError("Each row of transition matrix P must sum to 1.")
 
+class MSSVModelState(StateSpaceModelState):
+    """
+    Container for MSSV model state: (h_t, s_t)
+        h_t: continuous latent log-volatility vector
+        s_t: one-hot encoded regime vector 
+    """
+    def __init__(self, h_t: np.ndarray, s_t: np.ndarray):
+        self.h_t = h_t  # Log-volatility
+        self.s_t = s_t  # Regime (one-hot encoded)
+
 class MSSVModel(StateSpaceModel):
     """
     Markov-Switching Stochastic Volatility Model
@@ -77,137 +87,245 @@ class MSSVModel(StateSpaceModel):
     def __init__(self, rng=None):
         super().__init__(rng)
 
-    def sample_observation(self, theta : MSSVModelParams, state: tuple):
+    def sample_observation(self, theta : MSSVModelParams, state: MSSVModelState) -> np.ndarray:
         """
         Sample an observation y_t given state x_t = (h_t, s_t) and parameters theta.
 
         y_t ~ p(y_t | x_t, theta)
+
+        Parameters
+        ----------
+            theta: MSSVModelParams
+                Model parameters.
+            state: MSSVModelState
+                Current state of size N. 
+        Returns
+        -------
+            y_t: np.ndarray
+                Sampled observation with shape (N,).
         """
-        h_t, _ = state
+        h_t = state.h_t
         return self.rng.normal(0.0, np.exp(0.5 * h_t))
 
-    def sample_initial_state(self, theta : MSSVModelParams):
+    def sample_initial_state(self, theta : MSSVModelParams, size: int = 1) -> MSSVModelState:
         """
         Sample the initial state x_0 = (h_0, s_0) given initial parameters theta.
 
         x_0 ~ p(x_0 | theta)
+
+        Parameters
+        ----------
+            theta: MSSVModelParams
+                Model parameters.
+            size: int
+                Number of initial states to sample. This influences the shape of returned arrays in MSSVModelState. (default = 1)
+        Returns
+        -------
+            state: MSSVModelState
+                Sampled initial state with the shapes:
+                    h_0: (size,)
+                    s_0: (size, K)
         """
         K = len(theta.mu)
-        # Create one-hot encoding for regime
-        regime = self.rng.choice(K)
-        s0 = np.zeros(K)
-        s0[regime] = 1
-        # Sample initial log-volatility
-        h0 = self.rng.normal(theta.mu[regime], theta.sigma_eta[regime])     # np.random.normal uses stddev as second parameter
-        return (h0, s0)
+        s0 = np.zeros((size, K))   # Initialize regime array as one-hot encoding
 
-    def sample_next_state(self, theta : MSSVModelParams, state: tuple):
+        # Uniformly sample initial regimes
+        regimes = self.rng.integers(0, K, size=size)
+        s0[np.arange(size), regimes] = 1
+
+        # Sample initial log-volatilities based on regimes
+        h0 = self.rng.normal(theta.mu[regimes], theta.sigma_eta[regimes])   # np.random.normal uses stddev as second parameter
+
+        return MSSVModelState(h0, s0)
+
+    def sample_next_state(self, theta : MSSVModelParams, state: MSSVModelState) -> MSSVModelState:
         """
         Sample the next state x_t = (h_t, s_t) given previous state x_t-1 and new parameters theta.
 
         x_t ~ p(x_t | x_{t-1}, theta)
+
+        Parameters
+        ----------
+            theta: MSSVModelParams
+                Model parameters.
+            state: MSSVModelState
+                Previous state of size N.
+        Returns
+        -------
+            state: MSSVModelState
+                Sampled next state of size N.
         """
-        h_prev, s_prev = state
-        K = len(theta.mu)
+        h_prev, s_prev = state.h_t, state.s_t
+        N, K = s_prev.shape
 
         # Regime transition
-        s_t = s_prev @ theta.P  # Compute probabilities for next regime
-        index = self.rng.choice(K, p=s_t)   # Sample new regime index based on probabilities
-        s_t = np.zeros(K)
-        s_t[index] = 1                      # One-hot encode the new regime
+        probs = s_prev @ theta.P  # (N, K)
+        u = self.rng.random(probs.shape[0])     # (N,): random uniform values [0,1)
+        indices = np.sum(np.cumsum(probs, axis=1) < u[:, None], axis=1)     # (N,): sampled regime indices by CDF inversion
+        s_t = np.zeros_like(probs)
+        s_t[np.arange(probs.shape[0]), indices] = 1
 
         # Volatility transition
-        h_t = (
-            theta.mu[index]
-            + theta.phi[index] * (h_prev - theta.mu[index])
-            + theta.sigma_eta[index] * self.rng.normal(0, 1)
-        )
+        mu = theta.mu[indices]
+        phi = theta.phi[indices]
+        sigma = theta.sigma_eta[indices]
 
-        return (h_t, s_t)
+        h_t = mu + phi * (h_prev - mu) + sigma * self.rng.normal(size=N)
+
+        return MSSVModelState(h_t, s_t)
     
-    def expected_next_state(self, theta : MSSVModelParams, state: tuple):
+    def expected_next_state(self, theta : MSSVModelParams, state: MSSVModelState) -> MSSVModelState:
         """
         Compute the expected next state given current state and parameters theta.
 
         E[x_t | x_{t-1}, theta]
+
+        Parameters
+        ----------
+            theta: MSSVModelParams
+                Model parameters.
+            state: MSSVModelState
+                Current state of size N.
+        Returns
+        -------
+            state: MSSVModelState
+                Expected next state of size N.
         """
-        h_prev, s_prev = state
+        h_prev, s_prev = state.h_t, state.s_t
 
         # Expected regime distribution
         s_exp = s_prev @ theta.P
-        # Expected log-volatility
-        h_exp = 0.0
-        for i in range(len(s_exp)):
-            h_exp += s_exp[i] * (
-                theta.mu[i]
-                + theta.phi[i] * (h_prev - theta.mu[i])
-            )
 
-        return (h_exp, s_exp)
+        # Regime-specific parameters
+        mu = theta.mu                                # (K,)
+        phi = theta.phi                              # (K,)
+
+        # Expected log-volatility
+        # shape tricks:
+        # h_prev[:, None]  -> (N, 1)
+        # mu[None, :]      -> (1, K)
+        h_exp = np.sum(
+            s_exp * (mu + phi * (h_prev[:, None] - mu)),
+            axis=1
+        )                                            # (N,)
+
+        return MSSVModelState(h_exp, s_exp)
     
-    def likelihood(self, y_t, theta : MSSVModelParams, state: tuple):
+    def likelihood(self, y_t, theta : MSSVModelParams, state: MSSVModelState) -> np.ndarray:
         """
-        Compute the likelihood of observation y_t given current state.
+        Compute the likelihoods of observation y_t given current states with shape (N,).
 
         p(y_t | x_t, theta) ~ N(0, exp(h_t))
+
+        Parameters
+        ----------
+            y_t: float
+                Observation at time t.
+            theta: MSSVModelParams
+                Model parameters.
+            state: MSSVModelState
+                Current state of size N.
+        Returns
+        -------
+            likelihood: np.ndarray
+                Likelihood values with shape (N,).
         """
-        h_t, _ = state
+        h_t = state.h_t
         return norm.pdf(y_t, loc=0.0, scale=np.exp(0.5 * h_t))  # scale parameter is standard deviation hence 0.5
 
-    def log_likelihood(self, y_t, theta : MSSVModelParams, state: tuple):
+    def log_likelihood(self, y_t, theta : MSSVModelParams, state: MSSVModelState) -> np.ndarray:
         """
         Compute the log-likelihood of observation y_t given current state.
+
+        Parameters
+        ----------
+            y_t: float
+                Observation at time t.
+            theta: MSSVModelParams
+                Model parameters.
+            state: MSSVModelState
+                Current state of size N.
+        Returns
+        -------
+            log_likelihood: np.ndarray
+                Log-likelihood values with shape (N,).
         """
-        h_t, _ = state
+        h_t = state.h_t
         return norm.logpdf(y_t, loc=0.0, scale=np.exp(0.5 * h_t))
     
-    def state_transition(self, theta : MSSVModelParams, state_prev: tuple, state_next: tuple):
+    def state_transition(self, theta : MSSVModelParams, state_prev: MSSVModelState, state_next: MSSVModelState) -> np.ndarray:
         """
         Compute the state transition probability p(x_t | x_{t-1}, theta).
 
         p(x_t | x_{t-1}, theta) = p(s_t | s_{t-1}, theta) * p(h_t | h_{t-1}, s_t, theta)
+
+        Parameters
+        ----------
+            theta: MSSVModelParams
+                Model parameters.
+            state_prev: MSSVModelState
+                Previous state of size N.
+            state_next: MSSVModelState
+                Next state of size N.
+        Returns
+        -------
+            transition_prob: np.ndarray
+                Transition probabilities with shape (N,).
         """
-        h_prev, s_prev = state_prev
-        h_next, s_next = state_next
+        h_prev, s_prev = state_prev.h_t, state_prev.s_t
+        h_next, s_next = state_next.h_t, state_next.s_t
 
-        K = len(theta.mu)
+        # Regime indices per particle
+        idx_prev = np.argmax(s_prev, axis=1)    # (N,)
+        idx_next = np.argmax(s_next, axis=1)    # (N,)
 
-        # Regime transition probability
-        index_prev = np.argmax(s_prev)
-        index_next = np.argmax(s_next)
-        p_s = theta.P[index_prev, index_next]
+        # Regime transition probabilities
+        p_s = theta.P[idx_prev, idx_next]       # (N,)
 
-        # Volatility transition probability
-        mean_h = (
-            theta.mu[index_next]
-            + theta.phi[index_next] * (h_prev - theta.mu[index_next])
-        )
-        p_h = norm.pdf(h_next, loc=mean_h, scale=theta.sigma_eta[index_next])
+        # Volatility transition
+        mu = theta.mu[idx_next]
+        phi = theta.phi[idx_next]
+        sigma = theta.sigma_eta[idx_next]
 
-        return p_s * p_h
+        mean_h = mu + phi * (h_prev - mu)       # (N,)
+        p_h = norm.pdf(h_next, loc=mean_h, scale=sigma)
+
+        return p_s * p_h                        # (N,)
     
-    def log_state_transition(self, theta : MSSVModelParams, state_prev: tuple, state_next: tuple):
+    def log_state_transition(self, theta : MSSVModelParams, state_prev: MSSVModelState, state_next: MSSVModelState) -> np.ndarray:
         """
         Compute the log of the state transition probability log p(x_t | x_{t-1}, theta).
 
         log p(x_t | x_{t-1}, theta) = log p(s_t | s_{t-1}, theta) + log p(h_t | h_{t-1}, s_t, theta)
-        """
-        h_prev, s_prev = state_prev
-        h_next, s_next = state_next
 
-        K = len(theta.mu)
+        Parameters
+        ----------
+            theta: MSSVModelParams
+                Model parameters.
+            state_prev: MSSVModelState
+                Previous state of size N.
+            state_next: MSSVModelState
+                Next state of size N.
+        Returns
+        -------
+            log_transition_prob: np.ndarray
+                Log transition probabilities with shape (N,).
+        """
+        h_prev, s_prev = state_prev.h_t, state_prev.s_t
+        h_next, s_next = state_next.h_t, state_next.s_t
 
         # Regime transition log-probability
-        index_prev = np.argmax(s_prev)
-        index_next = np.argmax(s_next)
+        index_prev = np.argmax(s_prev, axis=1)
+        index_next = np.argmax(s_next, axis=1)
         log_p_s = np.log(theta.P[index_prev, index_next])
 
         # Volatility transition log-probability
-        mean_h = (
-            theta.mu[index_next]
-            + theta.phi[index_next] * (h_prev - theta.mu[index_next])
-        )
-        log_p_h = norm.logpdf(h_next, loc=mean_h, scale=theta.sigma_eta[index_next])
+        mu = theta.mu[index_next]
+        phi = theta.phi[index_next]
+        sigma = theta.sigma_eta[index_next]
+
+        mean_h = mu + phi * (h_prev - mu)
+        log_p_h = norm.logpdf(h_next, loc=mean_h, scale=sigma)
 
         return log_p_s + log_p_h
 
