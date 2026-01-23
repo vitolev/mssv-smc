@@ -13,14 +13,17 @@ def simulate_data(model: StateSpaceModel, theta: StateSpaceModelParams, T, rng: 
         rng: A numpy random number generator.
 
     Returns:
-        states: A list of latent states.
-        y: A numpy array of observations.
+        states: A list of latent states of length T+1.
+        y: A numpy array of observations of length T+1.
     """
 
     states = []
     y = []
 
     state = model.sample_initial_state(theta)
+    y_0 = model.sample_observation(theta, state)
+    states.append(state)
+    y.append(y_0)
     for _ in range(T):
         state = model.sample_next_state(theta, state)
         y_t = model.sample_observation(theta, state)

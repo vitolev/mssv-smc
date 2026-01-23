@@ -9,19 +9,16 @@ class AuxiliaryParticleFilter:
 
     def run(self, y, theta):
         T = len(y)
-
-        particles = [None] * self.N
-        weights = np.full(self.N, 1.0 / self.N)
-
         history = []
 
         # ----- Initialization -----
-        for i in range(self.N):
-            particles[i] = self.model.sample_initial_state(theta)
+        particles = [self.model.sample_initial_state(theta) for _ in range(self.N)]     # Sample initial particles
+        weights = np.array([self.model.likelihood(y[0], theta, p) for p in particles])  # Initial weights
+        weights /= np.sum(weights)
+        history = [(particles.copy(), weights.copy())]
 
         # ----- Main loop -----
-        for t in range(T):
-
+        for t in range(1, T):
             # ===== Auxiliary weights (look-ahead) =====
             predicted_states = [
                 self.model.expected_next_state(theta, p)

@@ -5,27 +5,56 @@ from typing import List
 
 class MSSVModelParams(StateSpaceModelParams):
     """
-    Container for MSSV model parameters.
+    Container for MSSV model parameters. If initialized without parameters, sampling from prior is done.
     """
-    def __init__(self, mu: List[float], phi: List[float], sigma_eta: List[float], P: List[List[float]]):
+    def __init__(self, rng: np.random.Generator = None,
+                 num_regimes: int = None,
+                 mu: List[float] = None, 
+                 phi: List[float] = None, 
+                 sigma_eta: List[float] = None, 
+                 P: List[List[float]] = None):
         super().__init__()
-        
-        self.mu = np.array(mu)
-        self.phi = np.array(phi)
-        self.sigma_eta = np.array(sigma_eta)
-        self.P = np.array(P)
 
-        if not (len(mu) == len(phi) == len(sigma_eta) == len(P)):
-            raise ValueError("Parameters mu, phi, sigma_eta, and P must have the same length.")
+        # Sample from prior if any parameter is None
+        if any(param is None for param in [mu, phi, sigma_eta, P]):
+            if rng is None or num_regimes is None:
+                raise ValueError("RNG and num_regimes must be provided when sampling from prior.")
+            self.mu = []
+            self.phi = []
+            self.sigma_eta = []
+            self.P = []
+
+            for _ in range(num_regimes):
+                self.mu.append(rng.normal(0, 10))
+                self.phi.append(rng.uniform(0, 1))
+                self.sigma_eta.append(rng.uniform(0.1, 2.0))
+
+            P_matrix = rng.dirichlet(np.ones(num_regimes), size=num_regimes)
+            self.P = P_matrix.tolist()
+
+            self.mu = np.array(mu)
+            self.phi = np.array(phi)
+            self.sigma_eta = np.array(sigma_eta)
+            self.P = np.array(P)
         
-        if any(sigma <= 0 for sigma in sigma_eta):
-            raise ValueError("Standard deviations sigma_eta must be positive.")
-        
-        if any(p < 0 for row in P for p in row):
-            raise ValueError("Transition probabilities must be non-negative.")
-        
-        if any(abs(sum(row) - 1.0) > 1e-8 for row in P):
-            raise ValueError("Each row of transition matrix P must sum to 1.")
+        # Set provided parameters
+        else:
+            self.mu = np.array(mu)
+            self.phi = np.array(phi)
+            self.sigma_eta = np.array(sigma_eta)
+            self.P = np.array(P)
+
+            if not (len(mu) == len(phi) == len(sigma_eta) == len(P)):
+                raise ValueError("Parameters mu, phi, sigma_eta, and P must have the same length.")
+            
+            if any(sigma <= 0 for sigma in sigma_eta):
+                raise ValueError("Standard deviations sigma_eta must be positive.")
+            
+            if any(p < 0 for row in P for p in row):
+                raise ValueError("Transition probabilities must be non-negative.")
+            
+            if any(abs(sum(row) - 1.0) > 1e-8 for row in P):
+                raise ValueError("Each row of transition matrix P must sum to 1.")
 
 class MSSVModel(StateSpaceModel):
     """
@@ -69,7 +98,7 @@ class MSSVModel(StateSpaceModel):
         s0 = np.zeros(K)
         s0[regime] = 1
         # Sample initial log-volatility
-        h0 = self.rng.normal(theta.mu[regime], theta.sigma_eta[regime])
+        h0 = self.rng.normal(theta.mu[regime], theta.sigma_eta[regime])     # np.random.normal uses stddev as second parameter
         return (h0, s0)
 
     def sample_next_state(self, theta : MSSVModelParams, state: tuple):
@@ -82,7 +111,7 @@ class MSSVModel(StateSpaceModel):
         K = len(theta.mu)
 
         # Regime transition
-        s_t = theta.P @ s_prev
+        s_t = s_prev @ theta.P  # Compute probabilities for next regime
         index = self.rng.choice(K, p=s_t)   # Sample new regime index based on probabilities
         s_t = np.zeros(K)
         s_t[index] = 1                      # One-hot encode the new regime
@@ -105,7 +134,7 @@ class MSSVModel(StateSpaceModel):
         h_prev, s_prev = state
 
         # Expected regime distribution
-        s_exp = theta.P @ s_prev
+        s_exp = s_prev @ theta.P
         # Expected log-volatility
         h_exp = 0.0
         for i in range(len(s_exp)):

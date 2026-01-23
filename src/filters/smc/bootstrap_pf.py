@@ -9,17 +9,17 @@ class BootstrapParticleFilter:
 
     def run(self, y, theta):
         T = len(y)
-
-        particles = [None] * self.N
-
         history = []
 
         # ----- Initialization -----
-        for i in range(self.N):
-            particles[i] = self.model.sample_initial_state(theta)
+        particles = [self.model.sample_initial_state(theta) for _ in range(self.N)]     # Sample initial particles
+        weights = np.array([self.model.likelihood(y[0], theta, p) for p in particles])  # Initial weights
+        weights /= weights.sum()                                                        # Normalize weights
+        history.append((particles.copy(), weights.copy()))
+        particles = self.resampler(particles, weights, self.model.rng)                  # Resample initial particles
 
         # ----- Main loop -----
-        for t in range(T):
+        for t in range(1, T):
             # Propagation
             particles = [
                 self.model.sample_next_state(theta, p)
