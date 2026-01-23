@@ -1,5 +1,7 @@
 import numpy as np
 from src.models.base import StateSpaceModel
+from src.models.lgm import LGModelState
+from src.models.mssv import MSSVModelState
 
 class AuxiliaryParticleFilter:
     def __init__(self, model: StateSpaceModel, n_particles: int, resampler):
@@ -12,56 +14,51 @@ class AuxiliaryParticleFilter:
         history = []
 
         # ----- Initialization -----
-        particles = [self.model.sample_initial_state(theta) for _ in range(self.N)]     # Sample initial particles
-        weights = np.array([self.model.likelihood(y[0], theta, p) for p in particles])  # Initial weights
-        weights /= np.sum(weights)
-        history = [(particles.copy(), weights.copy())]
+        particles = self.model.sample_initial_state(theta, size=self.N)  # Sample initial particles
+        weights = self.model.likelihood(y[0], theta, particles)          # Initial weights
+        weights /= weights.sum()                                         # Normalize weights
+
+        history.append((particles, weights.copy()))
 
         # ----- Main loop -----
         for t in range(1, T):
             # ===== Auxiliary weights (look-ahead) =====
-            predicted_states = [
-                self.model.expected_next_state(theta, p)
-                for p in particles
-            ]
+            predicted_states = self.model.expected_next_state(theta, particles)
 
-            aux_weights = weights * np.array([
-                self.model.likelihood(y[t], theta, x_hat)
-                for x_hat in predicted_states
-            ])
-
+            aux_weights = weights * self.model.likelihood(y[t], theta, predicted_states)
             aux_weights /= np.sum(aux_weights)
 
             # ===== Resample ancestors =====
             ancestor_indices = self.resampler(
-                list(range(self.N)),
+                np.arange(self.N),
                 aux_weights,
                 self.model.rng
             )
 
-            # Cache predicted states for chosen ancestors
-            ancestor_predicted = [
-                predicted_states[idx] for idx in ancestor_indices
-            ]
-
+            if isinstance(particles, LGModelState):
+                x_prev = particles.x_t[ancestor_indices]
+                ancestor_particles = LGModelState(x_prev)
+                x_prev_pred = predicted_states.x_t[ancestor_indices]
+                ancestor_predicted = LGModelState(x_prev_pred)
+            elif isinstance(particles, MSSVModelState):
+                h_prev = particles.h_t[ancestor_indices]
+                s_prev = particles.s_t[ancestor_indices]
+                ancestor_particles = MSSVModelState(h_prev, s_prev)
+                h_prev_pred = predicted_states.h_t[ancestor_indices]
+                s_prev_pred = predicted_states.s_t[ancestor_indices]
+                ancestor_predicted = MSSVModelState(h_prev_pred, s_prev_pred)
+            else:
+                raise ValueError("Unknown particle state type")
+            
             # ===== Propagation =====
-            new_particles = []
-            for idx in ancestor_indices:
-                x_prev = particles[idx]
-                x_new = self.model.sample_next_state(theta, x_prev)
-                new_particles.append(x_new)
-
-            particles = new_particles
-
+            particles = self.model.sample_next_state(theta, ancestor_particles)
+            
             # ===== Weight correction =====
-            weights = np.array([
-                self.model.likelihood(y[t], theta, particles[i]) /
-                self.model.likelihood(y[t], theta, ancestor_predicted[i])
-                for i in range(self.N)
-            ])
-
+            w_num = self.model.likelihood(y[t], theta, particles)
+            w_den = self.model.likelihood(y[t], theta, ancestor_predicted)
+            weights = w_num / w_den
             weights /= np.sum(weights)
 
-            history.append((particles.copy(), weights.copy()))
+            history.append((particles, weights.copy()))
 
         return history
