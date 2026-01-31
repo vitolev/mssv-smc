@@ -15,6 +15,14 @@ class StateSpaceModelState(ABC):
     def __init__(self):
         pass
 
+    @abstractmethod
+    def __getitem__(self, idx):
+        pass
+
+    @abstractmethod
+    def __len__(self):
+        pass
+
 class StateSpaceModel(ABC):
     """
     Generic state-space model:

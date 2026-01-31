@@ -66,6 +66,15 @@ class MSSVModelState(StateSpaceModelState):
         self.h_t = h_t  # Log-volatility
         self.s_t = s_t  # Regime (one-hot encoded)
 
+    def __getitem__(self, idx):
+        return MSSVModelState(
+            h_t=np.array(self.h_t[idx], copy=True),
+            s_t=np.array(self.s_t[idx], copy=True)
+        )
+
+    def __len__(self):
+        return self.h_t.shape[0]
+
 class MSSVModel(StateSpaceModel):
     """
     Markov-Switching Stochastic Volatility Model

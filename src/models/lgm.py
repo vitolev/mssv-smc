@@ -22,6 +22,12 @@ class LGModelState(StateSpaceModelState):
     def __init__(self, x_t: np.ndarray):
         self.x_t = x_t  # shape (N,)
 
+    def __getitem__(self, idx):
+        return LGModelState(x_t=np.array(self.x_t[idx], copy=True))
+    
+    def __len__(self):
+        return self.x_t.shape[0]
+
 class LGModel(StateSpaceModel):
     """
     Linear Gaussian State Space Model

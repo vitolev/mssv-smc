@@ -29,6 +29,15 @@ def test_mssv_params():
     assert len(params_prior.mu) == 3
     assert params_prior.P.shape == (3, 3)
 
+def test_mssv_state():
+    h_t = np.array([0.5, -1.0])
+    s_t = np.array([[1, 0], [0, 1]])  # One-hot for 2 regimes
+
+    state = MSSVModelState(h_t, s_t)
+
+    assert state.h_t.shape == (2,)
+    assert state.s_t.shape == (2, 2)
+
 def test_sample_initial_state():
     rng = np.random.default_rng(42)
     model = MSSVModel(rng=rng)
