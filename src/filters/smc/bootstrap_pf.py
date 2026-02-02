@@ -23,7 +23,7 @@ class BootstrapParticleFilter:
 
         Returns
         -------
-        history : list of tuples of size T
+        history : list of tuples of size T+1.
             Each element is (particles, weights, indices) at each time step t.
             - particles: StateSpaceModelState with batched N particles.
             - weights: np.ndarray of shape (N,) with normalized weights of the particles.
@@ -34,16 +34,13 @@ class BootstrapParticleFilter:
 
         # ----- Initialization -----
         particles = self.model.sample_initial_state(theta, size=self.N)  # Sample initial particles
-        weights = self.model.likelihood(y[0], theta, particles)          # Initial weights
-        weights /= weights.sum()                                         # Normalize weights
+        weights = np.ones(self.N) / self.N                               # Initialize weights uniformly
 
         history.append((particles, weights, np.array([], dtype=int)))    # Store history    
-
-        indices = self.resampler(weights, self.model.rng)                # Resampling
-        particles = particles[indices]                                   # Resample particles    
+        indices = np.arange(self.N)                                      # Initial indices
 
         # ----- Main loop -----
-        for t in range(1, T):
+        for t in range(T):
             # Propagation
             particles = self.model.sample_next_state(theta, particles)
 

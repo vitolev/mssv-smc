@@ -27,8 +27,7 @@ def test_bootstrap_particle_filter():
     x_true = model.sample_initial_state(theta)
     y = []
     for t in range(T):
-        if t > 0:
-            x_true = model.sample_next_state(theta, x_true)
+        x_true = model.sample_next_state(theta, x_true)
         y_t = model.sample_observation(theta, x_true)
         y.append(y_t)
     y = np.array(y).flatten()
@@ -37,8 +36,8 @@ def test_bootstrap_particle_filter():
     history = bpf.run(y, theta)
 
     # Basic assertions
-    assert len(history) == T
-    for t in range(T):
+    assert len(history) == T+1
+    for t in range(T+1):
         particles, weights, indices = history[t]
         assert isinstance(particles, LGModelState)
         assert particles.x_t.shape == (n_particles,)

@@ -23,7 +23,7 @@ class AuxiliaryParticleFilter:
 
         Returns
         -------
-        history : list of tuples of size T
+        history : list of tuples of size T+1.
             Each element is (particles, weights, indices) at each time step t.
             - particles: StateSpaceModelState with batched N particles.
             - weights: np.ndarray of shape (N,) with normalized weights of the particles.
@@ -34,13 +34,11 @@ class AuxiliaryParticleFilter:
 
         # ----- Initialization -----
         particles = self.model.sample_initial_state(theta, size=self.N)         # Sample initial particles
-        weights = self.model.likelihood(y[0], theta, particles)                 # Initial weights
-        weights /= weights.sum()                                                # Normalize weights
-
+        weights = np.ones(self.N) / self.N                                      # Initialize weights uniformly
         history.append((particles, weights.copy(), np.array([], dtype=int)))    # Store history
 
         # ----- Main loop -----
-        for t in range(1, T):
+        for t in range(T):
             # ===== Auxiliary weights (look-ahead) =====
             predicted_states = self.model.expected_next_state(theta, particles)
 
