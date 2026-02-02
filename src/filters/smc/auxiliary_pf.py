@@ -1,5 +1,6 @@
 import numpy as np
 from src.models.base import StateSpaceModel, StateSpaceModelParams
+from src.filters.smc.smoothing import get_smoothing_trajectories
 
 class AuxiliaryParticleFilter:
     """
@@ -24,10 +25,11 @@ class AuxiliaryParticleFilter:
         Returns
         -------
         history : list of tuples of size T+1.
-            Each element is (particles, weights, indices) at each time step t.
+            Each element is (particles, weights, indices, loglik) at each time step t.
             - particles: StateSpaceModelState with batched N particles.
             - weights: np.ndarray of shape (N,) with normalized weights of the particles.
             - indices: np.ndarray of shape (N,) with resampling indices used to get from step t-1 to t. At t=0, this is an empty array.
+            - loglik: float, the log marginal likelihood up to time t. At t=0, this is 0.
         """
         T = len(y)
         history = []
@@ -35,7 +37,9 @@ class AuxiliaryParticleFilter:
         # ----- Initialization -----
         particles = self.model.sample_initial_state(theta, size=self.N)         # Sample initial particles
         weights = np.ones(self.N) / self.N                                      # Initialize weights uniformly
-        history.append((particles, weights.copy(), np.array([], dtype=int)))    # Store history
+        history.append((particles, weights.copy(), np.array([], dtype=int), 0.0))    # Store history
+
+        loglik = 0.0  # initialize log marginal likelihood
 
         # ----- Main loop -----
         for t in range(T):
@@ -56,9 +60,40 @@ class AuxiliaryParticleFilter:
             # ===== Weight correction =====
             w_num = self.model.likelihood(y[t], theta, particles)
             w_den = self.model.likelihood(y[t], theta, ancestor_predicted)
-            weights = w_num / w_den
-            weights /= np.sum(weights)
+            weights_unnormalized = w_num / w_den
 
-            history.append((particles, weights.copy(), ancestor_indices))
+            # --- Update log marginal likelihood ---
+            loglik += np.log(np.mean(weights_unnormalized))
+
+            # --- Normalize weights ---
+            weights = weights_unnormalized / weights_unnormalized.sum()
+
+            # --- Store history ---
+            history.append((particles, weights.copy(), ancestor_indices, loglik))
 
         return history
+    
+    def smoothing_trajectories(self, history, n_traj=None):
+        """
+        Reconstruct full trajectories (smoothing samples) from particle filter history.
+
+        Parameters
+        ----------
+        history : list of tuples
+            Each element is (particles, weights, indices, loglik) at each time step.
+            - particles: StateSpaceModelState with batched N particles
+            - weights: np.ndarray of shape (N,)
+            - indices: np.ndarray of shape (N,) mapping particles at t-1 -> particles at t
+              (t=0 has empty indices)
+            - loglik: float, the log marginal likelihood up to time t. At t=0, this is 0.
+        n_traj : int or None
+            Number of trajectories to sample. If None, returns all N trajectories.
+
+        Returns
+        -------
+        trajectories : list of lists
+            List of sampled trajectories. Each trajectory is a list of states over time. Trajectories are sampled according to the final weights, hence
+            their contribution to the smoothing distribution is equally weighted.
+            trajectories[i][t] is the state at time t of trajectory i.
+        """
+        return get_smoothing_trajectories(history, n_traj=n_traj, rng=self.model.rng)
