@@ -8,6 +8,7 @@ data/
 
 # References and other sources
 references/
+temp/
 
 # Virtual environment
 venv/

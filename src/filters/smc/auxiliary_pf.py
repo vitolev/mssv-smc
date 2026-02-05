@@ -1,15 +1,13 @@
 import numpy as np
 from src.models.base import StateSpaceModel, StateSpaceModelParams
-from src.filters.smc.smoothing import get_smoothing_trajectories
+from src.filters.smc.base_pf import ParticleFilter
 
-class AuxiliaryParticleFilter:
+class AuxiliaryParticleFilter(ParticleFilter):
     """
     Auxiliary Particle Filter implementation for generic state-space models.
     """
     def __init__(self, model: StateSpaceModel, n_particles: int, resampler):
-        self.model = model
-        self.N = n_particles
-        self.resampler = resampler
+        super().__init__(model, n_particles, resampler)
 
     def run(self, y, theta: StateSpaceModelParams):
         """
@@ -73,27 +71,4 @@ class AuxiliaryParticleFilter:
 
         return history
     
-    def smoothing_trajectories(self, history, n_traj=None):
-        """
-        Reconstruct full trajectories (smoothing samples) from particle filter history.
-
-        Parameters
-        ----------
-        history : list of tuples
-            Each element is (particles, weights, indices, loglik) at each time step.
-            - particles: StateSpaceModelState with batched N particles
-            - weights: np.ndarray of shape (N,)
-            - indices: np.ndarray of shape (N,) mapping particles at t-1 -> particles at t
-              (t=0 has empty indices)
-            - loglik: float, the log marginal likelihood up to time t. At t=0, this is 0.
-        n_traj : int or None
-            Number of trajectories to sample. If None, returns all N trajectories.
-
-        Returns
-        -------
-        trajectories : list of lists
-            List of sampled trajectories. Each trajectory is a list of states over time. Trajectories are sampled according to the final weights, hence
-            their contribution to the smoothing distribution is equally weighted.
-            trajectories[i][t] is the state at time t of trajectory i.
-        """
-        return get_smoothing_trajectories(history, n_traj=n_traj, rng=self.model.rng)
+    
