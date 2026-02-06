@@ -38,9 +38,10 @@ def test_auxiliary_particle_filter():
     # Basic assertions
     assert len(history) == T+1
     for t in range(T+1):
-        particles, weights, indices = history[t]
+        particles, weights, indices, loglik = history[t]
         assert isinstance(particles, LGModelState)
         assert particles.x_t.shape == (n_particles,)
         assert weights.shape == (n_particles,)
         assert np.isclose(weights.sum(), 1.0)
         assert indices.shape == (n_particles,) or indices.shape == (0,)  # At t=0, indices is an empty list
+        assert isinstance(loglik, float)

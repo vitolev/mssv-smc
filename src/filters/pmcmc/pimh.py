@@ -114,7 +114,7 @@ class ParticleIndependentMetropolisHastings:
                 samples.append(self.current_trajectory)
                 logliks.append(self.current_loglik)
 
-        return samples, logliks
+        return np.array(samples), np.array(logliks)
 
     @property
     def acceptance_rate(self):

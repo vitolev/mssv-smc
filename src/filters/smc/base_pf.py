@@ -83,4 +83,4 @@ class ParticleFilter(ABC):
                 trajectories[i][t-1] = history[t-1][0][parent_idx]
                 final_indices[i] = parent_idx  # update for next backward step
 
-        return trajectories
+        return np.array(trajectories)
