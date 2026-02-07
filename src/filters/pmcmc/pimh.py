@@ -27,7 +27,7 @@ class ParticleIndependentMetropolisHastings:
         history = self.pf.run(self.y, self.theta)
 
         # final log marginal likelihood
-        loglik = history[-1][3]
+        logmarlik = history[-1][3]
 
         # sample trajectory from smoothing distribution
         trajectories = self.pf.smoothing_trajectories(
@@ -38,28 +38,28 @@ class ParticleIndependentMetropolisHastings:
         # for standard PIMH, we keep a single trajectory
         trajectory = trajectories[0]
 
-        return trajectory, loglik
+        return trajectory, logmarlik
 
     def _initialize(self):
         """
         Initialize the chain with a PF run.
         """
-        traj, loglik = self._run_pf_and_sample()
+        traj, logmarlik = self._run_pf_and_sample()
         self.current_trajectory = traj
-        self.current_loglik = loglik
+        self.current_logmarlik = logmarlik
 
     def _step(self):
         """
         Perform one PIMH iteration.
         """
-        traj_star, loglik_star = self._run_pf_and_sample()
+        traj_star, logmarlik_star = self._run_pf_and_sample()
 
         # MH acceptance probability
-        log_alpha = loglik_star - self.current_loglik
+        log_alpha = logmarlik_star - self.current_logmarlik
 
         if np.log(self.rng.uniform()) < log_alpha:
             self.current_trajectory = traj_star
-            self.current_loglik = loglik_star
+            self.current_logmarlik = logmarlik_star
             self.n_accepted += 1
             accepted = True
         else:
@@ -91,7 +91,7 @@ class ParticleIndependentMetropolisHastings:
             List of smoothing trajectories.
         """
         self.current_trajectory = None
-        self.current_loglik = None
+        self.current_logmarlik = None
 
         self.n_accepted = 0
         self.n_steps = 0
@@ -102,7 +102,7 @@ class ParticleIndependentMetropolisHastings:
         self._initialize()
 
         samples = []
-        logliks = []
+        logmarliks = []
 
         for i in range(n_iter):
             if verbose and (i + 1) % 10 == 0:
@@ -112,9 +112,9 @@ class ParticleIndependentMetropolisHastings:
 
             if i >= burnin:
                 samples.append(self.current_trajectory)
-                logliks.append(self.current_loglik)
+                logmarliks.append(self.current_logmarlik)
 
-        return np.array(samples), np.array(logliks)
+        return np.array(samples), np.array(logmarliks)
 
     @property
     def acceptance_rate(self):

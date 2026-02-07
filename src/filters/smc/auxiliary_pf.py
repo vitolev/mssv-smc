@@ -23,11 +23,11 @@ class AuxiliaryParticleFilter(ParticleFilter):
         Returns
         -------
         history : list of tuples of size T+1.
-            Each element is (particles, weights, indices, loglik) at each time step t.
+            Each element is (particles, weights, indices, logmarlik) at each time step t.
             - particles: StateSpaceModelState with batched N particles.
             - weights: np.ndarray of shape (N,) with normalized weights of the particles.
             - indices: np.ndarray of shape (N,) with resampling indices used to get from step t-1 to t. At t=0, this is an empty array.
-            - loglik: float, the log marginal likelihood up to time t. At t=0, this is 0.
+            - logmarlik: float, the log marginal likelihood up to time t. At t=0, this is 0.
         """
         T = len(y)
         history = []
@@ -37,7 +37,7 @@ class AuxiliaryParticleFilter(ParticleFilter):
         weights = np.ones(self.N) / self.N                                      # Initialize weights uniformly
         history.append((particles, weights.copy(), np.array([], dtype=int), 0.0))    # Store history
 
-        loglik = 0.0  # initialize log marginal likelihood
+        logmarlik = 0.0  # initialize log marginal likelihood
 
         # ----- Main loop -----
         for t in range(T):
@@ -61,13 +61,13 @@ class AuxiliaryParticleFilter(ParticleFilter):
             weights_unnormalized = w_num / w_den
 
             # --- Update log marginal likelihood ---
-            loglik += np.log(np.mean(weights_unnormalized))
+            logmarlik += np.log(np.mean(weights_unnormalized))
 
             # --- Normalize weights ---
             weights = weights_unnormalized / weights_unnormalized.sum()
 
             # --- Store history ---
-            history.append((particles, weights.copy(), ancestor_indices, loglik))
+            history.append((particles, weights.copy(), ancestor_indices, logmarlik))
 
         return history
     

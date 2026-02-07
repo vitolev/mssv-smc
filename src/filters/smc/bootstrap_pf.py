@@ -23,11 +23,11 @@ class BootstrapParticleFilter(ParticleFilter):
         Returns
         -------
         history : list of tuples of size T+1.
-            Each element is (particles, weights, indices, loglik) at each time step t.
+            Each element is (particles, weights, indices, logmarlik) at each time step t.
             - particles: StateSpaceModelState with batched N particles.
             - weights: np.ndarray of shape (N,) with normalized weights of the particles.
             - indices: np.ndarray of shape (N,) with resampling indices used to get from step t-1 to t. At t=0, this is an empty array.
-            - loglik: float, the log marginal likelihood up to time t. At t=0, this is 0.
+            - logmarlik: float, the log marginal likelihood up to time t. At t=0, this is 0.
         """
         T = len(y)
         history = []
@@ -39,7 +39,7 @@ class BootstrapParticleFilter(ParticleFilter):
         history.append((particles, weights, np.array([], dtype=int), 0.0))    # Store history    
         indices = np.arange(self.N)                                      # Initial indices
 
-        loglik = 0.0  # initialize log marginal likelihood
+        logmarlik = 0.0  # initialize log marginal likelihood
 
         # ----- Main loop -----
         for t in range(T):
@@ -49,11 +49,11 @@ class BootstrapParticleFilter(ParticleFilter):
             # Weighting
             weights = self.model.likelihood(y[t], theta, particles)
             weights_sum = weights.sum()
-            loglik += np.log(weights_sum / self.N)  # Update log marginal likelihood
+            logmarlik += np.log(weights_sum / self.N)  # Update log marginal likelihood
             weights /= weights_sum  # Normalize weights
 
             # Store history
-            history.append((particles, weights, indices, loglik)) # No need to copy particles as new object is created each time
+            history.append((particles, weights, indices, logmarlik)) # No need to copy particles as new object is created each time
 
             # Resampling
             indices = self.resampler(weights, self.model.rng)

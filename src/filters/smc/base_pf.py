@@ -27,11 +27,11 @@ class ParticleFilter(ABC):
         Returns
         -------
         history : list of tuples of size T+1.
-            Each element is (particles, weights, indices, loglik) at each time step t.
+            Each element is (particles, weights, indices, logmarlik) at each time step t.
             - particles: StateSpaceModelState with batched N particles.
             - weights: np.ndarray of shape (N,) with normalized weights of the particles.
             - indices: np.ndarray of shape (N,) with resampling indices used to get from step t-1 to t. At t=0, this is an empty array.
-            - loglik: float, the log marginal likelihood up to time t. At t=0, this is 0.
+            - logmarlik: float, the log marginal likelihood up to time t. At t=0, this is 0.
         """
         pass
 
@@ -42,12 +42,12 @@ class ParticleFilter(ABC):
         Parameters
         ----------
         history : list of tuples
-            Each element is (particles, weights, indices, loglik) at each time step.
+            Each element is (particles, weights, indices, logmarlik) at each time step.
             - particles: StateSpaceModelState with batched N particles
             - weights: np.ndarray of shape (N,)
             - indices: np.ndarray of shape (N,) mapping particles at t-1 -> particles at t
               (t=0 has empty indices)
-            - loglik: float, the log marginal likelihood up to time t. At t=0, this is 0.
+            - logmarlik: float, the log marginal likelihood up to time t. At t=0, this is 0.
         n_traj : int or None
             Number of trajectories to sample. If None, returns all N trajectories.
 
