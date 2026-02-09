@@ -105,7 +105,7 @@ class ParticleIndependentMetropolisHastings:
         logmarliks = []
 
         for i in range(n_iter):
-            if verbose and (i + 1) % 10 == 0:
+            if verbose and (i + 1) % 100 == 0:
                 print(f"Iteration {i + 1}/{n_iter}, Acceptance Rate: {self.acceptance_rate:.3f}")
 
             self._step()

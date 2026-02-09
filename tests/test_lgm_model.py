@@ -116,8 +116,8 @@ def test_state_transition_and_log_state_transition():
     x_next = np.array([0.5, 0.8, -0.5])
     state_next = LGModelState(x_next)
 
-    transitions = model.state_transition(params, state_prev, state_next)
-    log_transitions = model.log_state_transition(params, state_prev, state_next)
+    transitions = model.transition_density(params, state_prev, state_next)
+    log_transitions = model.log_transition_density(params, state_prev, state_next)
 
     # Assert correct shapes
     assert transitions.shape == (3,)

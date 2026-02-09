@@ -49,6 +49,54 @@ class KalmanFilter:
             var_prev = var[t]
 
         return mu, var
+    
+    def log_marginal_likelihood(self, y, theta: LGModelParams):
+        """
+        Compute the log marginal likelihood log p(y | theta) using the Kalman filter.
+
+        Parameters
+        ----------
+        y : array-like, shape (T,)
+            Observations over time.
+        theta : LGModelParams
+            Model parameters.
+
+        Returns
+        -------
+        logmarlik : float
+            Log marginal likelihood of the observations given the parameters.
+        """
+        y = y.flatten()
+        T = len(y)
+
+        mu_prev = 0.0
+        var_prev = 1.0
+
+        loglik = 0.0
+
+        for t in range(T):
+            # Predict state
+            mu_pred = theta.a * mu_prev
+            var_pred = theta.a**2 * var_prev + theta.sigma_x**2
+
+            # Predict observation
+            y_mean = theta.b * mu_pred
+            S = theta.b**2 * var_pred + theta.sigma_y**2
+
+            # Increment log-likelihood
+            loglik += -0.5 * (
+                np.log(2 * np.pi)
+                + np.log(S)
+                + (y[t] - y_mean)**2 / S
+            )
+
+            # Kalman update
+            K = var_pred * theta.b / S
+            mu_prev = mu_pred + K * (y[t] - y_mean)
+            var_prev = (1 - K * theta.b) * var_pred
+
+        return loglik
+
 
     def smoother(self, y, theta: LGModelParams):
         """

@@ -212,7 +212,7 @@ def test_state_transition():
     s_prev = np.array([[1, 0]])  # One-hot for regime 0
     h_next = np.array([0.6])
     s_next = np.array([[1, 0]])  # One-hot for regime 0
-    prob = model.state_transition(
+    prob = model.transition_density(
         params,
         MSSVModelState(h_prev, s_prev),
         MSSVModelState(h_next, s_next)
@@ -226,7 +226,7 @@ def test_state_transition():
     s_prev = np.array([[1, 0], [0, 1]])  # One-hot for regimes
     h_next = np.array([0.6, 1.2])
     s_next = np.array([[1, 0], [1, 0]])  # One-hot for regimes
-    probs = model.state_transition(
+    probs = model.transition_density(
         params,
         MSSVModelState(h_prev, s_prev),
         MSSVModelState(h_next, s_next)
@@ -250,7 +250,7 @@ def test_log_state_transition():
     s_prev = np.array([[1, 0]])  # One-hot for regime 0
     h_next = np.array([0.6])
     s_next = np.array([[1, 0]])  # One-hot for regime 0
-    log_prob = model.log_state_transition(
+    log_prob = model.log_transition_density(
         params,
         MSSVModelState(h_prev, s_prev),
         MSSVModelState(h_next, s_next)
@@ -264,7 +264,7 @@ def test_log_state_transition():
     s_prev = np.array([[1, 0], [0, 1]])  # One-hot for regimes
     h_next = np.array([0.6, 1.2])
     s_next = np.array([[1, 0], [1, 0]])  # One-hot for regimes
-    log_probs = model.log_state_transition(
+    log_probs = model.log_transition_density(
         params,
         MSSVModelState(h_prev, s_prev),
         MSSVModelState(h_next, s_next)
