@@ -30,11 +30,11 @@ class ParticleMarginalMetropolisHastings:
         self.kwargs_for_params = kwargs_for_params if kwargs_for_params is not None else {}
         self.kwargs_for_sampling = kwargs_for_sampling if kwargs_for_sampling is not None else {}
 
-    def _run_pf_and_sample(self, theta: StateSpaceModelParams):
+    def _run_pf_and_sample(self, y, theta: StateSpaceModelParams):
         """
         Run PF once and sample smoothing trajectory(ies).
         """
-        history = self.pf.run(self.y, theta)
+        history = self.pf.run(y, theta)
 
         # final log marginal likelihood
         logmarlik = history[-1][3]
@@ -58,7 +58,7 @@ class ParticleMarginalMetropolisHastings:
         self.theta = params_class(self.rng, **self.kwargs_for_params) # Initialize parameters by prior sampling
         self.theta_vars = vars(self.theta)
 
-        traj, logmarlik = self._run_pf_and_sample(self.theta)
+        traj, logmarlik = self._run_pf_and_sample(self.y, self.theta)
         self.current_trajectory = traj
         self.current_logmarlik = logmarlik
 
@@ -67,7 +67,7 @@ class ParticleMarginalMetropolisHastings:
         Perform one PMMH iteration by proposing new parameters, running the PF to get a new trajectory and marginal likelihood, and then accepting or rejecting the proposal based on the MH acceptance probability.
         """
         theta_star = self.theta.sample_transition(self.rng, **self.kwargs_for_sampling)  # Propose new parameters
-        traj_star, logmarlik_star = self._run_pf_and_sample(theta_star)     # Run PF with proposed parameters
+        traj_star, logmarlik_star = self._run_pf_and_sample(self.y, theta_star)     # Run PF with proposed parameters
 
         # MH acceptance probability
         log_alpha = logmarlik_star - self.current_logmarlik + theta_star.log_prior_density() - self.theta.log_prior_density() + theta_star.log_transition_density(self.theta, **self.kwargs_for_sampling) - self.theta.log_transition_density(theta_star, **self.kwargs_for_sampling)
@@ -113,7 +113,7 @@ class ParticleMarginalMetropolisHastings:
         alphas = []
 
         for i in range(n_iter):
-            if verbose and (i+1) % 100 == 0:
+            if verbose and (i+1) % 10000 == 0:
                 print(f"Iteration {i+1}/{n_iter} - Acceptance Rate: {self.n_accepted/self.n_steps:.3f}")
 
             log_alpha = self._step()
@@ -127,6 +127,3 @@ class ParticleMarginalMetropolisHastings:
 
         return np.array(samples), np.array(logmarliks), thetas, np.array(alphas)
     
-    @property
-    def acceptance_rate(self):
-        return self.n_accepted / self.n_steps if self.n_steps > 0 else 0.0

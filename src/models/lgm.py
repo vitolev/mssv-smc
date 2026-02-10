@@ -31,8 +31,8 @@ class LGModelParams(StateSpaceModelParams):
     def sample_prior(self, rng: np.random.Generator):
         """
         Sample parameters from the prior distribution. For simplicity, we use independent priors:
-            a ~ N(0, 0.5)
-            b ~ N(0, 0.5)
+            a ~ U(-1, 1)  # Uniform prior for a to encourage stability of the state process
+            b ~ N(0, 1)
             sigma_x ~ Exponential(1) 
             sigma_y ~ Exponential(1)
 
@@ -41,8 +41,8 @@ class LGModelParams(StateSpaceModelParams):
         rng : np.random.Generator
             Random number generator for sampling.
         """
-        self.a = rng.normal(0.0, 0.5)       # Quite narrow prior. This is because the PF will break down for large |a| due to particle degeneracy, so we want to focus on the region where the PF can give reasonable estimates and this is when |a|<~1.
-        self.b = rng.normal(0.0, 0.5)       # Similarly, we want to focus on the region where the PF can give reasonable estimates, which is when |b| is not too large, hence the same prior as a.
+        self.a = rng.uniform(-1.0, 1.0)  # Uniform prior for a, to ensure stationarity of the state process     
+        self.b = rng.normal(0.0, 1.0)       
         self.sigma_x = rng.exponential(1.0)
         self.sigma_y = rng.exponential(1.0)
         
@@ -55,11 +55,14 @@ class LGModelParams(StateSpaceModelParams):
         log_prior: float
             The log prior density evaluated at the current parameter values.
         """
-        log_prior_a = norm.logpdf(self.a, loc=0.0, scale=0.5)
-        log_prior_b = norm.logpdf(self.b, loc=0.0, scale=0.5)
-
         if self.sigma_x <= 0 or self.sigma_y <= 0:
             return -np.inf  # Log prior density is -inf if standard deviations are not positive
+        if self.a < -1.0 or self.a > 1.0:
+            return -np.inf  # Log prior density is -inf if a is outside the uniform support
+        
+        log_prior_a = uniform.logpdf(self.a, loc=-1.0, scale=2.0)
+        log_prior_b = norm.logpdf(self.b, loc=0.0, scale=1.0)
+
         log_prior_sigma_x = expon.logpdf(self.sigma_x, scale=1.0)
         log_prior_sigma_y = expon.logpdf(self.sigma_y, scale=1.0)
 
@@ -88,7 +91,10 @@ class LGModelParams(StateSpaceModelParams):
         new_params: LGModelParams
             A new instance of LGModelParams sampled from the proposal distribution.
         """
-        a_new = self.a + rng.normal(0.0, step_a)
+        alpha = np.arctanh(self.a)  # Transform a to the real line for unconstrained proposal
+        alpha_new = alpha + rng.normal(0.0, step_a)  # Propose new alpha
+        a_new = np.tanh(alpha_new)  # Transform back to (-1, 1)
+
         b_new = self.b + rng.normal(0.0, step_b)
         sigma_x_new = self.sigma_x * np.exp(rng.normal(0.0, step_sigma_x))  # Log-normal proposal
         sigma_y_new = self.sigma_y * np.exp(rng.normal(0.0, step_sigma_y))  # Log-normal proposal
@@ -117,10 +123,25 @@ class LGModelParams(StateSpaceModelParams):
         log_density: float
             The log density of proposing 'other' given 'self' under the proposal distribution.
         """
-        log_q_a = norm.logpdf(other.a, loc=self.a, scale=step_a)
+        # ---- a (Gaussian RW in alpha-space) ----
+        alpha_self = np.arctanh(self.a)
+        alpha_other = np.arctanh(other.a)
+        
+        # Proposal density in alpha-space
+        log_q_alpha = norm.logpdf(alpha_other, loc=alpha_self, scale=step_a)
+        
+        # Jacobian of the transformation a = tanh(alpha)
+        log_jacobian = np.log(1 - other.a ** 2)  # da/dalpha = 1 - tanh^2(alpha)
+        
+        log_q_a = log_q_alpha + log_jacobian
+
+        # ---- b (regular Gaussian RW) ----
         log_q_b = norm.logpdf(other.b, loc=self.b, scale=step_b)
-        log_q_sigma_x = norm.logpdf(np.log(other.sigma_x / self.sigma_x), loc=0.0, scale=step_sigma_x) - np.log(other.sigma_x)  # Log-normal proposal density
-        log_q_sigma_y = norm.logpdf(np.log(other.sigma_y / self.sigma_y), loc=0.0, scale=step_sigma_y) - np.log(other.sigma_y)  # Log-normal proposal density
+
+        # ---- sigma_x, sigma_y (log-normal RW) ----
+        log_q_sigma_x = norm.logpdf(np.log(other.sigma_x / self.sigma_x), loc=0.0, scale=step_sigma_x) - np.log(other.sigma_x)
+        log_q_sigma_y = norm.logpdf(np.log(other.sigma_y / self.sigma_y), loc=0.0, scale=step_sigma_y) - np.log(other.sigma_y)
+
         return log_q_a + log_q_b + log_q_sigma_x + log_q_sigma_y
 
     def __repr__(self):
@@ -165,9 +186,13 @@ class LGModel(StateSpaceModel):
 
     def sample_initial_state(self, theta: LGModelParams, size: int = 1) -> LGModelState:
         """
-        Sample initial latent states x_0 ~ N(0,1)
+        Sample initial latent states x_0 ~ N(0,sigma_x^2 / (1 - a^2)) to ensure stationarity of the state process.
         """
-        x0 = self.rng.normal(0.0, 1.0, size=size)
+        if abs(theta.a) > 1:
+            raise ValueError("Stationary initial distribution requires |a| < 1.")
+
+        var0 = theta.sigma_x**2 / (1.0 - theta.a**2)
+        x0 = self.rng.normal(0.0, np.sqrt(var0), size=size)
         return LGModelState(x0)
 
     def sample_next_state(self, theta: LGModelParams, state: LGModelState) -> LGModelState:

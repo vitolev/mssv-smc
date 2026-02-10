@@ -47,10 +47,12 @@ class BootstrapParticleFilter(ParticleFilter):
             particles = self.model.sample_next_state(theta, particles)
 
             # Weighting
-            weights = self.model.likelihood(y[t], theta, particles)
-            weights_sum = weights.sum()
-            logmarlik += np.log(weights_sum / self.N)  # Update log marginal likelihood
-            weights /= weights_sum  # Normalize weights
+            log_weights = self.model.log_likelihood(y[t], theta, particles)  # log p(y_t | x_t)
+            max_log_w = np.max(log_weights)
+            weights = np.exp(log_weights - max_log_w)  # subtract max to avoid underflow
+            weights_sum = np.sum(weights)
+            weights /= weights_sum
+            logmarlik += max_log_w + np.log(weights_sum / self.N)
 
             # Store history
             history.append((particles, weights, indices, logmarlik)) # No need to copy particles as new object is created each time
