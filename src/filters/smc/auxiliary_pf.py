@@ -44,8 +44,17 @@ class AuxiliaryParticleFilter(ParticleFilter):
             # ===== Auxiliary weights (look-ahead) =====
             predicted_states = self.model.expected_next_state(theta, particles)
 
-            aux_weights = weights * self.model.likelihood(y[t], theta, predicted_states)
-            aux_weights /= np.sum(aux_weights)
+            log_aux_weights = np.log(np.maximum(weights, 1e-300)) + self.model.log_likelihood(
+                y[t], theta, predicted_states
+            )
+
+            # ---- First-stage normalizing constant ----
+            max_log_aux = np.max(log_aux_weights)
+            aux_sum = np.sum(np.exp(log_aux_weights - max_log_aux))
+            log_first_stage = max_log_aux + np.log(aux_sum)
+
+            aux_weights = np.exp(log_aux_weights - max_log_aux)
+            aux_weights /= aux_sum
 
             # ===== Resample ancestors =====
             ancestor_indices = self.resampler(aux_weights, self.model.rng)
@@ -56,15 +65,22 @@ class AuxiliaryParticleFilter(ParticleFilter):
             particles = self.model.sample_next_state(theta, ancestor_particles)
             
             # ===== Weight correction =====
-            w_num = self.model.likelihood(y[t], theta, particles)
-            w_den = self.model.likelihood(y[t], theta, ancestor_predicted)
-            weights_unnormalized = w_num / w_den
+            log_w_num = self.model.log_likelihood(y[t], theta, particles)
+            log_w_den = self.model.log_likelihood(y[t], theta, ancestor_predicted)
+            log_weights = log_w_num - log_w_den
 
-            # --- Update log marginal likelihood ---
-            logmarlik += np.log(np.mean(weights_unnormalized))
+            # ---- Second-stage normalizing constant ----
+            max_log_w = np.max(log_weights)
+            weights_unnorm = np.exp(log_weights - max_log_w)
+            weights_sum = np.sum(weights_unnorm)
+            
+            log_second_stage = max_log_w + np.log(weights_sum / self.N)
 
-            # --- Normalize weights ---
-            weights = weights_unnormalized / weights_unnormalized.sum()
+            # ---- Update marginal likelihood ----
+            logmarlik += log_first_stage + log_second_stage
+
+            # Normalize weights for filtering
+            weights = weights_unnorm / weights_sum
 
             # --- Store history ---
             history.append((particles, weights.copy(), ancestor_indices, logmarlik))

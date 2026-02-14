@@ -186,13 +186,9 @@ class LGModel(StateSpaceModel):
 
     def sample_initial_state(self, theta: LGModelParams, size: int = 1) -> LGModelState:
         """
-        Sample initial latent states x_0 ~ N(0,sigma_x^2 / (1 - a^2)) to ensure stationarity of the state process.
+        Sample initial latent states x_0 ~ N(0,10)
         """
-        if abs(theta.a) > 1:
-            raise ValueError("Stationary initial distribution requires |a| < 1.")
-
-        var0 = theta.sigma_x**2 / (1.0 - theta.a**2)
-        x0 = self.rng.normal(0.0, np.sqrt(var0), size=size)
+        x0 = self.rng.normal(0.0, 10.0, size=size)
         return LGModelState(x0)
 
     def sample_next_state(self, theta: LGModelParams, state: LGModelState) -> LGModelState:

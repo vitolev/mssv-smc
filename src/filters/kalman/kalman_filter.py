@@ -33,7 +33,7 @@ class KalmanFilter:
 
         # Initial state
         mu_prev = 0.0
-        var_prev = 1.0
+        var_prev = 100.0
 
         for t in range(T):
             # Prediction
@@ -69,21 +69,18 @@ class KalmanFilter:
         y = y.flatten()
         T = len(y)
 
-        mu_prev = 0.0
-        var_prev = 1.0
+        # Initial state prior
+        mu_pred = 0.0
+        var_pred = 100.0
 
         loglik = 0.0
 
         for t in range(T):
-            # Predict state
-            mu_pred = theta.a * mu_prev
-            var_pred = theta.a**2 * var_prev + theta.sigma_x**2
 
-            # Predict observation
+            # Observation prediction based on x_t
             y_mean = theta.b * mu_pred
             S = theta.b**2 * var_pred + theta.sigma_y**2
 
-            # Increment log-likelihood
             loglik += -0.5 * (
                 np.log(2 * np.pi)
                 + np.log(S)
@@ -92,8 +89,12 @@ class KalmanFilter:
 
             # Kalman update
             K = var_pred * theta.b / S
-            mu_prev = mu_pred + K * (y[t] - y_mean)
-            var_prev = (1 - K * theta.b) * var_pred
+            mu_filt = mu_pred + K * (y[t] - y_mean)
+            var_filt = (1 - K * theta.b) * var_pred
+
+            # Predict next state
+            mu_pred = theta.a * mu_filt
+            var_pred = theta.a**2 * var_filt + theta.sigma_x**2
 
         return loglik
 
