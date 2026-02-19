@@ -69,6 +69,25 @@ class StateSpaceModelParams(ABC):
         """
         pass
 
+    @abstractmethod
+    def sample_from_data(self, x: np.ndarray, y: np.ndarray) -> "StateSpaceModelParams":
+        """
+        Sample new parameters from the conditional distribution p(theta | x, y).
+
+        Parameters
+        ----------
+        x : np.ndarray
+            Latent states.
+        y : np.ndarray
+            Observations.
+
+        Returns
+        -------
+        new_params: StateSpaceModelParams
+            A new instance of StateSpaceModelParams sampled from the conditional distribution given x and y.
+        """
+        pass
+
 class StateSpaceModelState(ABC):
     """
     Base class for state space model state.
@@ -82,6 +101,13 @@ class StateSpaceModelState(ABC):
 
     @abstractmethod
     def __len__(self):
+        pass
+
+    @abstractmethod
+    def add(self, other: "StateSpaceModelState") -> "StateSpaceModelState":
+        """
+        Extend the current state by adding another state
+        """
         pass
 
 

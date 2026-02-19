@@ -62,3 +62,66 @@ class BootstrapParticleFilter(ParticleFilter):
             particles = particles[indices]
 
         return history
+    
+    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref):
+        """
+        Run conditional bootstrap particle filter given reference trajectory x_ref.
+
+        Parameters
+        ----------
+        y : array-like, shape (T,)
+            Observations over time.
+        theta : StateSpaceModelParams
+            Model parameters.
+        x_ref : array-like, shape (T+1,)
+            Reference trajectory to condition on. Must have length T+1, where T is the length of the observation sequence y.
+
+        Returns
+        -------
+        history : same format as in run(), but with the first particle forced to follow x_ref at each time step.
+        """
+        T = len(y)
+        history = []
+
+        # ----- Initialization -----
+        particles = self.model.sample_initial_state(theta, size=self.N)
+
+        # Force particle 0 to equal reference initial state
+        particles[0] = x_ref[0]
+
+        weights = np.ones(self.N) / self.N
+        history.append((particles, weights, np.array([], dtype=int), 0.0))
+
+        logmarlik = 0.0
+        indices = np.arange(self.N)
+
+        # ----- Main loop -----
+        for t in range(T):
+            # Propagation
+            particles = self.model.sample_next_state(theta, particles)
+
+            # Force reference particle
+            particles[0] = x_ref[t + 1]
+
+            # Weighting
+            log_weights = self.model.log_likelihood(y[t], theta, particles)
+
+            max_log_w = np.max(log_weights)
+            weights = np.exp(log_weights - max_log_w)
+            weights_sum = np.sum(weights)
+            weights /= weights_sum
+
+            logmarlik += max_log_w + np.log(weights_sum / self.N)
+
+            # Store history
+            history.append((particles, weights, indices, logmarlik))
+            
+            # Resampling
+            indices = self.resampler(weights, self.model.rng)
+
+            # Force reference lineage
+            indices[0] = 0
+
+            particles = particles[indices]
+
+        return history

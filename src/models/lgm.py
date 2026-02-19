@@ -144,6 +144,24 @@ class LGModelParams(StateSpaceModelParams):
 
         return log_q_a + log_q_b + log_q_sigma_x + log_q_sigma_y
 
+    def sample_from_data(self, x_traj: list["LGModelState"], y_traj: np.ndarray) -> "LGModelParams":
+        """
+        Sample parameters from the conditional distribution p(theta | x, y).
+
+        Parameters
+        ----------
+        x_traj : list of LGModelState, size T+1
+            Trajectory of latent states.
+        y_traj : array-like, shape (T,)
+            Trajectory of observations.
+
+        Returns
+        -------
+        new_params: LGModelParams
+            A new instance of LGModelParams estimated from the data.
+        """
+        raise NotImplementedError("Sampling from the conditional distribution p(theta | x, y) is not yet implemented for the LGModel.")
+                                  
     def __repr__(self):
         return f"LGModelParams(a={self.a:.3f}, b={self.b:.3f}, sigma_x={self.sigma_x:.3f}, sigma_y={self.sigma_y:.3f})"
     
@@ -152,13 +170,62 @@ class LGModelState(StateSpaceModelState):
     Container for LGSSM model state.
     """
     def __init__(self, x_t: np.ndarray):
-        self.x_t = x_t  # shape (N,)
+        x_t = np.asarray(x_t)
+
+        # Convert scalar → (1,)
+        if x_t.ndim == 0:
+            x_t = x_t.reshape(1)
+
+        # Convert column or row vectors → (N,)
+        elif x_t.ndim == 2 and 1 in x_t.shape:
+            x_t = x_t.reshape(-1)
+
+        # Reject anything else
+        elif x_t.ndim != 1:
+            raise ValueError(
+                f"x_t must be 1D with shape (N,), got shape {x_t.shape}"
+            )
+
+        self.x_t = x_t.copy()
 
     def __getitem__(self, idx):
         return LGModelState(x_t=np.array(self.x_t[idx], copy=True))
     
+    def __setitem__(self, idx, value):
+        if isinstance(value, LGModelState):
+            if len(value.x_t) != 1:
+                raise ValueError(f"Value must be a LGModelState with a single state, got shape {value.x_t.shape}")
+            self.x_t[idx] = value.x_t[0]
+        elif isinstance(value, (float, int)):
+            self.x_t[idx] = value
+        else:
+            raise ValueError(f"Value must be a LGModelState with a single state or a scalar, got type {type(value)}")
+    
     def __len__(self):
         return self.x_t.shape[0]
+    
+    def __repr__(self):
+        return f"LGModelState(x_t={self.x_t})"
+    
+    def add(self, other: "LGModelState") -> "LGModelState":
+        """
+        Extend the current state by adding another state. This is useful for accumulating trajectories in PMMH.
+
+        Parameters
+        ----------
+        other : LGModelState
+            Another state to concatenate to the current state.
+
+        Returns
+        -------
+        new_state: LGModelState
+            A new LGModelState with extended state vector.
+        """
+        if not isinstance(other, LGModelState):
+            raise ValueError(f"Other must be an instance of LGModelState, got type {type(other)}")
+        
+        new_x_t = np.hstack((self.x_t, other.x_t))
+        return LGModelState(x_t=new_x_t)
 
 class LGModel(StateSpaceModel):
     """

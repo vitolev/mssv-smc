@@ -1,4 +1,5 @@
 import numpy as np
+import arviz as az
 from concurrent.futures import ProcessPoolExecutor
 
 from src.filters.smc.base_pf import ParticleFilter
@@ -41,13 +42,10 @@ class PMMH_Chain:
         logmarlik = history[-1][3]
 
         # sample trajectory from smoothing distribution
-        trajectories = self.pf.smoothing_trajectories(
+        trajectory = self.pf.smoothing_trajectories(
             history,
             n_traj=1,
         )
-
-        # for standard PMMH, we keep a single trajectory
-        trajectory = trajectories[0]
 
         return trajectory, logmarlik
     
@@ -116,10 +114,12 @@ class PMMH_Chain:
 
         self._initialize()
 
-        samples = []
-        logmarliks = []
+        samples = self.current_trajectory       # array of size T+1 for the initial trajectory
+        logmarliks = [self.current_logmarlik]
         thetas = {key: [] for key in self.theta_vars.keys()}  # Store parameter values separately
-        logalphas = []
+        for key in self.theta_vars.keys():
+            thetas[key].append(getattr(self.theta, key))
+        logalphas = [0]     # log_alpha is arbitrary for the initial state
 
         for i in range(n_iter):
             if (i+1) % 1000 == 0:
@@ -127,13 +127,13 @@ class PMMH_Chain:
             log_alpha = self._step()
 
             if i >= burnin:
-                samples.append(self.current_trajectory)
+                samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
                 logmarliks.append(self.current_logmarlik)
                 for key in thetas.keys():
                     thetas[key].append(getattr(self.theta, key))
                 logalphas.append(log_alpha)
 
-        return np.array(samples), np.array(logmarliks), thetas, np.array(logalphas)
+        return samples, logmarliks, thetas, logalphas
     
 class ParticleMarginalMetropolisHastings:
     """
@@ -254,5 +254,33 @@ class ParticleMarginalMetropolisHastings:
             print(f"Chain {chain_ids[i]+1} acceptance rate: {rate:.3f}")
 
         return all_results
-        
     
+    def to_inference_data(self, results):
+        """
+        Convert PMMH results to an ArviZ InferenceData object for analysis and visualization.
+
+        Parameters
+        ----------
+        results : list
+            List of results from each chain. Each element is a tuple (samples, logmarliks, thetas, logalphas) for that chain.
+
+        Returns
+        -------
+        inference_data : arviz.InferenceData
+            An ArviZ InferenceData object containing the log marginal likelihoods and parameter samples from all chains.
+        """
+        data = {}
+        for chain_result in results:
+            if "logmarliks" not in data:
+                data["logmarliks"] = []
+            _, logmarliks, thetas, _ = chain_result
+            data["logmarliks"].append(logmarliks)
+            for param_name, param_values in thetas.items():
+                if param_name not in data:
+                    data[param_name] = []
+                data[param_name].append(param_values)
+        
+        for key in data:
+            data[key] = np.array(data[key])
+            
+        return az.from_dict(data)

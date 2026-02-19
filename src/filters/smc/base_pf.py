@@ -35,6 +35,31 @@ class ParticleFilter(ABC):
         """
         pass
 
+    @abstractmethod
+    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref):
+        """
+        Run the particle filter on observation sequence y, conditional on a fixed trajectory x_ref.
+
+        Parameters
+        ----------
+        y : array-like, shape (T,)
+            Observations over time.
+        theta : StateSpaceModelParams
+            Model parameters.
+        x_ref : array-like, shape (T+1,)
+            Reference trajectory to condition on. Must be of length T+1, where T is the length of y.
+
+        Returns
+        -------
+        history : list of tuples of size T+1.
+            Each element is (particles, weights, indices, logmarlik) at each time step t.
+            - particles: StateSpaceModelState with batched N particles.
+            - weights: np.ndarray of shape (N,) with normalized weights of the particles.
+            - indices: np.ndarray of shape (N,) with resampling indices used to get from step t-1 to t. At t=0, this is an empty array.
+            - logmarlik: float, the log marginal likelihood up to time t. At t=0, this is 0.
+        """
+        pass
+
     def smoothing_trajectories(self, history, n_traj=None):
         """
         Reconstruct full trajectories (smoothing samples) from particle filter history.
@@ -69,18 +94,16 @@ class ParticleFilter(ABC):
         final_indices = self.rng.choice(N, size=n_traj, p=final_weights)
 
         # Initialize storage
-        trajectories = [ [None]*T for _ in range(n_traj) ]
+        trajectories = [None]*T
 
         # Fill final time
-        for i, idx in enumerate(final_indices):
-            trajectories[i][T-1] = history[T-1][0][idx]
+        trajectories[T-1] = history[T-1][0][final_indices]
 
         # Trace backward
         for t in reversed(range(1, T)):
             indices = history[t][2]  # maps t-1 -> t
-            for i in range(n_traj):
-                parent_idx = indices[final_indices[i]]  # parent at t-1
-                trajectories[i][t-1] = history[t-1][0][parent_idx]
-                final_indices[i] = parent_idx  # update for next backward step
+            parent_idx = indices[final_indices]  # parent at t-1
+            trajectories[t-1] = history[t-1][0][parent_idx]
+            final_indices = parent_idx  # update for next backward step
 
-        return np.array(trajectories)
+        return trajectories

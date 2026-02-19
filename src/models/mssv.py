@@ -4,6 +4,8 @@ from scipy.special import logit, expit
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
 from typing import List, Tuple
 
+EPS = 1e-10
+
 class MSSVModelParams(StateSpaceModelParams):
     """
     Container for MSSV model parameters. If initialized without parameters, sampling from prior is done.
@@ -39,6 +41,11 @@ class MSSVModelParams(StateSpaceModelParams):
             
             if any(abs(sum(row) - 1.0) > 1e-8 for row in P):
                 raise ValueError("Each row of transition matrix P must sum to 1.")
+            
+        # Ensure P is a valid transition matrix
+        self.P = np.clip(self.P, EPS, None)
+        self.P /= self.P.sum(axis=1, keepdims=True)
+
 
     def sample_prior(self, rng: np.random.Generator, num_regimes: int):
         """
@@ -51,7 +58,7 @@ class MSSVModelParams(StateSpaceModelParams):
             num_regimes: int
                 Number of regimes (K) in the MSSV model.
         """
-        self.mu = rng.normal(0, 10, size=num_regimes)          # Prior for mu_k
+        self.mu = rng.normal(0, 1, size=num_regimes)          # Prior for mu_k
         self.phi = rng.uniform(0, 1, size=num_regimes)       # Prior for phi_k in (0,1)
         self.sigma_eta = rng.exponential(1.0, size=num_regimes)  # Prior for sigma_eta_k > 0
 
@@ -65,8 +72,8 @@ class MSSVModelParams(StateSpaceModelParams):
         """
         logp = 0.0
 
-        # ---- mu_k ~ N(0, 10^2) ----
-        logp += np.sum(norm.logpdf(self.mu, loc=0.0, scale=10.0))
+        # ---- mu_k ~ N(0, 1^2) ----
+        logp += np.sum(norm.logpdf(self.mu, loc=0.0, scale=1.0))
 
         # ---- phi_k ~ Uniform(0, 1) ----
         # Explicit check to avoid -inf surprises
@@ -85,6 +92,11 @@ class MSSVModelParams(StateSpaceModelParams):
             logp += dirichlet.logpdf(row, alpha=np.ones(len(row)))
 
         return logp
+
+    def _normalize_rows_strict(P, eps=EPS):
+        P = np.clip(P, eps, None)
+        P /= P.sum(axis=1, keepdims=True)
+        return P
 
     def sample_transition(
         self, 
@@ -128,8 +140,12 @@ class MSSVModelParams(StateSpaceModelParams):
         # ---- transition matrix rows : Dirichlet RW ----
         P = np.zeros_like(self.P)
         for k in range(K):
-            alpha = step_P * self.P[k]
-            P[k] = rng.dirichlet(alpha)
+            alpha = step_P * np.clip(self.P[k], EPS, None)
+            row = rng.dirichlet(alpha)
+            row = np.clip(row, EPS, None)
+            row /= row.sum()
+
+            P[k] = row
 
         return MSSVModelParams(mu=mu, phi=phi, sigma_eta=sigma_eta, P=P)
 
@@ -190,11 +206,34 @@ class MSSVModelParams(StateSpaceModelParams):
 
         # ---- transition matrix ----
         for k in range(K):
-            alpha = step_P * self.P[k]
-            logq += dirichlet.logpdf(other.P[k], alpha=alpha)
+            alpha = step_P * np.clip(self.P[k], EPS, None)
+            row = np.clip(other.P[k], EPS, None)
+            row /= row.sum()
+
+            logq += dirichlet.logpdf(row, alpha=alpha)
 
         return logq
 
+    def sample_from_data(self, x_traj: list["MSSVModelState"], y: np.ndarray) -> "MSSVModelParams":
+        """
+        Sample new parameters from the conditional distribution p(theta | x_traj, y).
+        For simplicity, we will use a Metropolis-Hastings step here, using the current parameters as the proposal mean.
+
+        Parameters
+        ----------
+            x_traj: list of MSSVModelState
+                The latent trajectory (h_t, s_t) over time.
+            y: np.ndarray
+                The observed data over time.
+
+        Returns
+        -------
+            new_params: MSSVModelParams
+                New set of parameters sampled from p(theta | x_traj, y).
+        """
+        #TODO: Implement
+        raise NotImplementedError("Parameter sampling from data is not implemented yet.")
+        
 class MSSVModelState(StateSpaceModelState):
     """
     Container for MSSV model state: (h_t, s_t)
@@ -213,7 +252,32 @@ class MSSVModelState(StateSpaceModelState):
 
     def __len__(self):
         return self.h_t.shape[0]
+    
+    def __repr__(self):
+        return f"MSSVModelState(h_t={self.h_t}, s_t={self.s_t})"
+    
+    def add(self, other: "MSSVModelState") -> "MSSVModelState":
+        """
+        Add another MSSVModelState to this one. This is a simple element-wise addition of the h_t and s_t components.
 
+        Parameters
+        ----------
+            other: MSSVModelState
+                Another state to add to this one.
+
+        Returns
+        -------
+            new_state: MSSVModelState
+                A new MSSVModelState where h_t and s_t are the sums of the corresponding components of self and other.
+        """
+        if not isinstance(other, MSSVModelState):
+            raise TypeError(f"Other must be an instance of MSSVModelState, got {type(other)}")
+        
+        new_h_t = np.concatenate((self.h_t, other.h_t), axis=0)
+        new_s_t = np.concatenate((self.s_t, other.s_t), axis=0)
+
+        return MSSVModelState(h_t=new_h_t, s_t=new_s_t)
+    
 class MSSVModel(StateSpaceModel):
     """
     Markov-Switching Stochastic Volatility Model

@@ -30,13 +30,10 @@ class ParticleIndependentMetropolisHastings:
         logmarlik = history[-1][3]
 
         # sample trajectory from smoothing distribution
-        trajectories = self.pf.smoothing_trajectories(
+        trajectory = self.pf.smoothing_trajectories(
             history,
             n_traj=1,
         )
-
-        # for standard PIMH, we keep a single trajectory
-        trajectory = trajectories[0]
 
         return trajectory, logmarlik
 
@@ -87,8 +84,11 @@ class ParticleIndependentMetropolisHastings:
 
         Returns
         -------
-        samples : list
-            List of smoothing trajectories.
+        samples : list of StateSpaceModelState, size T+1
+            List of StateSpaceModelState instances representing trajectory values at each time step.
+            Each StateSpaceModelState contains the (n_iter - burnin) array of sampled states at that time step across iterations.
+        logmarliks : list
+            List of corresponding log marginal likelihoods.
         """
         self.current_trajectory = None
         self.current_logmarlik = None
@@ -101,8 +101,8 @@ class ParticleIndependentMetropolisHastings:
 
         self._initialize()
 
-        samples = []
-        logmarliks = []
+        samples = self.current_trajectory       # array of size T+1 for the initial trajectory
+        logmarliks = [self.current_logmarlik]
 
         for i in range(n_iter):
             if verbose and (i + 1) % 100 == 0:
@@ -111,10 +111,10 @@ class ParticleIndependentMetropolisHastings:
             self._step()
 
             if i >= burnin:
-                samples.append(self.current_trajectory)
+                samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
                 logmarliks.append(self.current_logmarlik)
 
-        return np.array(samples), np.array(logmarliks)
+        return samples, logmarliks
 
     @property
     def acceptance_rate(self):
