@@ -1,6 +1,7 @@
 import numpy as np
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
 from scipy.stats import norm, uniform, expon
+from scipy.special import logsumexp
 
 class LGModelParams(StateSpaceModelParams):
     """
@@ -91,9 +92,15 @@ class LGModelParams(StateSpaceModelParams):
         new_params: LGModelParams
             A new instance of LGModelParams sampled from the proposal distribution.
         """
-        alpha = np.arctanh(self.a)  # Transform a to the real line for unconstrained proposal
-        alpha_new = alpha + rng.normal(0.0, step_a)  # Propose new alpha
-        a_new = np.tanh(alpha_new)  # Transform back to (-1, 1)
+        L = -1.0
+        U = 1.0
+        width = U - L  # 2.0
+        a_prop = self.a + rng.normal(0.0, step_a)
+        # Infinite reflection via modulo folding
+        a_prop = (a_prop - L) % (2.0 * width)
+        if a_prop > width:
+            a_prop = 2.0 * width - a_prop
+        a_new = a_prop + L
 
         b_new = self.b + rng.normal(0.0, step_b)
         sigma_x_new = self.sigma_x * np.exp(rng.normal(0.0, step_sigma_x))  # Log-normal proposal
@@ -123,17 +130,22 @@ class LGModelParams(StateSpaceModelParams):
         log_density: float
             The log density of proposing 'other' given 'self' under the proposal distribution.
         """
-        # ---- a (Gaussian RW in alpha-space) ----
-        alpha_self = np.arctanh(self.a)
-        alpha_other = np.arctanh(other.a)
-        
-        # Proposal density in alpha-space
-        log_q_alpha = norm.logpdf(alpha_other, loc=alpha_self, scale=step_a)
-        
-        # Jacobian of the transformation a = tanh(alpha)
-        log_jacobian = np.log(1 - other.a ** 2)  # da/dalpha = 1 - tanh^2(alpha)
-        
-        log_q_a = log_q_alpha + log_jacobian
+        # ---- a : Reflected Gaussian RW (finite image sum) ----
+        period = 4.0  # 2 * width where width = 2 for [-1,1]
+        K = 2  # number of image terms on each side
+
+        diffs = []
+        for k in range(-K, K + 1):
+            shift = period * k
+            diffs.append(
+                norm.logpdf(
+                    other.a,
+                    loc=self.a - shift,
+                    scale=step_a,
+                )
+            )
+
+        log_q_a = logsumexp(diffs)
 
         # ---- b (regular Gaussian RW) ----
         log_q_b = norm.logpdf(other.b, loc=self.b, scale=step_b)
