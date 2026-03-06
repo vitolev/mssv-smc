@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.stats import norm, uniform, expon, dirichlet
-from scipy.special import logit, expit
+from scipy.special import logit, expit, logsumexp
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
 from typing import List, Tuple
 
@@ -13,8 +13,8 @@ class MSSVModelParams(StateSpaceModelParams):
     def __init__(self, rng: np.random.Generator = None,
                  num_regimes: int = None,
                  mu: List[float] = None, 
-                 phi: List[float] = None, 
-                 sigma_eta: List[float] = None, 
+                 phi: float = None, 
+                 sigma_eta: float = None, 
                  P: List[List[float]] = None):
 
         # Sample from prior if any parameter is None
@@ -25,16 +25,22 @@ class MSSVModelParams(StateSpaceModelParams):
         
         # Set provided parameters
         else:
-            self.mu = np.array(mu)
-            self.phi = np.array(phi)
-            self.sigma_eta = np.array(sigma_eta)
+            # mu must be ordered
+            mu = np.array(mu)
+            if not all(mu[k] < mu[k+1] for k in range(len(mu)-1)):
+                raise ValueError("mu parameters must be ordered: mu[0] < mu[1] < ... < mu[K-1]")
+            self.mu1 = mu[0]
+            self.delta = np.log(np.diff(mu))
+            self.mu = mu
+            self.phi = phi
+            self.sigma_eta = sigma_eta
             self.P = np.array(P)
 
-            if not (len(mu) == len(phi) == len(sigma_eta) == len(P)):
-                raise ValueError("Parameters mu, phi, sigma_eta, and P must have the same length.")
+            if not (len(mu) == len(P)):
+                raise ValueError("Parameters mu and P must have the same length.")
             
-            if any(sigma <= 0 for sigma in sigma_eta):
-                raise ValueError("Standard deviations sigma_eta must be positive.")
+            if sigma_eta <= 0:
+                raise ValueError("Standard deviation sigma_eta must be positive.")
             
             if any(p < 0 for row in P for p in row):
                 raise ValueError("Transition probabilities must be non-negative.")
@@ -46,6 +52,27 @@ class MSSVModelParams(StateSpaceModelParams):
         self.P = np.clip(self.P, EPS, None)
         self.P /= self.P.sum(axis=1, keepdims=True)
 
+    def _delta_to_mu(self, mu1, delta):
+        """
+        Convert (mu1, delta) -> ordered mu vector.
+        """
+        K = len(delta) + 1
+        mu = np.zeros(K)
+        mu[0] = mu1
+
+        for k in range(1, K):
+            mu[k] = mu[k-1] + np.exp(delta[k-1])
+
+        return mu
+
+
+    def _mu_to_delta(self, mu):
+        """
+        Convert ordered mu -> (mu1, delta)
+        """
+        mu1 = mu[0]
+        delta = np.log(np.diff(mu))
+        return mu1, delta
 
     def sample_prior(self, rng: np.random.Generator, num_regimes: int):
         """
@@ -58,9 +85,12 @@ class MSSVModelParams(StateSpaceModelParams):
             num_regimes: int
                 Number of regimes (K) in the MSSV model.
         """
-        self.mu = rng.normal(0, 1, size=num_regimes)          # Prior for mu_k
-        self.phi = rng.uniform(0, 1, size=num_regimes)       # Prior for phi_k in (0,1)
-        self.sigma_eta = rng.exponential(1.0, size=num_regimes)  # Prior for sigma_eta_k > 0
+        self.mu1 = rng.normal(0,1)
+        self.delta = rng.normal(0,1,size=num_regimes-1)
+        self.mu = self._delta_to_mu(self.mu1, self.delta)
+
+        self.phi = rng.uniform(0, 1)       # Prior for phi_k in (0,1)
+        self.sigma_eta = rng.exponential(1.0)  # Prior for sigma_eta_k > 0
 
         # Prior for transition matrix P: Dirichlet distribution for each row
         alpha = np.ones(num_regimes)  # Symmetric Dirichlet prior
@@ -73,18 +103,19 @@ class MSSVModelParams(StateSpaceModelParams):
         logp = 0.0
 
         # ---- mu_k ~ N(0, 1^2) ----
-        logp += np.sum(norm.logpdf(self.mu, loc=0.0, scale=1.0))
+        logp += norm.logpdf(self.mu1, loc=0, scale=1)   # mu1 prior
+        logp += np.sum(norm.logpdf(self.delta, loc=0, scale=1))  # delta priors
 
         # ---- phi_k ~ Uniform(0, 1) ----
         # Explicit check to avoid -inf surprises
-        if np.any(self.phi <= 0.0) or np.any(self.phi >= 1.0):
+        if self.phi <= 0.0 or self.phi >= 1.0:
             return -np.inf
-        logp += np.sum(uniform.logpdf(self.phi, loc=0.0, scale=1.0))
+        logp += uniform.logpdf(self.phi, loc=0.0, scale=1.0)
 
         # ---- sigma_eta_k ~ Exponential(1) ----
-        if np.any(self.sigma_eta <= 0.0):
+        if self.sigma_eta <= 0.0:
             return -np.inf
-        logp += np.sum(expon.logpdf(self.sigma_eta, scale=1.0))
+        logp += expon.logpdf(self.sigma_eta, scale=1.0)
 
         # ---- Transition matrix rows ~ Dirichlet(1,...,1) ----
         for row in self.P:
@@ -101,7 +132,8 @@ class MSSVModelParams(StateSpaceModelParams):
     def sample_transition(
         self, 
         rng: np.random.Generator,
-        step_mu=0.1,
+        step_mu=0.1,  
+        step_delta=0.1,  
         step_phi=0.1,
         step_sigma=0.1,
         step_P=20.0
@@ -113,7 +145,7 @@ class MSSVModelParams(StateSpaceModelParams):
         ----------
             rng: np.random.Generator
                 Random number generator for reproducibility.
-            step_mu, step_phi, step_sigma, step_P: float
+            step_mu, step_delta, step_phi, step_sigma, step_P: float
                 Step sizes for the proposal distribution for each parameter type. These control how much the new parameters can deviate from the current ones.
 
         Returns
@@ -125,16 +157,24 @@ class MSSVModelParams(StateSpaceModelParams):
         K = len(self.mu)
 
         # ---- mu_k : Gaussian RW ----
-        mu = self.mu + rng.normal(0.0, step_mu, size=K)
+        mu1 = self.mu1 + rng.normal(0, step_mu)
+        delta = self.delta + rng.normal(0, step_delta, size=len(self.delta))
+        mu = self._delta_to_mu(mu1, delta)
 
-        # ---- phi_k : logit RW ----
-        phi_logit = logit(self.phi)
-        phi_logit_new = phi_logit + rng.normal(0.0, step_phi, size=K)
-        phi = expit(phi_logit_new)
+        # ---- phi_k : reflected RW ----
+        L = 0.0
+        U = 1.0
+        width = U - L  # 1.0
+        phi = self.phi + rng.normal(0.0, step_phi)
+        # Infinite reflection via modulo folding
+        phi = (phi - L) % (2.0 * width)
+        if phi > width:
+            phi = 2.0 * width - phi
+        phi = phi + L
 
         # ---- sigma_eta_k : log RW ----
         log_sigma = np.log(self.sigma_eta)
-        log_sigma_new = log_sigma + rng.normal(0.0, step_sigma, size=K)
+        log_sigma_new = log_sigma + rng.normal(0.0, step_sigma)
         sigma_eta = np.exp(log_sigma_new)
 
         # ---- transition matrix rows : Dirichlet RW ----
@@ -153,6 +193,7 @@ class MSSVModelParams(StateSpaceModelParams):
         self,
         other: "MSSVModelParams",
         step_mu=0.1,
+        step_delta=0.1,
         step_phi=0.1,
         step_sigma=0.1,
         step_P=20.0
@@ -164,7 +205,7 @@ class MSSVModelParams(StateSpaceModelParams):
         ----------
             other: MSSVModelParams
                 The parameter set for which we want to compute the log transition density from self.
-            step_mu, step_phi, step_sigma, step_P: float
+            step_mu, step_delta, step_phi, step_sigma, step_P: float
                 The step sizes used in the proposal distribution for each parameter type.
 
         Returns
@@ -176,33 +217,38 @@ class MSSVModelParams(StateSpaceModelParams):
         K = len(self.mu)
 
         # ---- mu_k ----
-        logq += np.sum(norm.logpdf(
-            other.mu, loc=self.mu, scale=step_mu
-        ))
+        logq += norm.logpdf(other.mu1, loc=self.mu1, scale=step_mu)
 
-        # ---- phi_k (logit space) ----
-        logit_self = logit(self.phi)
-        logit_other = logit(other.phi)
-
-        logq += np.sum(norm.logpdf(
-            logit_other, loc=logit_self, scale=step_phi
-        ))
-
-        # Jacobian term
         logq += np.sum(
-            np.log(other.phi) + np.log(1.0 - other.phi)
+            norm.logpdf(other.delta, loc=self.delta, scale=step_delta)
         )
+
+        # ---- phi_k ----
+        period = 2.0  # 2 * width where width = 1
+        K_images = 2  # truncate infinite sum
+
+        terms = []
+        for k in range(-K_images, K_images + 1):
+            shift = period * k
+            terms.append(
+                norm.logpdf(
+                    other.phi,
+                    loc=self.phi - shift,
+                    scale=step_phi,
+                )
+            )
+        logq += logsumexp(terms)
 
         # ---- sigma_eta_k (log space) ----
         log_self = np.log(self.sigma_eta)
         log_other = np.log(other.sigma_eta)
 
-        logq += np.sum(norm.logpdf(
+        logq += norm.logpdf(
             log_other, loc=log_self, scale=step_sigma
-        ))
+        )
 
         # Jacobian
-        logq -= np.sum(log_other)
+        logq -= log_other
 
         # ---- transition matrix ----
         for k in range(K):
@@ -293,7 +339,7 @@ class MSSVModel(StateSpaceModel):
         s_0 ~ Uniform{1, ..., K}
         h_0 | s_0 ~ N(mu_{s_0}, sigma_eta_{s_0}^2)
         s_t | s_{t-1} ~ Categorical(P_{s_{t-1}, :))
-        h_t | h_{t-1}, s_t ~ N(mu_{s_t} + phi_{s_t} * (h_{t-1} - mu_{s_t}), sigma_eta_{s_t}^2)
+        h_t | h_{t-1}, s_t ~ N(mu_{s_t} + phi * (h_{t-1} - mu_{s_t}), sigma_eta^2)
         y_t | h_t ~ N(0, exp(h_t))
     """
     params_type = MSSVModelParams
@@ -368,7 +414,7 @@ class MSSVModel(StateSpaceModel):
         s0[np.arange(size), regimes] = 1
 
         # Sample initial log-volatilities based on regimes
-        h0 = self.rng.normal(theta.mu[regimes], theta.sigma_eta[regimes])   # np.random.normal uses stddev as second parameter
+        h0 = self.rng.normal(theta.mu[regimes], theta.sigma_eta)   # np.random.normal uses stddev as second parameter
 
         return MSSVModelState(h0, s0)
 
@@ -404,11 +450,9 @@ class MSSVModel(StateSpaceModel):
 
         # Volatility transition
         mu = theta.mu[indices]
-        phi = theta.phi[indices]
-        sigma = theta.sigma_eta[indices]
 
-        h_t = mu + phi * (h_prev - mu) + sigma * self.rng.normal(size=N)
-
+        h_t = mu + theta.phi * (h_prev - mu) + self.rng.normal(size=N, scale=theta.sigma_eta)
+    
         return MSSVModelState(h_t, s_t)
     
     def expected_next_state(self, theta : MSSVModelParams, state: MSSVModelState) -> MSSVModelState:
@@ -434,18 +478,14 @@ class MSSVModel(StateSpaceModel):
         h_prev, s_prev = state.h_t, state.s_t
 
         # Expected regime distribution
-        s_exp = s_prev @ theta.P
-
-        # Regime-specific parameters
-        mu = theta.mu                                # (K,)
-        phi = theta.phi                              # (K,)
+        s_exp = s_prev @ theta.P                                                        
 
         # Expected log-volatility
         # shape tricks:
         # h_prev[:, None]  -> (N, 1)
         # mu[None, :]      -> (1, K)
         h_exp = np.sum(
-            s_exp * (mu + phi * (h_prev[:, None] - mu)),
+            s_exp * (theta.mu + theta.phi * (h_prev[:, None] - theta.mu)),
             axis=1
         )                                            # (N,)
 
@@ -534,11 +574,9 @@ class MSSVModel(StateSpaceModel):
 
         # Volatility transition
         mu = theta.mu[idx_next]
-        phi = theta.phi[idx_next]
-        sigma = theta.sigma_eta[idx_next]
 
-        mean_h = mu + phi * (h_prev - mu)       # (N,)
-        p_h = norm.pdf(h_next, loc=mean_h, scale=sigma)
+        mean_h = mu + theta.phi * (h_prev - mu)       # (N,)
+        p_h = norm.pdf(h_next, loc=mean_h, scale=theta.sigma_eta)
 
         return p_s * p_h                        # (N,)
     
@@ -575,11 +613,9 @@ class MSSVModel(StateSpaceModel):
 
         # Volatility transition log-probability
         mu = theta.mu[index_next]
-        phi = theta.phi[index_next]
-        sigma = theta.sigma_eta[index_next]
 
-        mean_h = mu + phi * (h_prev - mu)
-        log_p_h = norm.logpdf(h_next, loc=mean_h, scale=sigma)
+        mean_h = mu + theta.phi * (h_prev - mu)
+        log_p_h = norm.logpdf(h_next, loc=mean_h, scale=theta.sigma_eta)
 
         return log_p_s + log_p_h
 

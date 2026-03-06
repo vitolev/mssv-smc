@@ -42,7 +42,7 @@ class PMMH_Chain:
         logmarlik = history[-1][3]
 
         # sample trajectory from smoothing distribution
-        trajectory = self.pf.smoothing_trajectories(
+        trajectory, _ = self.pf.smoothing_trajectories(
             history,
             n_traj=1,
         )

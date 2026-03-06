@@ -82,6 +82,8 @@ class ParticleFilter(ABC):
             List of sampled trajectories. Each trajectory is a list of states over time. Trajectories are sampled according to the final weights, hence
             their contribution to the smoothing distribution is equally weighted.
             trajectories[i][t] is the state at time t of trajectory i.
+        n_traj : int
+            The number of trajectories returned (equal to n_traj if n_traj is not None, else equal to N).
         """
         T = len(history)
         N = len(history[0][1])
@@ -106,4 +108,4 @@ class ParticleFilter(ABC):
             trajectories[t-1] = history[t-1][0][parent_idx]
             final_indices = parent_idx  # update for next backward step
 
-        return trajectories
+        return trajectories, n_traj
