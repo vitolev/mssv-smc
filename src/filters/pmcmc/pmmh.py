@@ -4,6 +4,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 from src.filters.smc.base_pf import ParticleFilter
 from src.models.base import StateSpaceModel, StateSpaceModelParams
+from src.utils.log import setup_chain_logging
 
 class PMMH_Chain:
     """
@@ -80,7 +81,7 @@ class PMMH_Chain:
         self.n_steps += 1
         return log_alpha
 
-    def run(self, y, n_iter: int, burnin=0):
+    def run(self, y, n_iter: int, burnin=0, logger=None):
         """
         Run the PMMH algorithm.
 
@@ -92,6 +93,8 @@ class PMMH_Chain:
             Number of PMMH iterations.
         burnin : int, optional
             Number of initial iterations to discard as burn-in. Default is 0.
+        logger : logging.Logger
+            Logger instance for logging messages.
 
         Returns
         -------
@@ -104,6 +107,8 @@ class PMMH_Chain:
         logalphas : list 
             List of log acceptance probabilities for each iteration.
         """
+        logger.info(f"Starting PMMH chain with {n_iter} iterations and burn-in of {burnin} iterations.")
+
         self.current_trajectory = None
         self.current_logmarlik = None
 
@@ -122,8 +127,6 @@ class PMMH_Chain:
         logalphas = [0]     # log_alpha is arbitrary for the initial state
 
         for i in range(n_iter):
-            if (i+1) % 1000 == 0:
-                print(f"Chain progress: {i+1}/{n_iter} iterations completed.")
             log_alpha = self._step()
 
             if i >= burnin:
@@ -132,6 +135,10 @@ class PMMH_Chain:
                 for key in thetas.keys():
                     thetas[key].append(getattr(self.theta, key))
                 logalphas.append(log_alpha)
+
+            logger.info(f"Chain progress: {i+1}/{n_iter} iterations completed.")
+
+        logger.info("PMMH chain completed.")
 
         return samples, logmarliks, thetas, logalphas
     
@@ -163,10 +170,15 @@ class ParticleMarginalMetropolisHastings:
         self.kwargs_for_params = kwargs_for_params if kwargs_for_params is not None else {}
         self.kwargs_for_sampling = kwargs_for_sampling if kwargs_for_sampling is not None else {}
 
-    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_for_params, kwargs_for_sampling, n_iter, burnin, chain_id):
+    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_for_params, kwargs_for_sampling, n_iter, burnin, chain_id, name="_TEST_"):
         """
         Worker function for a single PMMH chain.
         """
+        logger = setup_chain_logging(name, chain_id)
+        logger.info("=" * 60)
+        logger.info(f"Logging for PMMH Chain {chain_id+1}")
+        logger.info("=" * 60)
+
         # Independent RNG for this chain
         rng = np.random.default_rng(seed)
 
@@ -187,12 +199,14 @@ class ParticleMarginalMetropolisHastings:
             kwargs_for_sampling=kwargs_for_sampling,
         )
 
-        result = chain.run(y, n_iter=n_iter, burnin=burnin)
+        result = chain.run(y, n_iter=n_iter, burnin=burnin, logger=logger)
         acceptance_rate = chain.n_accepted / chain.n_steps if chain.n_steps > 0 else 0.0
+
+        logger.info(f"Chain {chain_id+1} acceptance rate: {acceptance_rate:.4f}")
 
         return result, acceptance_rate, chain_id
 
-    def run(self, y, n_iter: int, n_chain: int, burnin=0):
+    def run(self, y, n_iter: int, n_chain: int, burnin=0, name="_TEST_"):
         """
         Run multiple PMMH chains in parallel and return the results.
 
@@ -203,15 +217,18 @@ class ParticleMarginalMetropolisHastings:
         n_iter : int
             Number of PMMH iterations per chain.
         n_chain : int
-            Number of parallel PMMH chains to run.
+            Number of parallel PMMH chains to run. Max 8
         burnin : int, optional
             Number of initial iterations to discard as burn-in. Default is 0.
+        name : str, optional
+            Name of the experiment for logging purposes. Default is "_TEST_".
 
         Returns
         -------
         all_results : list
             List of results from each chain. Each element is a tuple (samples, logmarliks, thetas, logalphas) for that chain. 
         """
+        n_chain = max(n_chain, 8)
 
         if n_chain == 1:
             # Run single chain without multiprocessing
@@ -223,9 +240,9 @@ class ParticleMarginalMetropolisHastings:
                 kwargs_for_sampling=self.kwargs_for_sampling,
                 n_iter=n_iter,
                 burnin=burnin,
-                chain_id=0
+                chain_id=0,
+                name = name
             )
-            print(f"Chain 1 acceptance rate: {acceptance_rate:.3f}")
             return [result]
 
         seeds = self.rng.integers(0, 1_000_000, size=n_chain)  # Generate random seeds for each chain
@@ -248,10 +265,6 @@ class ParticleMarginalMetropolisHastings:
         all_results = [r[0] for r in results]          # PMMH samples etc.
         acceptance_rates = [r[1] for r in results]    # acceptance rates
         chain_ids = [r[2] for r in results]          # chain IDs
-
-        # Print all acceptance rates at the end
-        for i, rate in enumerate(acceptance_rates):
-            print(f"Chain {chain_ids[i]+1} acceptance rate: {rate:.3f}")
 
         return all_results
     
