@@ -52,6 +52,9 @@ class MSSVModelParams(StateSpaceModelParams):
         self.P = np.clip(self.P, EPS, None)
         self.P /= self.P.sum(axis=1, keepdims=True)
 
+    def __repr__(self):
+        return (f"MSSVModelParams(mu={self.mu}, phi={self.phi}, sigma_eta={self.sigma_eta}, P={self.P})")
+
     def _delta_to_mu(self, mu1, delta):
         """
         Convert (mu1, delta) -> ordered mu vector.
@@ -64,7 +67,6 @@ class MSSVModelParams(StateSpaceModelParams):
             mu[k] = mu[k-1] + np.exp(delta[k-1])
 
         return mu
-
 
     def _mu_to_delta(self, mu):
         """

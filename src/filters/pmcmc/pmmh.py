@@ -119,24 +119,44 @@ class PMMH_Chain:
 
         self._initialize()
 
-        samples = self.current_trajectory       # array of size T+1 for the initial trajectory
-        logmarliks = [self.current_logmarlik]
-        thetas = {key: [] for key in self.theta_vars.keys()}  # Store parameter values separately
-        for key in self.theta_vars.keys():
-            thetas[key].append(getattr(self.theta, key))
-        logalphas = [0]     # log_alpha is arbitrary for the initial state
 
-        for i in range(n_iter):
+        # First loop to run burn-in iterations without storing samples
+        for i in range(burnin):
             log_alpha = self._step()
 
-            if i >= burnin:
-                samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
-                logmarliks.append(self.current_logmarlik)
-                for key in thetas.keys():
-                    thetas[key].append(getattr(self.theta, key))
-                logalphas.append(log_alpha)
+            logger.info(f"Chain progress: {i+1}/{n_iter} iterations completed.")
+
+        # The boundary iteration when we first collect samples
+        logmarliks = []     # Initialize list to store log marginal likelihoods for each sampled trajectory
+        thetas = {key: [] for key in self.theta_vars.keys()}  # Initialize dictionary to store sampled parameter values
+        logalphas = []     # Initialize list to store log acceptance probabilities
+
+        log_alpha = self._step()    # First step
+
+        samples = self.current_trajectory
+        logmarliks.append(self.current_logmarlik)
+        for key in thetas.keys():
+            thetas[key].append(getattr(self.theta, key))
+        logalphas.append(log_alpha)
+
+        logger.info(f"Burn-in completed. Starting to store samples from iteration {burnin+1} onwards.")
+
+        # The second loop to run the remaining iterations and store samples after burn-in
+        for i in range(burnin+1, n_iter):
+            log_alpha = self._step()
+
+            samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
+            logmarliks.append(self.current_logmarlik)
+            for key in thetas.keys():
+                thetas[key].append(getattr(self.theta, key))
+            logalphas.append(log_alpha)
 
             logger.info(f"Chain progress: {i+1}/{n_iter} iterations completed.")
+            logger.info(f"Current values:\n"
+                        f"- log marginal likelihood: {self.current_logmarlik}\n"
+                        f"- parameters: {self.theta}\n"
+                        f"- log acceptance probability: {log_alpha}\n"
+                        )
 
         logger.info("PMMH chain completed.")
 
@@ -170,7 +190,7 @@ class ParticleMarginalMetropolisHastings:
         self.kwargs_for_params = kwargs_for_params if kwargs_for_params is not None else {}
         self.kwargs_for_sampling = kwargs_for_sampling if kwargs_for_sampling is not None else {}
 
-    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_for_params, kwargs_for_sampling, n_iter, burnin, chain_id, name="_TEST_"):
+    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_for_params, kwargs_for_sampling, n_iter, burnin, chain_id, name):
         """
         Worker function for a single PMMH chain.
         """
@@ -228,7 +248,7 @@ class ParticleMarginalMetropolisHastings:
         all_results : list
             List of results from each chain. Each element is a tuple (samples, logmarliks, thetas, logalphas) for that chain. 
         """
-        n_chain = max(n_chain, 8)
+        n_chain = min(n_chain, 8)  # Limit to a maximum of 8 chains to avoid excessive resource usage
 
         if n_chain == 1:
             # Run single chain without multiprocessing
@@ -241,7 +261,7 @@ class ParticleMarginalMetropolisHastings:
                 n_iter=n_iter,
                 burnin=burnin,
                 chain_id=0,
-                name = name
+                name=name
             )
             return [result]
 
@@ -258,7 +278,8 @@ class ParticleMarginalMetropolisHastings:
                     [self.kwargs_for_sampling] * n_chain,
                     [n_iter] * n_chain,
                     [burnin] * n_chain,
-                    list(range(n_chain))  # chain IDs for logging
+                    list(range(n_chain)),  # chain IDs for logging,
+                    [name] * n_chain
                 )
             )
 

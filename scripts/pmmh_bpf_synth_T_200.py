@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from src.utils.log import setup_main_logging
 import numpy as np
+import matplotlib.pyplot as plt
+import argparse
 
 # Experiment specific imports
 from src.models.mssv import MSSVModelParams, MSSVModel
@@ -11,8 +13,9 @@ from src.filters.pmcmc.pmmh import ParticleMarginalMetropolisHastings
 from src.filters.smc.bootstrap_pf import BootstrapParticleFilter
 from src.filters.smc.resampling import systematic_resampling
 from src.data_generation.simulate_data import simulate_data
+from src.diagnostics.plotting_pmmh import plot_traceplots
 
-def main():
+def main(N, K, M, C, burnin):
     name = "pmmh_bpf_synth_T_200"
 
     logger = setup_main_logging(name)
@@ -22,13 +25,14 @@ def main():
 
     logger.info("Project overview:")
     logs_dir = Path(os.environ['ROOT_DIR']) / 'experiments' / name / 'logs'
+    results_dir = Path(os.environ['ROOT_DIR']) / 'experiments' / name / 'results'
+    results_dir.mkdir(parents=True, exist_ok=True)
     data_dir = Path(os.environ['ROOT_DIR']) / 'data'
     logger.info(f"- Logs dir: {logs_dir}")
+    logger.info(f"- Results dir: {results_dir}")
     logger.info(f"- Data dir: {data_dir}")
 
     logger.info("=" * 60)
-    logger.info("STARTING PIPELINE")
-    logger.info("=" * 60 + "\n")
 
     # Random seed
     rng = np.random.default_rng(123)
@@ -57,11 +61,11 @@ def main():
     logger.info(f"True log-volatility shape: {h_true.shape}")
     logger.info(f"True regimes shape: {s_true.shape}")
     logger.info(f"Observations (returns) shape: {y.shape}")
+    logger.info("-" * 60)
 
     # BPF initialization
-    N = 3000
     bpf = BootstrapParticleFilter(model, N, resampler=systematic_resampling)
-    logger.info(f"\nInitialized Bootstrap Particle Filter")
+    logger.info(f"Initialized Bootstrap Particle Filter")
     logger.info(f"N = {N}")
 
     # Test log marginal likelihood mean and variance for fixed parameters
@@ -75,46 +79,73 @@ def main():
 
     logger.info(f"BPF log marginal likelihood")
     logger.info(f"Mean: {np.mean(logmarliks_bpf)}")
-    logger.info(f"Variance: {np.var(logmarliks_bpf)}")
+    logger.info(f"Variance: {np.var(logmarliks_bpf)}\n")
 
-    logger.info(f"\nBPF marginal likelihood")
+    logger.info(f"BPF marginal likelihood")
     logger.info(f"Mean: {np.mean(np.exp(logmarliks_bpf))}")
     logger.info(f"Variance: {np.var(np.exp(logmarliks_bpf))}")
 
     logger.info("-" * 60)
 
     kwargs_for_sampling = {
-        "step_mu": 0.2,
-        "step_delta": 0.4,
-        "step_phi": 0.05,
-        "step_sigma": 0.2,
-        "step_P": 100.0
+        "step_mu": 0.1,
+        "step_delta": 0.1,
+        "step_phi": 0.03,
+        "step_sigma": 0.1,
+        "step_P": 1000.0
     }
 
-    K = 2
     kwargs_for_params = {
         "num_regimes": K
     }
 
     pmmh = ParticleMarginalMetropolisHastings(bpf, kwargs_for_sampling=kwargs_for_sampling, kwargs_for_params=kwargs_for_params)
 
-    logger.info(f"\nInitialized PMMH sampler")
+    logger.info(f"Initialized PMMH sampler")
     logger.info(f"K = {K}")
-    logger.info(f"Sampling parameters: {kwargs_for_sampling}")
+    logger.info(
+        "Sampling parameters:\n%s",
+        "\n ".join(f"{k}: {v}" for k, v in kwargs_for_sampling.items())
+    )
 
     logger.info("-" * 60)
 
-    M = 10000
-    C = 8
-    burnin = 4000
     logger.info(f"Initializing sampling with parameters:")
     logger.info(f"- M = {M}")
     logger.info(f"- C = {C}")
     logger.info(f"- Burn-in = {burnin}")
+    logger.info("-" * 60)
 
     results_bpf = pmmh.run(y, n_iter=M, n_chain=C, burnin=burnin, name=name)
 
-    logger.info(f"\nPMMH sampling completed.")
+    logger.info(f"PMMH sampling completed.")
+    logger.info("-" * 60)
+
+    logger.info(f"PMMH chains diagnostics")
+    
+    # Log initial parameters theta for each chain
+    for chain in range(C):
+        samples, logmarlik, thetas, logalphas = results_bpf[chain]
+        initial_theta = {key: values[0] for key, values in thetas.items()}
+        transition_counts = compute_transition_count(samples)
+        logger.info(f"Chain {chain+1} initial theta: {initial_theta}")
+
+    logger.info("-" * 60)
+    logger.info("Plotting diagnostics ...")
+    
+    plot_traceplots(results_bpf, results_dir)
+
+    logger.info("Diagnostics plotting completed.")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--N", type=int, required=True, help="Number of particles for the BPF")
+    parser.add_argument("--K", type=int, required=True, help="Number of regimes in MSSV model")
+    parser.add_argument("--M", type=int, required=True, help="Number of MCMC iterations")
+    parser.add_argument("--C", type=int, required=True, help="Number of chains")
+    parser.add_argument("--burnin", type=int, required=True, help="Number of burn-in iterations")
+
+    args = parser.parse_args()
+
+    main(args.N, args.K, args.M, args.C, args.burnin)
