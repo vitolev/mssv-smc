@@ -78,14 +78,12 @@ class ParticleFilter(ABC):
 
         Returns
         -------
-        trajectories : list of lists
-            List of sampled trajectories. Each trajectory is a list of states over time. Trajectories are sampled according to the final weights, hence
-            their contribution to the smoothing distribution is equally weighted.
-            trajectories[i][t] is the state at time t of trajectory i.
+        trajectories : list of StateSpaceModelState
+            A list of length T+1, where each element is a StateSpaceModelState containing the sampled states for that time step across the n_traj trajectories.
         n_traj : int
             The number of trajectories returned (equal to n_traj if n_traj is not None, else equal to N).
         """
-        T = len(history)
+        T = len(history)    # history actually has length T+1, where T is the number of time steps in the original data sequence y. +1 comes from the initial step t=0 with particles from the prior. 
         N = len(history[0][1])
 
         if n_traj is None:

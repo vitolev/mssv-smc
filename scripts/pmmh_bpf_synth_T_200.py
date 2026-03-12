@@ -14,6 +14,7 @@ from src.filters.smc.bootstrap_pf import BootstrapParticleFilter
 from src.filters.smc.resampling import systematic_resampling
 from src.data_generation.simulate_data import simulate_data
 from src.diagnostics.plotting_pmmh import plot_traceplots
+from src.utils.mssv_utils import compute_transition_counts
 
 def main(N, K, M, C, burnin):
     name = "pmmh_bpf_synth_T_200"
@@ -127,8 +128,11 @@ def main(N, K, M, C, burnin):
     for chain in range(C):
         samples, logmarlik, thetas, logalphas = results_bpf[chain]
         initial_theta = {key: values[0] for key, values in thetas.items()}
-        transition_counts = compute_transition_count(samples)
         logger.info(f"Chain {chain+1} initial theta: {initial_theta}")
+        if chain == 0:
+            transition_counts = compute_transition_counts(samples)
+            for m in range(100):
+                logger.info(f"- Sample {m+1} transition counts:\n{transition_counts[m]}")
 
     logger.info("-" * 60)
     logger.info("Plotting diagnostics ...")
