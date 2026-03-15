@@ -1,12 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=pmmh_bpf_synth_T_200
 #SBATCH --partition=all
+#SBATCH --account=fri-users
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
 #SBATCH --output=pmmh_bpf_synth_T_200.out
-#SBATCH --time=04:00:00
+#SBATCH --time=01:00:00
 
 echo "Job started on $(hostname)"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"
@@ -29,8 +30,8 @@ echo "Activated virtual environment. Starting Python script."
 
 # Run script
 python scripts/pmmh_bpf_synth_T_200.py \
-    --N 3000 \
-    --K 2 \
-    --M 10000 \
+    --N 1000 \
+    --K 1 \
+    --M 20000 \
     --C 8 \
-    --burnin 5000
+    --burnin 10000

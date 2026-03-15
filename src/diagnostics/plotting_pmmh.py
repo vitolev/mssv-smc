@@ -93,21 +93,3 @@ def plot_traceplots(results, results_dir):
                     plt.grid()
                     plt.savefig(results_dir / f"{key}_{i}_{j}_trace.png")
                     plt.close()
-
-    # TODO: Implement general trajectory plotting for latent states
-    # # Now let's look at samples of trajectories
-    # plt.figure(figsize=(12, 8))
-    # for chain in range(len(results)):
-    #     samples, _, _, _ = results[chain]
-    #     # Compute mean trajectory post burn-in
-    #     samples_h = np.array([sample.h_t for sample in samples])    # shapre (T+1, N)
-    #     mean_trajectory = np.mean(samples_h, axis=1)
-    #     plt.plot(mean_trajectory, label=f"Chain {chain+1}", alpha=0.7)
-    # plt.plot(np.arange(1, len(h_true)+1), h_true, label="True Trajectory", color='black', linestyle='--')
-    # plt.xlabel("Time")
-    # plt.ylabel("Log Volatility")
-    # plt.title("Mean Trajectory of Particles")
-    # plt.legend()
-    # plt.grid()
-    # plt.savefig(results_dir / "mean_trajectory.png")
-    # plt.close()

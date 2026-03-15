@@ -6,6 +6,7 @@ from src.utils.log import setup_main_logging
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
+import pickle
 
 # Experiment specific imports
 from src.models.mssv import MSSVModelParams, MSSVModel
@@ -42,11 +43,10 @@ def main(N, K, M, C, burnin):
 
     # True parameters
     true_theta = MSSVModelParams(
-        mu=[-1.0, 1.6],
-        phi=0.95,
+        mu=[-1.0],
+        phi=0.9,
         sigma_eta=0.1,
-        P=[[0.95, 0.05],
-            [0.05, 0.95]]
+        P=[[1.0]]
     )
 
     T = 200
@@ -89,11 +89,11 @@ def main(N, K, M, C, burnin):
     logger.info("-" * 60)
 
     kwargs_for_sampling = {
-        "step_mu": 0.1,
+        "step_mu": 0.2,
         "step_delta": 0.1,
-        "step_phi": 0.03,
-        "step_sigma": 0.1,
-        "step_P": 1000.0
+        "step_phi": 0.05,
+        "step_sigma": 0.2,
+        "step_P": 500.0
     }
 
     kwargs_for_params = {
@@ -120,6 +120,12 @@ def main(N, K, M, C, burnin):
     results_bpf = pmmh.run(y, n_iter=M, n_chain=C, burnin=burnin, name=name)
 
     logger.info(f"PMMH sampling completed.")
+
+    # Save results to pickle
+    with open(results_dir / (name + "_results.pkl"), "wb") as f:
+        pickle.dump(results_bpf, f)
+    logger.info(f"Saved PMMH results to {results_dir / (name + '_results.pkl')}")
+
     logger.info("-" * 60)
 
     logger.info(f"PMMH chains diagnostics")
@@ -129,15 +135,28 @@ def main(N, K, M, C, burnin):
         samples, logmarlik, thetas, logalphas = results_bpf[chain]
         initial_theta = {key: values[0] for key, values in thetas.items()}
         logger.info(f"Chain {chain+1} initial theta: {initial_theta}")
-        if chain == 0:
-            transition_counts = compute_transition_counts(samples)
-            for m in range(100):
-                logger.info(f"- Sample {m+1} transition counts:\n{transition_counts[m]}")
 
     logger.info("-" * 60)
     logger.info("Plotting diagnostics ...")
     
     plot_traceplots(results_bpf, results_dir)
+
+    # Now let's look at samples of trajectories
+    plt.figure(figsize=(12, 8))
+    for chain in range(len(results_bpf)):
+        samples, _, _, _ = results_bpf[chain]
+        # Compute mean trajectory post burn-in
+        samples_h = np.array([sample.h_t for sample in samples])    # shape (T+1, N)
+        mean_trajectory = np.mean(samples_h, axis=1)
+        plt.plot(mean_trajectory, label=f"Chain {chain+1}", alpha=0.7)
+    plt.plot(np.arange(1, len(h_true)+1), h_true, label="True Trajectory", color='black', linestyle='--')
+    plt.xlabel("Time")
+    plt.ylabel("Log Volatility")
+    plt.title("Mean Trajectory of Particles")
+    plt.legend()
+    plt.grid()
+    plt.savefig(results_dir / "mean_trajectory.png")
+    plt.close()
 
     logger.info("Diagnostics plotting completed.")
 

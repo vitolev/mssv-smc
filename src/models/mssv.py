@@ -87,15 +87,15 @@ class MSSVModelParams(StateSpaceModelParams):
             num_regimes: int
                 Number of regimes (K) in the MSSV model.
         """
-        self.mu1 = rng.normal(0,1)
-        self.delta = rng.normal(0,1,size=num_regimes-1)
+        self.mu1 = rng.normal(0,10)
+        self.delta = rng.normal(0,2,size=num_regimes-1)
         self.mu = self._delta_to_mu(self.mu1, self.delta)
 
-        self.phi = rng.uniform(0, 1)       # Prior for phi_k in (0,1)
+        self.phi = rng.uniform(-1, 1)       # Prior for phi_k in (-1,1)
         self.sigma_eta = rng.exponential(1.0)  # Prior for sigma_eta_k > 0
 
         # Prior for transition matrix P: Dirichlet distribution for each row
-        alpha = np.ones(num_regimes)  # Symmetric Dirichlet prior
+        alpha = 0.5 * np.ones(num_regimes)  # Symmetric Dirichlet prior
         self.P = np.array([rng.dirichlet(alpha) for _ in range(num_regimes)])
 
     def log_prior_density(self) -> float:
@@ -105,14 +105,14 @@ class MSSVModelParams(StateSpaceModelParams):
         logp = 0.0
 
         # ---- mu_k ~ N(0, 1^2) ----
-        logp += norm.logpdf(self.mu1, loc=0, scale=1)   # mu1 prior
-        logp += np.sum(norm.logpdf(self.delta, loc=0, scale=1))  # delta priors
+        logp += norm.logpdf(self.mu1, loc=0, scale=10)   # mu1 prior
+        logp += np.sum(norm.logpdf(self.delta, loc=0, scale=2))  # delta priors
 
-        # ---- phi_k ~ Uniform(0, 1) ----
+        # ---- phi_k ~ Uniform(-1, 1) ----
         # Explicit check to avoid -inf surprises
-        if self.phi <= 0.0 or self.phi >= 1.0:
+        if self.phi <= -1.0 or self.phi >= 1.0:
             return -np.inf
-        logp += uniform.logpdf(self.phi, loc=0.0, scale=1.0)
+        logp += uniform.logpdf(self.phi, loc=-1.0, scale=2.0)
 
         # ---- sigma_eta_k ~ Exponential(1) ----
         if self.sigma_eta <= 0.0:
@@ -122,7 +122,7 @@ class MSSVModelParams(StateSpaceModelParams):
         # ---- Transition matrix rows ~ Dirichlet(1,...,1) ----
         for row in self.P:
             # Dirichlet already enforces positivity and sum-to-1
-            logp += dirichlet.logpdf(row, alpha=np.ones(len(row)))
+            logp += dirichlet.logpdf(row, alpha=0.5*np.ones(len(row)))
 
         return logp
 
@@ -163,16 +163,11 @@ class MSSVModelParams(StateSpaceModelParams):
         delta = self.delta + rng.normal(0, step_delta, size=len(self.delta))
         mu = self._delta_to_mu(mu1, delta)
 
-        # ---- phi_k : reflected RW ----
-        L = 0.0
-        U = 1.0
-        width = U - L  # 1.0
-        phi = self.phi + rng.normal(0.0, step_phi)
-        # Infinite reflection via modulo folding
-        phi = (phi - L) % (2.0 * width)
-        if phi > width:
-            phi = 2.0 * width - phi
-        phi = phi + L
+        # ---- phi_k : transformed RW ----
+        # Propose in unconstrained space and transform back to (-1,1)
+        phi_unconstrained = logit((self.phi + 1) / 2)  # Map phi from (-1,1) to R
+        phi_unconstrained_new = phi_unconstrained + rng.normal(0, step_phi)
+        phi = 2 * expit(phi_unconstrained_new) - 1  # Map back to (-1,1)
 
         # ---- sigma_eta_k : log RW ----
         log_sigma = np.log(self.sigma_eta)
@@ -226,20 +221,14 @@ class MSSVModelParams(StateSpaceModelParams):
         )
 
         # ---- phi_k ----
-        period = 2.0  # 2 * width where width = 1
-        K_images = 2  # truncate infinite sum
-
-        terms = []
-        for k in range(-K_images, K_images + 1):
-            shift = period * k
-            terms.append(
-                norm.logpdf(
-                    other.phi,
-                    loc=self.phi - shift,
-                    scale=step_phi,
-                )
-            )
-        logq += logsumexp(terms)
+        # Propose in unconstrained space and transform back to (-1,1)
+        phi_unconstrained_self = logit((self.phi + 1) / 2)
+        phi_unconstrained_other = logit((other.phi + 1) / 2)
+        logq += norm.logpdf(
+            phi_unconstrained_other, loc=phi_unconstrained_self, scale=step_phi
+        )
+        # Jacobian
+        logq += np.log(2) - np.log(1 - other.phi**2)
 
         # ---- sigma_eta_k (log space) ----
         log_self = np.log(self.sigma_eta)
@@ -248,7 +237,6 @@ class MSSVModelParams(StateSpaceModelParams):
         logq += norm.logpdf(
             log_other, loc=log_self, scale=step_sigma
         )
-
         # Jacobian
         logq -= log_other
 
