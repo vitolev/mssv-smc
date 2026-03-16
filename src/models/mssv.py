@@ -104,7 +104,7 @@ class MSSVModelParams(StateSpaceModelParams):
         """
         logp = 0.0
 
-        # ---- mu_k ~ N(0, 1^2) ----
+        # ---- mu_k ~ N(0, 10^2) ----
         logp += norm.logpdf(self.mu1, loc=0, scale=10)   # mu1 prior
         logp += np.sum(norm.logpdf(self.delta, loc=0, scale=2))  # delta priors
 
@@ -119,7 +119,7 @@ class MSSVModelParams(StateSpaceModelParams):
             return -np.inf
         logp += expon.logpdf(self.sigma_eta, scale=1.0)
 
-        # ---- Transition matrix rows ~ Dirichlet(1,...,1) ----
+        # ---- Transition matrix rows ~ Dirichlet(0.5,...,0.5) ----
         for row in self.P:
             # Dirichlet already enforces positivity and sum-to-1
             logp += dirichlet.logpdf(row, alpha=0.5*np.ones(len(row)))
@@ -163,13 +163,13 @@ class MSSVModelParams(StateSpaceModelParams):
         delta = self.delta + rng.normal(0, step_delta, size=len(self.delta))
         mu = self._delta_to_mu(mu1, delta)
 
-        # ---- phi_k : transformed RW ----
+        # ---- phi : transformed RW ----
         # Propose in unconstrained space and transform back to (-1,1)
         phi_unconstrained = logit((self.phi + 1) / 2)  # Map phi from (-1,1) to R
         phi_unconstrained_new = phi_unconstrained + rng.normal(0, step_phi)
         phi = 2 * expit(phi_unconstrained_new) - 1  # Map back to (-1,1)
 
-        # ---- sigma_eta_k : log RW ----
+        # ---- sigma_eta : log RW ----
         log_sigma = np.log(self.sigma_eta)
         log_sigma_new = log_sigma + rng.normal(0.0, step_sigma)
         sigma_eta = np.exp(log_sigma_new)
@@ -220,7 +220,7 @@ class MSSVModelParams(StateSpaceModelParams):
             norm.logpdf(other.delta, loc=self.delta, scale=step_delta)
         )
 
-        # ---- phi_k ----
+        # ---- phi ----
         # Propose in unconstrained space and transform back to (-1,1)
         phi_unconstrained_self = logit((self.phi + 1) / 2)
         phi_unconstrained_other = logit((other.phi + 1) / 2)
@@ -230,7 +230,7 @@ class MSSVModelParams(StateSpaceModelParams):
         # Jacobian
         logq += np.log(2) - np.log(1 - other.phi**2)
 
-        # ---- sigma_eta_k (log space) ----
+        # ---- sigma_eta (log space) ----
         log_self = np.log(self.sigma_eta)
         log_other = np.log(other.sigma_eta)
 
@@ -404,7 +404,8 @@ class MSSVModel(StateSpaceModel):
         s0[np.arange(size), regimes] = 1
 
         # Sample initial log-volatilities based on regimes
-        h0 = self.rng.normal(theta.mu[regimes], theta.sigma_eta)   # np.random.normal uses stddev as second parameter
+        var = theta.sigma_eta ** 2 / (1 - theta.phi ** 2)  # Stationary variance of AR(1) process
+        h0 = self.rng.normal(theta.mu[regimes], np.sqrt(var))   # np.random.normal uses stddev as second parameter
 
         return MSSVModelState(h0, s0)
 

@@ -62,7 +62,7 @@ class PMMH_Chain:
         self.current_trajectory = traj
         self.current_logmarlik = logmarlik
 
-    def _step(self):
+    def _step(self, logger):
         """
         Perform one PMMH iteration by proposing new parameters, running the PF to get a new trajectory and marginal likelihood, and then accepting or rejecting the proposal based on the MH acceptance probability.
         """
@@ -71,6 +71,17 @@ class PMMH_Chain:
 
         # MH acceptance probability
         log_alpha = logmarlik_star - self.current_logmarlik + theta_star.log_prior_density() - self.theta.log_prior_density() + theta_star.log_transition_density(self.theta, **self.kwargs_for_sampling) - self.theta.log_transition_density(theta_star, **self.kwargs_for_sampling)
+        logger.debug(f"MH probability details:\n"
+                     f"- log marginal likelihood (proposed): {logmarlik_star}\n"
+                     f"- log marginal likelihood (current): {self.current_logmarlik}\n"
+                     f"- log prior density (proposed): {theta_star.log_prior_density()}\n"
+                     f"- log prior density (current): {self.theta.log_prior_density()}\n"
+                     f"- log transition density (proposed to current): {theta_star.log_transition_density(self.theta, **self.kwargs_for_sampling)}\n"
+                     f"- log transition density (current to proposed): {self.theta.log_transition_density(theta_star, **self.kwargs_for_sampling)}\n"
+                     f"- log acceptance probability: {log_alpha}\n"
+                    )
+        logger.debug(f"Proposed parameters: {theta_star}")
+        logger.debug(f"Current parameters: {self.theta}")
 
         if np.log(self.rng.uniform()) < log_alpha:
             self.theta = theta_star
@@ -119,10 +130,8 @@ class PMMH_Chain:
 
         self._initialize()
 
-
-        # First loop to run burn-in iterations without storing samples
-        for i in range(burnin):
-            log_alpha = self._step()
+        for i in range(n_iter):
+            log_alpha = self._step(logger)
 
             logger.info(f"Chain progress: {i+1}/{n_iter} iterations completed.")
 
@@ -131,7 +140,7 @@ class PMMH_Chain:
         thetas = {key: [] for key in self.theta_vars.keys()}  # Initialize dictionary to store sampled parameter values
         logalphas = []     # Initialize list to store log acceptance probabilities
 
-        log_alpha = self._step()    # First step
+        log_alpha = self._step(logger)    # First step
 
         samples = self.current_trajectory
         logmarliks.append(self.current_logmarlik)
@@ -143,20 +152,15 @@ class PMMH_Chain:
 
         # The second loop to run the remaining iterations and store samples after burn-in
         for i in range(burnin+1, n_iter):
-            log_alpha = self._step()
+            log_alpha = self._step(logger)
+
+            logger.info(f"Chain progress: {i+1}/{n_iter} iterations completed.")
 
             samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
             logmarliks.append(self.current_logmarlik)
             for key in thetas.keys():
                 thetas[key].append(getattr(self.theta, key))
             logalphas.append(log_alpha)
-
-            logger.info(f"Chain progress: {i+1}/{n_iter} iterations completed.")
-            logger.info(f"Current values:\n"
-                        f"- log marginal likelihood: {self.current_logmarlik}\n"
-                        f"- parameters: {self.theta}\n"
-                        f"- log acceptance probability: {log_alpha}\n"
-                        )
 
         logger.info("PMMH chain completed.")
 
