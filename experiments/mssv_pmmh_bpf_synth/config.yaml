@@ -1,0 +1,16 @@
+name: mssv_pmmh_bpf_synth
+
+T: 200            # Number of time steps to use from the synthetic dataset
+K: 1              # Number of regimes
+N: 1000           # Number of particles for the BPF
+
+pmmh:
+  M: 10000        # Number of PMMH iterations
+  C: 8            # Number of parallel chains  
+  burnin: 5000    # Number of burn-in iterations to discard from the PMMH output
+
+proposal:         # step sizes for the random walk proposal in PMMH
+  step_mu: 0.1
+  step_phi: 0.05
+  step_sigma_eta: 0.05
+  step_P: 500

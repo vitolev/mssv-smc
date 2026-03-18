@@ -10,10 +10,11 @@ def find_project_root(start: Path, marker=".gitignore"):
 
 ROOT_DIR = find_project_root(Path(__file__).resolve())
 
-def setup_main_logging(project_name: str) -> logging.Logger:
-    exp_dir = Path(ROOT_DIR) / "experiments" / project_name
-    exp_dir.mkdir(parents=True, exist_ok=True)
-    log_dir = exp_dir / "logs"
+def setup_main_logging(path: Path, project_name: str) -> logging.Logger:
+    """
+    Set up the main logger for the project. It creates a logger file in given experiment directory.
+    """
+    log_dir = path / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger(project_name)
@@ -39,10 +40,8 @@ def setup_main_logging(project_name: str) -> logging.Logger:
     
     return logger
 
-def setup_chain_logging(project_name: str, chain_id: int) -> logging.Logger:
-    exp_dir = Path(ROOT_DIR) / "experiments" / project_name
-    exp_dir.mkdir(parents=True, exist_ok=True)
-    log_dir = exp_dir / "logs"
+def setup_chain_logging(path: Path, project_name: str, chain_id: int) -> logging.Logger:
+    log_dir = path / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger(f"{project_name}_chain_{chain_id}")
