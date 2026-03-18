@@ -6,19 +6,17 @@ from src.utils.log import setup_main_logging
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
-import pickle
+import pandas as pd
 
 # Experiment specific imports
 from src.models.mssv import MSSVModelParams, MSSVModel
 from src.filters.pmcmc.pmmh import ParticleMarginalMetropolisHastings
 from src.filters.smc.bootstrap_pf import BootstrapParticleFilter
 from src.filters.smc.resampling import systematic_resampling
-from src.data_generation.simulate_data import simulate_data
 from src.diagnostics.plotting_pmmh import plot_traceplots
-from src.utils.mssv_utils import compute_transition_counts
 
 def main(N, K, M, C, burnin):
-    name = "pmmh_bpf_synth_T_200"
+    name = "mssv_pmmh_bpf_synth_T_200"
 
     logger = setup_main_logging(name)
     logger.info("=" * 60)
@@ -41,22 +39,26 @@ def main(N, K, M, C, burnin):
     # Initialize model
     model = MSSVModel(rng=rng)
 
-    # True parameters
-    true_theta = MSSVModelParams(
-        mu=[-1.0],
-        phi=0.9,
-        sigma_eta=0.1,
-        P=[[1.0]]
-    )
-
     T = 200
 
-    x_true, y = simulate_data(model, true_theta, T, rng)
+    # Load data
+    data_path = data_dir / "synthetic" / "data_T_2000_1_regime.csv"
+    data = pd.read_csv(data_path)
+    y = data["y"].values
+    h_true = data["h_true"].values
+    s_true = data["s_true"].values.astype(int)
+    y = y[:T]
+    h_true = h_true[:T]
+    s_true = s_true[:T]
 
-    h_true = [x.h_t for x in x_true]
-    h_true = np.array(h_true)
-    s_true = [x.s_t for x in x_true]
-    s_true = np.array(s_true)
+    param_path = data_dir / "synthetic" / "data_T_2000_1_regime_params.csv"
+    params_df = pd.read_csv(param_path)
+    true_theta = MSSVModelParams(
+        mu=[params_df["mu"].iloc[0]],
+        phi=params_df["phi"].iloc[0],
+        sigma_eta=params_df["sigma_eta"].iloc[0],
+        P=np.array([[1.0]])
+    )
 
     logger.info(f"True parameters: {true_theta}")
     logger.info(f"True log-volatility shape: {h_true.shape}")
@@ -91,7 +93,7 @@ def main(N, K, M, C, burnin):
     kwargs_for_sampling = {
         "step_mu": 0.2,
         "step_delta": 0.1,
-        "step_phi": 0.05,
+        "step_phi": 0.1,
         "step_sigma": 0.2,
         "step_P": 500.0
     }
@@ -121,25 +123,75 @@ def main(N, K, M, C, burnin):
 
     logger.info(f"PMMH sampling completed.")
 
-    # Save results to pickle
-    with open(results_dir / (name + "_results.pkl"), "wb") as f:
-        pickle.dump(results_bpf, f)
-    logger.info(f"Saved PMMH results to {results_dir / (name + '_results.pkl')}")
-
     logger.info("-" * 60)
 
-    logger.info(f"PMMH chains diagnostics")
-    
-    # Log initial parameters theta for each chain
-    for chain in range(C):
-        samples, logmarlik, thetas, logalphas = results_bpf[chain]
-        initial_theta = {key: values[0] for key, values in thetas.items()}
-        logger.info(f"Chain {chain+1} initial theta: {initial_theta}")
-
-    logger.info("-" * 60)
     logger.info("Plotting diagnostics ...")
     
     plot_traceplots(results_bpf, results_dir)
+
+    # Plot sigma_eta vs phi scatter plot
+    plt.figure(figsize=(12, 8))
+    min_logmarlik = np.inf
+    max_logmarlik = -np.inf
+    for chain in range(len(results_bpf)):
+        samples, logmarliks, thetas, logalphas = results_bpf[chain]
+        min_logmarlik = min(min_logmarlik, np.min(logmarliks))
+        max_logmarlik = max(max_logmarlik, np.max(logmarliks))
+
+    for chain in range(len(results_bpf)):
+        samples, logmarliks, thetas, logalphas = results_bpf[chain]
+        phi_samples = thetas["phi"]
+        sigma_eta_samples = thetas["sigma_eta"]
+        # Color points by log marginal likelihood with min and max obtained before
+        norm_logmarliks = (logmarliks - min_logmarlik) / (max_logmarlik - min_logmarlik + 1e-10)
+        plt.scatter(phi_samples, sigma_eta_samples, c=norm_logmarliks, cmap="viridis", label=f"Chain {chain+1}", alpha=0.5)
+    plt.xlabel("phi")
+    plt.ylabel("sigma_eta")
+    plt.title("Scatter Plot of phi vs sigma_eta")
+    # Colorbar for log marginal likelihood
+    cbar = plt.colorbar()
+    cbar.set_label("Normalized Log Marginal Likelihood")
+    plt.legend()
+    plt.grid()
+    plt.savefig(results_dir / "phi_sigma_eta_scatter.png")
+    plt.close()
+
+    # Likelihood diagnostics at fixed mu, sigma_eta
+    phi_values = np.linspace(-0.99, 0.99, 100)
+    logmarliks_phi_mean = []
+    logmarliks_phi_var = []
+    for phi in phi_values:
+        logger.info(f"Evaluating log marginal likelihood for phi = {phi:.3f}")
+        theta = MSSVModelParams(
+            mu=true_theta.mu,
+            phi=phi,
+            sigma_eta=true_theta.sigma_eta,
+            P=true_theta.P
+        )
+        temp = []
+        for _ in range(100):
+            history = bpf.run(y, theta)
+            logmarlik = history[-1][3]
+            temp.append(logmarlik)
+
+        log_vals = np.array(temp) 
+        m = np.max(log_vals)
+        log_avg = m + np.log(np.mean(np.exp(log_vals - m)))
+        logmarliks_phi_mean.append(log_avg)
+        logmarliks_phi_var.append(np.var(log_vals))
+    plt.figure(figsize=(12, 8))
+    plt.plot(phi_values, logmarliks_phi_mean, label="Mean Log Marginal Likelihood")
+    plt.fill_between(phi_values, 
+                     np.array(logmarliks_phi_mean) - 2*np.sqrt(logmarliks_phi_var), 
+                     np.array(logmarliks_phi_mean) + 2*np.sqrt(logmarliks_phi_var), 
+                     color='gray', alpha=0.5, label="±2 Std Dev")
+    plt.xlabel("phi")
+    plt.ylabel("Log Marginal Likelihood")
+    plt.title("Log Marginal Likelihood vs phi")
+    plt.legend()
+    plt.grid()
+    plt.savefig(results_dir / "logmarlik_vs_phi.png")
+    plt.close()
 
     # Now let's look at samples of trajectories
     plt.figure(figsize=(12, 8))
@@ -149,6 +201,11 @@ def main(N, K, M, C, burnin):
         samples_h = np.array([sample.h_t for sample in samples])    # shape (T+1, N)
         mean_trajectory = np.mean(samples_h, axis=1)
         plt.plot(mean_trajectory, label=f"Chain {chain+1}", alpha=0.7)
+        # Plot random 10 trajectories
+        for i in range(10):
+            index = np.random.randint(0, samples_h.shape[1])
+            plt.plot(samples_h[:, index], color='gray', alpha=0.1)
+            
     plt.plot(np.arange(1, len(h_true)+1), h_true, label="True Trajectory", color='black', linestyle='--')
     plt.xlabel("Time")
     plt.ylabel("Log Volatility")

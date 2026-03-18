@@ -1,7 +1,6 @@
 import numpy as np
 from src.models.base import StateSpaceModel, StateSpaceModelParams
 
-
 def simulate_data(model: StateSpaceModel, theta: StateSpaceModelParams, T, rng: np.random.Generator):
     """
     Simulate data from the state space model.

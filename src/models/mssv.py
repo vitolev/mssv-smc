@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import norm, uniform, expon, dirichlet
+from scipy.stats import norm, dirichlet, beta, gamma
 from scipy.special import logit, expit, logsumexp
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
 from typing import List, Tuple
@@ -91,8 +91,12 @@ class MSSVModelParams(StateSpaceModelParams):
         self.delta = rng.normal(0,2,size=num_regimes-1)
         self.mu = self._delta_to_mu(self.mu1, self.delta)
 
-        self.phi = rng.uniform(-1, 1)       # Prior for phi_k in (-1,1)
-        self.sigma_eta = rng.exponential(1.0)  # Prior for sigma_eta_k > 0
+        # Beta prior for phi_k in (-1, 1)
+        u = rng.beta(5, 2)
+        self.phi = 2 * u - 1  # Transform to (-1, 1)
+
+        # Gamma prior for sigma_eta_k > 0
+        self.sigma_eta = rng.gamma(shape=2.0, scale=1.0/5.0)
 
         # Prior for transition matrix P: Dirichlet distribution for each row
         alpha = 0.5 * np.ones(num_regimes)  # Symmetric Dirichlet prior
@@ -108,16 +112,17 @@ class MSSVModelParams(StateSpaceModelParams):
         logp += norm.logpdf(self.mu1, loc=0, scale=10)   # mu1 prior
         logp += np.sum(norm.logpdf(self.delta, loc=0, scale=2))  # delta priors
 
-        # ---- phi_k ~ Uniform(-1, 1) ----
+        # ---- phi_k ~ Beta(5, 2) transformed ----
         # Explicit check to avoid -inf surprises
         if self.phi <= -1.0 or self.phi >= 1.0:
             return -np.inf
-        logp += uniform.logpdf(self.phi, loc=-1.0, scale=2.0)
+        u = (self.phi + 1) / 2  # Transform to (0, 1)
+        logp += beta.logpdf(u, a=5.0, b=2.0) - np.log(2)
 
-        # ---- sigma_eta_k ~ Exponential(1) ----
+        # ---- sigma_eta_k ~ Gamma(2, 5) ----
         if self.sigma_eta <= 0.0:
             return -np.inf
-        logp += expon.logpdf(self.sigma_eta, scale=1.0)
+        logp += gamma.logpdf(self.sigma_eta, a=2.0, scale=1.0/5.0)
 
         # ---- Transition matrix rows ~ Dirichlet(0.5,...,0.5) ----
         for row in self.P:

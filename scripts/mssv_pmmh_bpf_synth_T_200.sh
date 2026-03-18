@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=pmmh_bpf_synth_T_200
+#SBATCH --job-name=mssv_pmmh_bpf_synth_T_200
 #SBATCH --partition=all
 #SBATCH --account=fri-users
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
-#SBATCH --output=pmmh_bpf_synth_T_200.out
+#SBATCH --output=mssv_pmmh_bpf_synth_T_200.out
 #SBATCH --time=01:00:00
 
 echo "Job started on $(hostname)"
@@ -29,7 +29,7 @@ source venv/bin/activate    # Make sure virtual environment is set up and adjust
 echo "Activated virtual environment. Starting Python script."
 
 # Run script
-python scripts/pmmh_bpf_synth_T_200.py \
+python scripts/mssv_pmmh_bpf_synth_T_200.py \
     --N 1000 \
     --K 1 \
     --M 20000 \
