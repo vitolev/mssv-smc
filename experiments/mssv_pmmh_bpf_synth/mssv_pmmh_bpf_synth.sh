@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=mssv_pmmh_bpf_synth_T_1000
+#SBATCH --job-name=mssv_pmmh_bpf_synth
 #SBATCH --partition=all
 #SBATCH --account=fri-users
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
-#SBATCH --output=mssv_pmmh_bpf_synth_T_1000.out
-#SBATCH --time=08:00:00
+#SBATCH --output=mssv_pmmh_bpf_synth.out
+#SBATCH --time=02:00:00
 
 echo "Job started on $(hostname)"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"
@@ -29,9 +29,4 @@ source venv/bin/activate    # Make sure virtual environment is set up and adjust
 echo "Activated virtual environment. Starting Python script."
 
 # Run script
-python experiments/mssv_pmmh_bpf_synth/mssv_pmmh_bpf_synth.py \
-    --N 1000 \
-    --K 1 \
-    --M 20000 \
-    --C 8 \
-    --burnin 10000
+python experiments/mssv_pmmh_bpf_synth/mssv_pmmh_bpf_synth.py

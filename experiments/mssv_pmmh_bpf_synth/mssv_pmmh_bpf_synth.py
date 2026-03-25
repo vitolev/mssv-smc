@@ -33,10 +33,22 @@ def main():
     C = config.pmmh.C
     burnin = config.pmmh.burnin
 
+    # Prior parameters
+    mu_mean = config.prior.mu_mean
+    mu_sd = config.prior.mu_sd
+    phi_a = config.prior.phi_a
+    phi_b = config.prior.phi_b
+    sigma_eta_a = config.prior.sigma_eta_a
+    sigma_eta_b = config.prior.sigma_eta_b
+    delta_mean = config.prior.delta_mean
+    delta_sd = config.prior.delta_sd
+    P_factor = config.prior.P_factor
+
+    # Proposal step sizes
     step_mu = config.proposal.step_mu
     step_delta = config.proposal.step_delta
     step_phi = config.proposal.step_phi
-    step_sigma = config.proposal.step_sigma
+    step_sigma_eta = config.proposal.step_sigma_eta
     step_P = config.proposal.step_P
 
     logger = setup_main_logging(script_dir, name)
@@ -111,25 +123,42 @@ def main():
 
     logger.info("-" * 60)
 
-    kwargs_for_sampling = {
+    kwargs_sampling = {
         "step_mu": step_mu,
         "step_delta": step_delta,
         "step_phi": step_phi,
-        "step_sigma": step_sigma,
+        "step_sigma_eta": step_sigma_eta,
         "step_P": step_P
     }
 
-    kwargs_for_params = {
-        "num_regimes": K
+    kwargs_model = {
+        "num_regimes": K,
     }
 
-    pmmh = ParticleMarginalMetropolisHastings(bpf, kwargs_for_sampling=kwargs_for_sampling, kwargs_for_params=kwargs_for_params)
+    kwargs_prior = {
+        "mu_mean": mu_mean,
+        "mu_sd": mu_sd,
+        "phi_a": phi_a,
+        "phi_b": phi_b,
+        "sigma_eta_a": sigma_eta_a,
+        "sigma_eta_b": sigma_eta_b,
+        "delta_mean": delta_mean,
+        "delta_sd": delta_sd,
+        "P_factor": P_factor
+    }
+
+    pmmh = ParticleMarginalMetropolisHastings(bpf, kwargs_sampling=kwargs_sampling, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
 
     logger.info(f"Initialized PMMH sampler")
-    logger.info(f"K = {K}")
+    logger.info(f"Model parameters:\n%s",
+        "\n ".join(f"{k}: {v}" for k, v in kwargs_model.items())
+    )
     logger.info(
         "Sampling parameters:\n%s",
-        "\n ".join(f"{k}: {v}" for k, v in kwargs_for_sampling.items())
+        "\n ".join(f"{k}: {v}" for k, v in kwargs_sampling.items())
+    )
+    logger.info("Prior parameters:\n%s",
+        "\n ".join(f"{k}: {v}" for k, v in kwargs_prior.items())
     )
 
     logger.info("-" * 60)
@@ -140,9 +169,10 @@ def main():
     logger.info(f"- Burn-in = {burnin}")
     logger.info("-" * 60)
 
-    results_bpf = pmmh.run(y, n_iter=M, n_chain=C, burnin=burnin, name=name)
+    results_bpf, acceptance_rates = pmmh.run(y, n_iter=M, n_chain=C, burnin=burnin)
 
     logger.info(f"PMMH sampling completed.")
+    logger.info(f"Acceptance rates for each chain: {acceptance_rates}")
 
     logger.info("-" * 60)
 
@@ -159,10 +189,6 @@ def main():
         samples_h = np.array([sample.h_t for sample in samples])    # shape (T+1, N)
         mean_trajectory = np.mean(samples_h, axis=1)
         plt.plot(mean_trajectory, label=f"Chain {chain+1}", alpha=0.7)
-        # Plot random 10 trajectories
-        for i in range(10):
-            index = np.random.randint(0, samples_h.shape[1])
-            plt.plot(samples_h[:, index], color='gray', alpha=0.1)
             
     plt.plot(np.arange(1, len(h_true)+1), h_true, label="True Trajectory", color='black', linestyle='--')
     plt.xlabel("Time")
@@ -176,14 +202,4 @@ def main():
     logger.info("Diagnostics plotting completed.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--N", type=int, required=True, help="Number of particles for the BPF")
-    parser.add_argument("--K", type=int, required=True, help="Number of regimes in MSSV model")
-    parser.add_argument("--M", type=int, required=True, help="Number of MCMC iterations")
-    parser.add_argument("--C", type=int, required=True, help="Number of chains")
-    parser.add_argument("--burnin", type=int, required=True, help="Number of burn-in iterations")
-
-    args = parser.parse_args()
-
-    main(args.N, args.K, args.M, args.C, args.burnin)
+    main()

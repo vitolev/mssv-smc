@@ -1,6 +1,6 @@
 import numpy as np
-from scipy.stats import norm, dirichlet, beta, gamma
-from scipy.special import logit, expit, logsumexp
+from scipy.stats import norm, dirichlet, beta, gamma, truncnorm
+from scipy.special import logit, expit
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
 from typing import List, Tuple
 
@@ -11,11 +11,13 @@ class MSSVModelParams(StateSpaceModelParams):
     Container for MSSV model parameters. If initialized without parameters, sampling from prior is done.
     """
     def __init__(self, rng: np.random.Generator = None,
-                 num_regimes: int = None,
-                 mu: List[float] = None, 
-                 phi: float = None, 
-                 sigma_eta: float = None, 
-                 P: List[List[float]] = None):
+                # Input for prior sampling (used if any of the parameters is None)
+                num_regimes: int = None,
+                # Input for direct parameter setting (overrides prior sampling if provided)
+                mu: List[float] = None, 
+                phi: float = None, 
+                sigma_eta: float = None, 
+                P: List[List[float]] = None):
 
         # Sample from prior if any parameter is None
         if any(param is None for param in [mu, phi, sigma_eta, P]):
@@ -76,7 +78,9 @@ class MSSVModelParams(StateSpaceModelParams):
         delta = np.log(np.diff(mu))
         return mu1, delta
 
-    def sample_prior(self, rng: np.random.Generator, num_regimes: int):
+    def sample_prior(self, rng: np.random.Generator, num_regimes: int,
+                    mu_mean=0.0, mu_sd=1.0, phi_a=20.0, phi_b=2.0,
+                    sigma_eta_a=2.0, sigma_eta_b=5.0, delta_mean=0.0, delta_sd=2.0, P_factor=0.5):
         """
         Sample model parameters from a prior distribution.
 
@@ -86,48 +90,50 @@ class MSSVModelParams(StateSpaceModelParams):
                 Random number generator for reproducibility.
             num_regimes: int
                 Number of regimes (K) in the MSSV model.
+            mu_mean, mu_sd, phi_a, phi_b, sigma_eta_a, sigma_eta_b, delta_mean, delta_sd, P_factor: float
+                Hyperparameters for the prior distributions of the model parameters.
         """
-        self.mu1 = rng.normal(0,10)
-        self.delta = rng.normal(0,2,size=num_regimes-1)
+        self.mu1 = rng.normal(mu_mean, mu_sd)
+        self.delta = rng.normal(delta_mean, delta_sd, size=num_regimes-1)
         self.mu = self._delta_to_mu(self.mu1, self.delta)
 
         # Beta prior for phi_k in (-1, 1)
-        u = rng.beta(5, 2)
+        u = rng.beta(phi_a, phi_b)
         self.phi = 2 * u - 1  # Transform to (-1, 1)
 
         # Gamma prior for sigma_eta_k > 0
-        self.sigma_eta = rng.gamma(shape=2.0, scale=1.0/5.0)
+        self.sigma_eta = rng.gamma(shape=sigma_eta_a, scale=1.0/sigma_eta_b)
 
         # Prior for transition matrix P: Dirichlet distribution for each row
-        alpha = 0.5 * np.ones(num_regimes)  # Symmetric Dirichlet prior
+        alpha = P_factor * np.ones(num_regimes)  # Symmetric Dirichlet prior
         self.P = np.array([rng.dirichlet(alpha) for _ in range(num_regimes)])
 
-    def log_prior_density(self) -> float:
+    def log_prior_density(self, mu_mean=0.0, mu_sd=1.0, phi_a=20.0, phi_b=2.0, 
+                          sigma_eta_a=2.0, sigma_eta_b=5.0, delta_mean=0.0, delta_sd=2.0, P_factor=0.5) -> float:
         """
         Compute log p(theta) for the MSSV model parameters.
         """
         logp = 0.0
 
-        # ---- mu_k ~ N(0, 10^2) ----
-        logp += norm.logpdf(self.mu1, loc=0, scale=10)   # mu1 prior
-        logp += np.sum(norm.logpdf(self.delta, loc=0, scale=2))  # delta priors
+        # ---- mu_k ----
+        logp += norm.logpdf(self.mu1, loc=mu_mean, scale=mu_sd)   # mu1 prior
+        logp += np.sum(norm.logpdf(self.delta, loc=delta_mean, scale=delta_sd))  # delta priors
 
-        # ---- phi_k ~ Beta(5, 2) transformed ----
+        # ---- phi ----
         # Explicit check to avoid -inf surprises
         if self.phi <= -1.0 or self.phi >= 1.0:
             return -np.inf
-        u = (self.phi + 1) / 2  # Transform to (0, 1)
-        logp += beta.logpdf(u, a=5.0, b=2.0) - np.log(2)
+        logp += beta.logpdf((self.phi + 1) / 2, a=phi_a, b=phi_b)
 
-        # ---- sigma_eta_k ~ Gamma(2, 5) ----
+        # ---- sigma_eta ----
         if self.sigma_eta <= 0.0:
             return -np.inf
-        logp += gamma.logpdf(self.sigma_eta, a=2.0, scale=1.0/5.0)
+        logp += gamma.logpdf(self.sigma_eta, a=sigma_eta_a, scale=1.0/sigma_eta_b)
 
-        # ---- Transition matrix rows ~ Dirichlet(0.5,...,0.5) ----
+        # ---- Transition matrix rows ----
         for row in self.P:
             # Dirichlet already enforces positivity and sum-to-1
-            logp += dirichlet.logpdf(row, alpha=0.5*np.ones(len(row)))
+            logp += dirichlet.logpdf(row, alpha=P_factor*np.ones(len(row)))
 
         return logp
 
@@ -142,7 +148,7 @@ class MSSVModelParams(StateSpaceModelParams):
         step_mu=0.1,  
         step_delta=0.1,  
         step_phi=0.1,
-        step_sigma=0.1,
+        step_sigma_eta=0.1,
         step_P=20.0
     ) -> 'MSSVModelParams':
         """
@@ -152,7 +158,7 @@ class MSSVModelParams(StateSpaceModelParams):
         ----------
             rng: np.random.Generator
                 Random number generator for reproducibility.
-            step_mu, step_delta, step_phi, step_sigma, step_P: float
+            step_mu, step_delta, step_phi, step_sigma_eta, step_P: float
                 Step sizes for the proposal distribution for each parameter type. These control how much the new parameters can deviate from the current ones.
 
         Returns
@@ -176,7 +182,7 @@ class MSSVModelParams(StateSpaceModelParams):
 
         # ---- sigma_eta : log RW ----
         log_sigma = np.log(self.sigma_eta)
-        log_sigma_new = log_sigma + rng.normal(0.0, step_sigma)
+        log_sigma_new = log_sigma + rng.normal(0.0, step_sigma_eta)
         sigma_eta = np.exp(log_sigma_new)
 
         # ---- transition matrix rows : Dirichlet RW ----
@@ -197,7 +203,7 @@ class MSSVModelParams(StateSpaceModelParams):
         step_mu=0.1,
         step_delta=0.1,
         step_phi=0.1,
-        step_sigma=0.1,
+        step_sigma_eta=0.1,
         step_P=20.0
     ) -> float:
         """
@@ -207,7 +213,7 @@ class MSSVModelParams(StateSpaceModelParams):
         ----------
             other: MSSVModelParams
                 The parameter set for which we want to compute the log transition density from self.
-            step_mu, step_delta, step_phi, step_sigma, step_P: float
+            step_mu, step_delta, step_phi, step_sigma_eta, step_P: float
                 The step sizes used in the proposal distribution for each parameter type.
 
         Returns
@@ -240,7 +246,7 @@ class MSSVModelParams(StateSpaceModelParams):
         log_other = np.log(other.sigma_eta)
 
         logq += norm.logpdf(
-            log_other, loc=log_self, scale=step_sigma
+            log_other, loc=log_self, scale=step_sigma_eta
         )
         # Jacobian
         logq -= log_other

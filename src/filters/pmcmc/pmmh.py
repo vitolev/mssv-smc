@@ -4,7 +4,6 @@ from concurrent.futures import ProcessPoolExecutor
 
 from src.filters.smc.base_pf import ParticleFilter
 from src.models.base import StateSpaceModel, StateSpaceModelParams
-from src.utils.log import setup_chain_logging
 
 class PMMH_Chain:
     """
@@ -13,25 +12,28 @@ class PMMH_Chain:
     def __init__(
         self,
         pf: ParticleFilter,
-        kwargs_for_params=None,
-        kwargs_for_sampling=None,
+        kwargs_model=None,
+        kwargs_sampling=None,
+        kwargs_prior=None,
     ):
         """
         Parameters
         ----------
         pf : ParticleFilter
             A ParticleFilter instance to use for proposing trajectories and computing marginal likelihoods.
-        kwargs_for_params : dict, optional
-            Additional keyword arguments to pass to the initialization of parameters. 
-            For example, for MSSV model, num_regimes is needed to initialize the parameters.
-        kwargs_for_sampling : dict, optional
+        kwargs_model : dict, optional
+            Additional keyword arguments to pass to the initialization of the model.
+        kwargs_sampling : dict, optional
             Additional keyword arguments to pass when proposing new parameters.
             For example, for MSSV model, step_mu, step_phi, step_sigma, step_P are needed to sample new parameters.
+        kwargs_prior : dict, optional
+            Additional keyword arguments to pass when sampling parameters from the prior.
         """
         self.pf = pf
         self.rng = pf.model.rng
-        self.kwargs_for_params = kwargs_for_params if kwargs_for_params is not None else {}
-        self.kwargs_for_sampling = kwargs_for_sampling if kwargs_for_sampling is not None else {}
+        self.kwargs_model = kwargs_model if kwargs_model is not None else {}
+        self.kwargs_sampling = kwargs_sampling if kwargs_sampling is not None else {}
+        self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
 
     def _run_pf_and_sample(self, y, theta: StateSpaceModelParams):
         """
@@ -62,26 +64,15 @@ class PMMH_Chain:
         self.current_trajectory = traj
         self.current_logmarlik = logmarlik
 
-    def _step(self, logger):
+    def _step(self):
         """
         Perform one PMMH iteration by proposing new parameters, running the PF to get a new trajectory and marginal likelihood, and then accepting or rejecting the proposal based on the MH acceptance probability.
         """
-        theta_star = self.theta.sample_transition(self.rng, **self.kwargs_for_sampling)  # Propose new parameters
+        theta_star = self.theta.sample_transition(self.rng, **self.kwargs_sampling)  # Propose new parameters
         traj_star, logmarlik_star = self._run_pf_and_sample(self.y, theta_star)     # Run PF with proposed parameters
 
         # MH acceptance probability
-        log_alpha = logmarlik_star - self.current_logmarlik + theta_star.log_prior_density() - self.theta.log_prior_density() + theta_star.log_transition_density(self.theta, **self.kwargs_for_sampling) - self.theta.log_transition_density(theta_star, **self.kwargs_for_sampling)
-        logger.debug(f"MH probability details:\n"
-                     f"- log marginal likelihood (proposed): {logmarlik_star}\n"
-                     f"- log marginal likelihood (current): {self.current_logmarlik}\n"
-                     f"- log prior density (proposed): {theta_star.log_prior_density()}\n"
-                     f"- log prior density (current): {self.theta.log_prior_density()}\n"
-                     f"- log transition density (proposed to current): {theta_star.log_transition_density(self.theta, **self.kwargs_for_sampling)}\n"
-                     f"- log transition density (current to proposed): {self.theta.log_transition_density(theta_star, **self.kwargs_for_sampling)}\n"
-                     f"- log acceptance probability: {log_alpha}\n"
-                    )
-        logger.debug(f"Proposed parameters: {theta_star}")
-        logger.debug(f"Current parameters: {self.theta}")
+        log_alpha = logmarlik_star - self.current_logmarlik + theta_star.log_prior_density() - self.theta.log_prior_density() + theta_star.log_transition_density(self.theta, **self.kwargs_sampling) - self.theta.log_transition_density(theta_star, **self.kwargs_sampling)
 
         if np.log(self.rng.uniform()) < log_alpha:
             self.theta = theta_star
@@ -92,7 +83,7 @@ class PMMH_Chain:
         self.n_steps += 1
         return log_alpha
 
-    def run(self, y, n_iter: int, burnin=0, logger=None):
+    def run(self, y, n_iter: int, burnin=0):
         """
         Run the PMMH algorithm.
 
@@ -104,8 +95,6 @@ class PMMH_Chain:
             Number of PMMH iterations.
         burnin : int, optional
             Number of initial iterations to discard as burn-in. Default is 0.
-        logger : logging.Logger
-            Logger instance for logging messages.
 
         Returns
         -------
@@ -118,8 +107,6 @@ class PMMH_Chain:
         logalphas : list 
             List of log acceptance probabilities for each iteration.
         """
-        logger.info(f"Starting PMMH chain with {n_iter} iterations and burn-in of {burnin} iterations.")
-
         self.current_trajectory = None
         self.current_logmarlik = None
 
@@ -131,16 +118,14 @@ class PMMH_Chain:
         self._initialize()
 
         for i in range(n_iter):
-            log_alpha = self._step(logger)
-
-            logger.info(f"Chain progress: {i+1}/{n_iter} iterations completed.")
+            log_alpha = self._step()
 
         # The boundary iteration when we first collect samples
         logmarliks = []     # Initialize list to store log marginal likelihoods for each sampled trajectory
         thetas = {key: [] for key in self.theta_vars.keys()}  # Initialize dictionary to store sampled parameter values
         logalphas = []     # Initialize list to store log acceptance probabilities
 
-        log_alpha = self._step(logger)    # First step
+        log_alpha = self._step()    # First step
 
         samples = self.current_trajectory
         logmarliks.append(self.current_logmarlik)
@@ -148,21 +133,15 @@ class PMMH_Chain:
             thetas[key].append(getattr(self.theta, key))
         logalphas.append(log_alpha)
 
-        logger.info(f"Burn-in completed. Starting to store samples from iteration {burnin+1} onwards.")
-
         # The second loop to run the remaining iterations and store samples after burn-in
         for i in range(burnin+1, n_iter):
-            log_alpha = self._step(logger)
-
-            logger.info(f"Chain progress: {i+1}/{n_iter} iterations completed.")
+            log_alpha = self._step()
 
             samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
             logmarliks.append(self.current_logmarlik)
             for key in thetas.keys():
                 thetas[key].append(getattr(self.theta, key))
             logalphas.append(log_alpha)
-
-        logger.info("PMMH chain completed.")
 
         return samples, logmarliks, thetas, logalphas
     
@@ -174,35 +153,34 @@ class ParticleMarginalMetropolisHastings:
     def __init__(
         self,
         pf: ParticleFilter,
-        kwargs_for_params=None,
-        kwargs_for_sampling=None,
+        kwargs_model=None,
+        kwargs_sampling=None,
+        kwargs_prior=None,
     ):
         """
         Parameters
         ----------
         pf : ParticleFilter
             A ParticleFilter instance to use for proposing trajectories and computing marginal likelihoods.
-        kwargs_for_params : dict, optional
-            Additional keyword arguments to pass to the initialization of parameters. 
+        kwargs_model : dict, optional
+            Additional keyword arguments to pass to the initialization of model parameters.
             For example, for MSSV model, num_regimes is needed to initialize the parameters.
-        kwargs_for_sampling : dict, optional
+        kwargs_sampling : dict, optional
             Additional keyword arguments to pass when proposing new parameters.
             For example, for MSSV model, step_mu, step_phi, step_sigma, step_P are needed to sample new parameters.
+        kwargs_prior : dict, optional
+            Additional keyword arguments to pass to the initialization of prior.
         """
         self.pf = pf
         self.rng = pf.model.rng
-        self.kwargs_for_params = kwargs_for_params if kwargs_for_params is not None else {}
-        self.kwargs_for_sampling = kwargs_for_sampling if kwargs_for_sampling is not None else {}
+        self.kwargs_model = kwargs_model if kwargs_model is not None else {}
+        self.kwargs_sampling = kwargs_sampling if kwargs_sampling is not None else {}
+        self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
 
-    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_for_params, kwargs_for_sampling, n_iter, burnin, chain_id, name):
+    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, kwargs_sampling, kwargs_prior, n_iter, burnin, chain_id):
         """
         Worker function for a single PMMH chain.
         """
-        logger = setup_chain_logging(name, chain_id)
-        logger.info("=" * 60)
-        logger.info(f"Logging for PMMH Chain {chain_id+1}")
-        logger.info("=" * 60)
-
         # Independent RNG for this chain
         rng = np.random.default_rng(seed)
 
@@ -219,18 +197,17 @@ class ParticleMarginalMetropolisHastings:
 
         chain = PMMH_Chain(
             pf_chain,
-            kwargs_for_params=kwargs_for_params,
-            kwargs_for_sampling=kwargs_for_sampling,
+            kwargs_model=kwargs_model,
+            kwargs_sampling=kwargs_sampling,
+            kwargs_prior=kwargs_prior
         )
 
-        result = chain.run(y, n_iter=n_iter, burnin=burnin, logger=logger)
+        result = chain.run(y, n_iter=n_iter, burnin=burnin)
         acceptance_rate = chain.n_accepted / chain.n_steps if chain.n_steps > 0 else 0.0
-
-        logger.info(f"Chain {chain_id+1} acceptance rate: {acceptance_rate:.4f}")
 
         return result, acceptance_rate, chain_id
 
-    def run(self, y, n_iter: int, n_chain: int, burnin=0, name="_TEST_"):
+    def run(self, y, n_iter: int, n_chain: int, burnin=0):
         """
         Run multiple PMMH chains in parallel and return the results.
 
@@ -241,18 +218,17 @@ class ParticleMarginalMetropolisHastings:
         n_iter : int
             Number of PMMH iterations per chain.
         n_chain : int
-            Number of parallel PMMH chains to run. Max 8
+            Number of parallel PMMH chains to run.
         burnin : int, optional
             Number of initial iterations to discard as burn-in. Default is 0.
-        name : str, optional
-            Name of the experiment for logging purposes. Default is "_TEST_".
 
         Returns
         -------
         all_results : list
             List of results from each chain. Each element is a tuple (samples, logmarliks, thetas, logalphas) for that chain. 
+        acceptance_rates : list
+            List of acceptance rates for each chain.
         """
-        n_chain = min(n_chain, 8)  # Limit to a maximum of 8 chains to avoid excessive resource usage
 
         if n_chain == 1:
             # Run single chain without multiprocessing
@@ -260,14 +236,14 @@ class ParticleMarginalMetropolisHastings:
                 seed=self.rng.integers(0, 1_000_000),
                 y=y,
                 pf=self.pf,
-                kwargs_for_params=self.kwargs_for_params,
-                kwargs_for_sampling=self.kwargs_for_sampling,
+                kwargs_model=self.kwargs_model,
+                kwargs_sampling=self.kwargs_sampling,
+                kwargs_prior=self.kwargs_prior,
                 n_iter=n_iter,
                 burnin=burnin,
                 chain_id=0,
-                name=name
             )
-            return [result]
+            return [result], [acceptance_rate]
 
         seeds = self.rng.integers(0, 1_000_000, size=n_chain)  # Generate random seeds for each chain
 
@@ -278,12 +254,12 @@ class ParticleMarginalMetropolisHastings:
                     seeds,
                     [y] * n_chain,
                     [self.pf] * n_chain,
-                    [self.kwargs_for_params] * n_chain,
-                    [self.kwargs_for_sampling] * n_chain,
+                    [self.kwargs_model] * n_chain,
+                    [self.kwargs_sampling] * n_chain,
+                    [self.kwargs_prior] * n_chain,
                     [n_iter] * n_chain,
                     [burnin] * n_chain,
-                    list(range(n_chain)),  # chain IDs for logging,
-                    [name] * n_chain
+                    list(range(n_chain))
                 )
             )
 
@@ -291,7 +267,7 @@ class ParticleMarginalMetropolisHastings:
         acceptance_rates = [r[1] for r in results]    # acceptance rates
         chain_ids = [r[2] for r in results]          # chain IDs
 
-        return all_results
+        return all_results, acceptance_rates
     
     def to_inference_data(self, results):
         """

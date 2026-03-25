@@ -12,7 +12,7 @@ def plot_traceplots(results, results_dir):
     results_dir : Path
         Directory where to save the plots.
     """
-        # Plot log marginal likelihood traceplot
+    # Plot log marginal likelihood traceplot
     plt.figure(figsize=(12, 8))
     for chain in range(len(results)):
         samples, logmarliks, thetas, alphas = results[chain]

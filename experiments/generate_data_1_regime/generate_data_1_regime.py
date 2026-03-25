@@ -11,14 +11,7 @@ import pandas as pd
 # Experiment specific imports
 from src.models.mssv import MSSVModelParams, MSSVModel
 from src.data_generation.simulate_data import simulate_data
-
-def find_project_root(start: Path, marker=".gitignore"):
-    for parent in [start] + list(start.parents):
-        if (parent / marker).exists():
-            return parent
-    raise RuntimeError("Project root not found")
-
-ROOT_DIR = find_project_root(Path(__file__).resolve())
+from src.utils.utils import ROOT_DIR
 
 def main(T, mu, phi, sigma_eta):
     name = "generate_data_1_regime"
@@ -28,7 +21,7 @@ def main(T, mu, phi, sigma_eta):
 
     logger = setup_main_logging(script_dir, name)
     logger.info("=" * 60)
-    logger.info("Particle Marginal Metropolis-Hastings (PMMH) algorithm with Bootstrap Particle Filter (BPF) on synthetic data with T=200")
+    logger.info("Synthetic data generation for MSSV model with 1 regime")
     logger.info("=" * 60)
 
     logger.info("Project overview:")
@@ -87,7 +80,8 @@ def main(T, mu, phi, sigma_eta):
     params_df = pd.DataFrame({
         'mu': true_theta.mu,
         'phi': true_theta.phi,
-        'sigma_eta': true_theta.sigma_eta
+        'sigma_eta': true_theta.sigma_eta,
+        'P': [true_theta.P[0].tolist()]
     }, index=[0])
     params_file = data_dir / "synthetic" / f'data_T_{T}_1_regime_params.csv'
     params_df.to_csv(params_file, index=False)
