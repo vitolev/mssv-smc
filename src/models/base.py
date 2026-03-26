@@ -1,91 +1,47 @@
 from abc import ABC, abstractmethod
 import numpy as np
 from typing import Type
+from dataclasses import dataclass
 
+@dataclass(frozen=True)
 class StateSpaceModelParams(ABC):
     """
     Base class for state space model parameters.
     """
-    def __init__(self):
+    def __post_init__(self):
+        self._validate()
+
+    @abstractmethod
+    def _validate(self):
+        """Validate parameter constraints."""
+        pass
+
+class StateSpaceModelPrior(ABC):
+    """
+    Base class for state space model prior distribution.
+    """
+    @abstractmethod
+    def sample(self, rng: np.random.Generator, *args, **kwargs):
+        """Draw a sample of parameters."""
         pass
 
     @abstractmethod
-    def sample_prior(self, rng: np.random.Generator, num_regimes: int):
-        """
-        Sample parameters from the prior distribution.
+    def logpdf(self, params: StateSpaceModelParams) -> float:
+        """Compute log prior density."""
+        pass
 
-        Parameters
-        ----------
-        rng : np.random.Generator
-            Random number generator to use for sampling.
-        num_regimes : int
-            The number of regimes in the model, which may influence the shape of the sampled parameters.
-        """
+class StateSpaceModelProposal(ABC):
+    """
+    Base class for state space model proposal distribution (for MCMC).
+    """
+    @abstractmethod
+    def sample(self, rng: np.random.Generator, p: StateSpaceModelParams) -> StateSpaceModelParams:
+        """Draw θ' ~ q(· | θ)."""
         pass
 
     @abstractmethod
-    def log_prior_density(self) -> float:
-        """
-        Compute the log prior density of the parameters.
-
-        Returns
-        -------
-        log_prior: float
-            The log prior density evaluated at the current parameter values.
-        """
-        pass
-
-    @abstractmethod
-    def sample_transition(self, rng: np.random.Generator) -> "StateSpaceModelParams":
-        """
-        Sample new parameters from a proposal distribution for PMMH.
-
-        Parameters
-        ----------
-        rng : np.random.Generator
-            Random number generator to use for sampling.
-
-        Returns
-        -------
-        new_params: StateSpaceModelParams
-            A new instance of StateSpaceModelParams sampled from the proposal distribution.
-        """
-        pass
-
-    @abstractmethod
-    def log_transition_density(self, other: "StateSpaceModelParams") -> float:
-        """
-        Compute the log q(other | self) where q is the proposal distribution.
-
-        Parameters
-        ----------
-        other : StateSpaceModelParams
-            The other parameter instance to evaluate the transition density against.
-
-        Returns
-        -------
-        log_density: float
-            The log transition density evaluated at the current parameter values given the other parameters.
-        """
-        pass
-
-    @abstractmethod
-    def sample_from_data(self, x: np.ndarray, y: np.ndarray) -> "StateSpaceModelParams":
-        """
-        Sample new parameters from the conditional distribution p(theta | x, y).
-
-        Parameters
-        ----------
-        x : np.ndarray
-            Latent states.
-        y : np.ndarray
-            Observations.
-
-        Returns
-        -------
-        new_params: StateSpaceModelParams
-            A new instance of StateSpaceModelParams sampled from the conditional distribution given x and y.
-        """
+    def logpdf(self, from_p: StateSpaceModelParams, to_p: StateSpaceModelParams) -> float:
+        """Compute log q(θ' | θ)."""
         pass
 
 class StateSpaceModelState(ABC):
@@ -110,18 +66,6 @@ class StateSpaceModelState(ABC):
         """
         pass
 
-
-def validate_types(method):
-    def wrapper(self, *args, **kwargs):
-        # convention: theta first, state second (or later)
-        for arg in args:
-            if isinstance(arg, StateSpaceModelParams):
-                self._check_params(arg)
-            if isinstance(arg, StateSpaceModelState):
-                self._check_state(arg)
-        return method(self, *args, **kwargs)
-    return wrapper
-
 class StateSpaceModel(ABC):
     """
     Generic state-space model:
@@ -130,6 +74,8 @@ class StateSpaceModel(ABC):
     """
     params_type = StateSpaceModelParams
     state_type = StateSpaceModelState
+    prior_type = StateSpaceModelPrior
+    proposal_type = StateSpaceModelProposal
 
     def __init__(self, rng=None):
         self.rng = rng or np.random.default_rng()

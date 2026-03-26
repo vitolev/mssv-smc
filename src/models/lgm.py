@@ -1,135 +1,94 @@
 import numpy as np
-from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
-from scipy.stats import norm, uniform, expon
+from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState, StateSpaceModelPrior, StateSpaceModelProposal
+from scipy.stats import norm, uniform, expon, beta
 from scipy.special import logsumexp
+from dataclasses import dataclass
 
+# =========================
+# PARAMETER CONTAINER
+# =========================
+@dataclass(frozen=True)
 class LGModelParams(StateSpaceModelParams):
-    """
-    Container for LGSSM model parameters.
-    """
-    def __init__(self, rng: np.random.Generator = None,
-                 a: float = None, 
-                 b: float = None, 
-                 sigma_x: float = None, 
-                 sigma_y: float = None):
-        
-        # Sample from prior if any parameter is None
-        if any(param is None for param in [a, b, sigma_x, sigma_y]):
-            if rng is None:
-                raise ValueError("RNG must be provided to sample parameters from the prior.")
-            self.sample_prior(rng)
+    a: float
+    b: float
+    sigma_x: float
+    sigma_y: float
 
-        # Set provided parameters
-        else:
-            self.a = a
-            self.b = b
-            self.sigma_x = sigma_x
-            self.sigma_y = sigma_y
+    def __post_init__(self):
+        self._validate()
 
-            if sigma_x <= 0 or sigma_y <= 0:
-                raise ValueError("Standard deviations sigma_x and sigma_y must be positive.")
-            
-    def sample_prior(self, rng: np.random.Generator):
-        """
-        Sample parameters from the prior distribution. For simplicity, we use independent priors:
-            a ~ U(-1, 1)  # Uniform prior for a to encourage stability of the state process
-            b ~ N(0, 1)
-            sigma_x ~ Exponential(1) 
-            sigma_y ~ Exponential(1)
-
-        Parameters
-        ----------
-        rng : np.random.Generator
-            Random number generator for sampling.
-        """
-        self.a = rng.uniform(-1.0, 1.0)  # Uniform prior for a, to ensure stationarity of the state process     
-        self.b = rng.normal(0.0, 1.0)       
-        self.sigma_x = rng.exponential(1.0)
-        self.sigma_y = rng.exponential(1.0)
-        
-    def log_prior_density(self) -> float:
-        """
-        Compute the log prior density of the parameters.
-
-        Returns
-        -------
-        log_prior: float
-            The log prior density evaluated at the current parameter values.
-        """
-        if self.sigma_x <= 0 or self.sigma_y <= 0:
-            return -np.inf  # Log prior density is -inf if standard deviations are not positive
+    def _validate(self):
+        if self.sigma_x <= 0:
+            raise ValueError(f"sigma_x must be positive, got {self.sigma_x}")
+        if self.sigma_y <= 0:
+            raise ValueError(f"sigma_y must be positive, got {self.sigma_y}")
         if self.a < -1.0 or self.a > 1.0:
-            return -np.inf  # Log prior density is -inf if a is outside the uniform support
-        
-        log_prior_a = uniform.logpdf(self.a, loc=-1.0, scale=2.0)
-        log_prior_b = norm.logpdf(self.b, loc=0.0, scale=1.0)
+            raise ValueError(f"a must be in the range [-1, 1] for stationarity, got {self.a}")
 
-        log_prior_sigma_x = expon.logpdf(self.sigma_x, scale=1.0)
-        log_prior_sigma_y = expon.logpdf(self.sigma_y, scale=1.0)
+# =========================
+# PRIOR
+# =========================
+class LGModelPrior(StateSpaceModelPrior):
+    def __init__(self,
+                 a_a=1,
+                 a_b=1,
+                 b_mean=0,
+                 b_sd=1,
+                 sigma_x_scale=1,
+                 sigma_y_scale=1):
+        self.a_a = a_a
+        self.a_b = a_b
+        self.b_mean = b_mean
+        self.b_sd = b_sd
+        self.sigma_x_scale = sigma_x_scale
+        self.sigma_y_scale = sigma_y_scale
 
-        return log_prior_a + log_prior_b + log_prior_sigma_x + log_prior_sigma_y
+    def sample(self, rng: np.random.Generator) -> LGModelParams:
+        a = rng.beta(self.a_a, self.a_b) * 2 - 1        # Beta prior for a transformed to [-1, 1]
+        b = rng.normal(self.b_mean, self.b_sd)
+        sigma_x = rng.exponential(self.sigma_x_scale)
+        sigma_y = rng.exponential(self.sigma_y_scale)
+        return LGModelParams(a=a, b=b, sigma_x=sigma_x, sigma_y=sigma_y)
 
-    def sample_transition(
-        self,
-        rng: np.random.Generator,
-        step_a: float = 0.1,
-        step_b: float = 0.1,
-        step_sigma_x: float = 0.1,
-        step_sigma_y: float = 0.1,
-    ) -> "LGModelParams":
-        """
-        Given the current parameters, sample new parameters from a proposal distribution for PMMH. For simplicity, we use independent Gaussian random walk proposals for a and b, and log-normal random walk proposals for sigma_x and sigma_y to ensure positivity.
+    def logpdf(self, params: LGModelParams) -> float:
+        logp = 0.0
 
-        Parameters
-        ----------
-        rng : np.random.Generator
-            Random number generator for sampling.
-        step_a, step_b, step_sigma_x, step_sigma_y : float
-            Step sizes for the random walk proposals for a, b, sigma_x, and sigma_y respectively.
+        u = (params.a + 1) / 2  # Transform a from [-1, 1] to [0, 1]
+        logp += beta.logpdf(u, self.a_a, self.a_b) - np.log(2)  # Adjust for transformation
 
-        Returns
-        -------
-        new_params: LGModelParams
-            A new instance of LGModelParams sampled from the proposal distribution.
-        """
+        logp += norm.logpdf(params.b, loc=self.b_mean, scale=self.b_sd)
+        logp += expon.logpdf(params.sigma_x, scale=self.sigma_x_scale)
+        logp += expon.logpdf(params.sigma_y, scale=self.sigma_y_scale)
+
+        return logp
+
+# =========================
+# PROPOSAL
+# =========================
+class LGModelProposal(StateSpaceModelProposal):
+    def __init__(self, step_a=0.1, step_b=0.1, step_sigma_x=0.1, step_sigma_y=0.1):
+        self.step_a = step_a
+        self.step_b = step_b
+        self.step_sigma_x = step_sigma_x
+        self.step_sigma_y = step_sigma_y
+
+    def sample(self, rng: np.random.Generator, p: LGModelParams) -> LGModelParams:
         L = -1.0
         U = 1.0
         width = U - L  # 2.0
-        a_prop = self.a + rng.normal(0.0, step_a)
+        a_prop = p.a + rng.normal(0.0, self.step_a)
         # Infinite reflection via modulo folding
         a_prop = (a_prop - L) % (2.0 * width)
         if a_prop > width:
             a_prop = 2.0 * width - a_prop
         a_new = a_prop + L
 
-        b_new = self.b + rng.normal(0.0, step_b)
-        sigma_x_new = self.sigma_x * np.exp(rng.normal(0.0, step_sigma_x))  # Log-normal proposal
-        sigma_y_new = self.sigma_y * np.exp(rng.normal(0.0, step_sigma_y))  # Log-normal proposal
+        b_new = p.b + rng.normal(0.0, self.step_b)
+        sigma_x_new = p.sigma_x * np.exp(rng.normal(0.0, self.step_sigma_x))  # Log-normal proposal
+        sigma_y_new = p.sigma_y * np.exp(rng.normal(0.0, self.step_sigma_y))  # Log-normal proposal
         return LGModelParams(a=a_new, b=b_new, sigma_x=sigma_x_new, sigma_y=sigma_y_new)
 
-    def log_transition_density(
-        self, 
-        other: "LGModelParams",
-        step_a: float = 0.1,
-        step_b: float = 0.1,
-        step_sigma_x: float = 0.1,
-        step_sigma_y: float = 0.1
-    ) -> float:
-        """
-        Compute the log q(other | self) where q is the proposal distribution.
-
-        Parameters
-        ----------
-        other : LGModelParams
-            The other parameter instance to evaluate the transition density against.
-        step_a, step_b, step_sigma_x, step_sigma_y : float
-            Step sizes for the random walk proposals for a, b, sigma_x, and sigma_y respectively.
-
-        Returns
-        -------
-        log_density: float
-            The log density of proposing 'other' given 'self' under the proposal distribution.
-        """
+    def logpdf(self, p_from: LGModelParams, p_to: LGModelParams) -> float:
         # ---- a : Reflected Gaussian RW (finite image sum) ----
         period = 4.0  # 2 * width where width = 2 for [-1,1]
         K = 2  # number of image terms on each side
@@ -139,44 +98,26 @@ class LGModelParams(StateSpaceModelParams):
             shift = period * k
             diffs.append(
                 norm.logpdf(
-                    other.a,
-                    loc=self.a - shift,
-                    scale=step_a,
+                    p_to.a,
+                    loc=p_from.a - shift,
+                    scale=self.step_a,
                 )
             )
 
         log_q_a = logsumexp(diffs)
 
         # ---- b (regular Gaussian RW) ----
-        log_q_b = norm.logpdf(other.b, loc=self.b, scale=step_b)
+        log_q_b = norm.logpdf(p_to.b, loc=p_from.b, scale=self.step_b)
 
         # ---- sigma_x, sigma_y (log-normal RW) ----
-        log_q_sigma_x = norm.logpdf(np.log(other.sigma_x / self.sigma_x), loc=0.0, scale=step_sigma_x) - np.log(other.sigma_x)
-        log_q_sigma_y = norm.logpdf(np.log(other.sigma_y / self.sigma_y), loc=0.0, scale=step_sigma_y) - np.log(other.sigma_y)
+        log_q_sigma_x = norm.logpdf(np.log(p_to.sigma_x / p_from.sigma_x), loc=0.0, scale=self.step_sigma_x) - np.log(p_to.sigma_x)
+        log_q_sigma_y = norm.logpdf(np.log(p_to.sigma_y / p_from.sigma_y), loc=0.0, scale=self.step_sigma_y) - np.log(p_to.sigma_y)
 
         return log_q_a + log_q_b + log_q_sigma_x + log_q_sigma_y
 
-    def sample_from_data(self, x_traj: list["LGModelState"], y_traj: np.ndarray) -> "LGModelParams":
-        """
-        Sample parameters from the conditional distribution p(theta | x, y).
-
-        Parameters
-        ----------
-        x_traj : list of LGModelState, size T+1
-            Trajectory of latent states.
-        y_traj : array-like, shape (T,)
-            Trajectory of observations.
-
-        Returns
-        -------
-        new_params: LGModelParams
-            A new instance of LGModelParams estimated from the data.
-        """
-        raise NotImplementedError("Sampling from the conditional distribution p(theta | x, y) is not yet implemented for the LGModel.")
-                                  
-    def __repr__(self):
-        return f"LGModelParams(a={self.a:.3f}, b={self.b:.3f}, sigma_x={self.sigma_x:.3f}, sigma_y={self.sigma_y:.3f})"
-    
+# =========================
+# MODEL
+# =========================
 class LGModelState(StateSpaceModelState):
     """
     Container for LGSSM model state.
@@ -253,6 +194,8 @@ class LGModel(StateSpaceModel):
     """
     params_type = LGModelParams
     state_type = LGModelState
+    prior_type = LGModelPrior
+    proposal_type = LGModelProposal
 
     def __init__(self, rng=None):
         super().__init__(rng)

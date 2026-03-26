@@ -13,8 +13,8 @@ class PMMH_Chain:
         self,
         pf: ParticleFilter,
         kwargs_model=None,
-        kwargs_sampling=None,
         kwargs_prior=None,
+        kwargs_proposal=None,
     ):
         """
         Parameters
@@ -22,8 +22,8 @@ class PMMH_Chain:
         pf : ParticleFilter
             A ParticleFilter instance to use for proposing trajectories and computing marginal likelihoods.
         kwargs_model : dict, optional
-            Additional keyword arguments to pass to the initialization of the model.
-        kwargs_sampling : dict, optional
+            Additional keyword arguments to pass about the model.
+        kwargs_proposal : dict, optional
             Additional keyword arguments to pass when proposing new parameters.
             For example, for MSSV model, step_mu, step_phi, step_sigma, step_P are needed to sample new parameters.
         kwargs_prior : dict, optional
@@ -32,8 +32,13 @@ class PMMH_Chain:
         self.pf = pf
         self.rng = pf.model.rng
         self.kwargs_model = kwargs_model if kwargs_model is not None else {}
-        self.kwargs_sampling = kwargs_sampling if kwargs_sampling is not None else {}
+        self.kwargs_proposal = kwargs_proposal if kwargs_proposal is not None else {}
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
+
+        prior_cls = pf.model.prior_type
+        self.prior = prior_cls(**self.kwargs_prior)
+        proposal_cls = pf.model.proposal_type
+        self.proposal = proposal_cls(**self.kwargs_proposal)
 
     def _run_pf_and_sample(self, y, theta: StateSpaceModelParams):
         """
@@ -56,8 +61,7 @@ class PMMH_Chain:
         """
         Initialize the chain with a PF run by first sampling parameters from the prior and then running the PF to get an initial trajectory and marginal likelihood.
         """
-        params_class = self.pf.model.params_type
-        self.theta = params_class(self.rng, **self.kwargs_for_params) # Initialize parameters by prior sampling
+        self.theta = self.prior.sample(self.rng, **self.kwargs_model)  # Sample initial parameters from the prior
         self.theta_vars = vars(self.theta)
 
         traj, logmarlik = self._run_pf_and_sample(self.y, self.theta)
@@ -68,11 +72,11 @@ class PMMH_Chain:
         """
         Perform one PMMH iteration by proposing new parameters, running the PF to get a new trajectory and marginal likelihood, and then accepting or rejecting the proposal based on the MH acceptance probability.
         """
-        theta_star = self.theta.sample_transition(self.rng, **self.kwargs_sampling)  # Propose new parameters
+        theta_star = self.proposal.sample(self.rng, self.theta)  # Propose new parameters
         traj_star, logmarlik_star = self._run_pf_and_sample(self.y, theta_star)     # Run PF with proposed parameters
 
         # MH acceptance probability
-        log_alpha = logmarlik_star - self.current_logmarlik + theta_star.log_prior_density() - self.theta.log_prior_density() + theta_star.log_transition_density(self.theta, **self.kwargs_sampling) - self.theta.log_transition_density(theta_star, **self.kwargs_sampling)
+        log_alpha = logmarlik_star - self.current_logmarlik + self.prior.logpdf(theta_star) - self.prior.logpdf(self.theta) + self.proposal.logpdf(theta_star, self.theta) - self.proposal.logpdf(self.theta, theta_star)
 
         if np.log(self.rng.uniform()) < log_alpha:
             self.theta = theta_star
@@ -154,7 +158,7 @@ class ParticleMarginalMetropolisHastings:
         self,
         pf: ParticleFilter,
         kwargs_model=None,
-        kwargs_sampling=None,
+        kwargs_proposal=None,
         kwargs_prior=None,
     ):
         """
@@ -165,7 +169,7 @@ class ParticleMarginalMetropolisHastings:
         kwargs_model : dict, optional
             Additional keyword arguments to pass to the initialization of model parameters.
             For example, for MSSV model, num_regimes is needed to initialize the parameters.
-        kwargs_sampling : dict, optional
+        kwargs_proposal : dict, optional
             Additional keyword arguments to pass when proposing new parameters.
             For example, for MSSV model, step_mu, step_phi, step_sigma, step_P are needed to sample new parameters.
         kwargs_prior : dict, optional
@@ -174,10 +178,10 @@ class ParticleMarginalMetropolisHastings:
         self.pf = pf
         self.rng = pf.model.rng
         self.kwargs_model = kwargs_model if kwargs_model is not None else {}
-        self.kwargs_sampling = kwargs_sampling if kwargs_sampling is not None else {}
+        self.kwargs_proposal = kwargs_proposal if kwargs_proposal is not None else {}
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
 
-    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, kwargs_sampling, kwargs_prior, n_iter, burnin, chain_id):
+    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, kwargs_proposal, kwargs_prior, n_iter, burnin, chain_id):
         """
         Worker function for a single PMMH chain.
         """
@@ -198,7 +202,7 @@ class ParticleMarginalMetropolisHastings:
         chain = PMMH_Chain(
             pf_chain,
             kwargs_model=kwargs_model,
-            kwargs_sampling=kwargs_sampling,
+            kwargs_proposal=kwargs_proposal,
             kwargs_prior=kwargs_prior
         )
 
@@ -237,7 +241,7 @@ class ParticleMarginalMetropolisHastings:
                 y=y,
                 pf=self.pf,
                 kwargs_model=self.kwargs_model,
-                kwargs_sampling=self.kwargs_sampling,
+                kwargs_proposal=self.kwargs_proposal,
                 kwargs_prior=self.kwargs_prior,
                 n_iter=n_iter,
                 burnin=burnin,
@@ -255,7 +259,7 @@ class ParticleMarginalMetropolisHastings:
                     [y] * n_chain,
                     [self.pf] * n_chain,
                     [self.kwargs_model] * n_chain,
-                    [self.kwargs_sampling] * n_chain,
+                    [self.kwargs_proposal] * n_chain,
                     [self.kwargs_prior] * n_chain,
                     [n_iter] * n_chain,
                     [burnin] * n_chain,

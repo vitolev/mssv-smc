@@ -1,287 +1,218 @@
 import numpy as np
 from scipy.stats import norm, dirichlet, beta, gamma, truncnorm
 from scipy.special import logit, expit
-from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
+from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState, StateSpaceModelPrior, StateSpaceModelProposal
 from typing import List, Tuple
+from dataclasses import dataclass
 
 EPS = 1e-10
 
-class MSSVModelParams(StateSpaceModelParams):
-    """
-    Container for MSSV model parameters. If initialized without parameters, sampling from prior is done.
-    """
-    def __init__(self, rng: np.random.Generator = None,
-                # Input for prior sampling (used if any of the parameters is None)
-                num_regimes: int = None,
-                # Input for direct parameter setting (overrides prior sampling if provided)
-                mu: List[float] = None, 
-                phi: float = None, 
-                sigma_eta: float = None, 
-                P: List[List[float]] = None):
+# =========================
+# PARAMETER CONTAINER
+# =========================
+@dataclass(frozen=True)
+class MSSVParams(StateSpaceModelParams):
+    mu1: float
+    delta: np.ndarray
+    phi: float
+    sigma_eta: float
+    P: np.ndarray
 
-        # Sample from prior if any parameter is None
-        if any(param is None for param in [mu, phi, sigma_eta, P]):
-            if rng is None or num_regimes is None:
-                raise ValueError("RNG and num_regimes must be provided when sampling from prior.")
-            self.sample_prior(rng, num_regimes)
-        
-        # Set provided parameters
-        else:
-            # mu must be ordered
-            mu = np.array(mu)
-            if not all(mu[k] < mu[k+1] for k in range(len(mu)-1)):
-                raise ValueError("mu parameters must be ordered: mu[0] < mu[1] < ... < mu[K-1]")
-            self.mu1 = mu[0]
-            self.delta = np.log(np.diff(mu))
-            self.mu = mu
-            self.phi = phi
-            self.sigma_eta = sigma_eta
-            self.P = np.array(P)
+    def __post_init__(self):
+        self._validate()
 
-            if not (len(mu) == len(P)):
-                raise ValueError("Parameters mu and P must have the same length.")
-            
-            if sigma_eta <= 0:
-                raise ValueError("Standard deviation sigma_eta must be positive.")
-            
-            if any(p < 0 for row in P for p in row):
-                raise ValueError("Transition probabilities must be non-negative.")
-            
-            if any(abs(sum(row) - 1.0) > 1e-8 for row in P):
-                raise ValueError("Each row of transition matrix P must sum to 1.")
-            
-        # Ensure P is a valid transition matrix
-        self.P = np.clip(self.P, EPS, None)
-        self.P /= self.P.sum(axis=1, keepdims=True)
+    @classmethod
+    def from_mu(
+        cls,
+        mu: np.ndarray,
+        phi: float,
+        sigma_eta: float,
+        P: np.ndarray,
+    ) -> "MSSVParams":
+        # Convert inputs
+        mu = np.asarray(mu, dtype=float)
+        P = np.asarray(P, dtype=float)
 
-    def __repr__(self):
-        return (f"MSSVModelParams(mu={self.mu}, phi={self.phi}, sigma_eta={self.sigma_eta}, P={self.P})")
+        if mu.ndim != 1:
+            raise ValueError("mu must be a 1D array-like")
+        if len(mu) < 1:
+            raise ValueError("mu must have at least one element")
 
-    def _delta_to_mu(self, mu1, delta):
-        """
-        Convert (mu1, delta) -> ordered mu vector.
-        """
-        K = len(delta) + 1
-        mu = np.zeros(K)
-        mu[0] = mu1
-
-        for k in range(1, K):
-            mu[k] = mu[k-1] + np.exp(delta[k-1])
-
-        return mu
-
-    def _mu_to_delta(self, mu):
-        """
-        Convert ordered mu -> (mu1, delta)
-        """
         mu1 = mu[0]
-        delta = np.log(np.diff(mu))
-        return mu1, delta
 
-    def sample_prior(self, rng: np.random.Generator, num_regimes: int,
-                    mu_mean=0.0, mu_sd=1.0, phi_a=20.0, phi_b=2.0,
-                    sigma_eta_a=2.0, sigma_eta_b=5.0, delta_mean=0.0, delta_sd=2.0, P_factor=0.5):
-        """
-        Sample model parameters from a prior distribution.
+        if len(mu) == 1:
+            delta = np.array([])
+        else:
+            diff = np.diff(mu)
+            if np.any(diff <= 0):
+                raise ValueError("mu must be strictly increasing")
 
-        Parameters
-        ----------
-            rng: np.random.Generator
-                Random number generator for reproducibility.
-            num_regimes: int
-                Number of regimes (K) in the MSSV model.
-            mu_mean, mu_sd, phi_a, phi_b, sigma_eta_a, sigma_eta_b, delta_mean, delta_sd, P_factor: float
-                Hyperparameters for the prior distributions of the model parameters.
-        """
-        self.mu1 = rng.normal(mu_mean, mu_sd)
-        self.delta = rng.normal(delta_mean, delta_sd, size=num_regimes-1)
-        self.mu = self._delta_to_mu(self.mu1, self.delta)
+            delta = np.log(diff)
 
-        # Beta prior for phi_k in (-1, 1)
-        u = rng.beta(phi_a, phi_b)
-        self.phi = 2 * u - 1  # Transform to (-1, 1)
+        return cls(mu1, delta, phi, sigma_eta, P)
 
-        # Gamma prior for sigma_eta_k > 0
-        self.sigma_eta = rng.gamma(shape=sigma_eta_a, scale=1.0/sigma_eta_b)
+    @property
+    def mu(self) -> np.ndarray:
+        increments = np.exp(self.delta)
+        return np.concatenate(([self.mu1], self.mu1 + np.cumsum(increments)))
 
-        # Prior for transition matrix P: Dirichlet distribution for each row
-        alpha = P_factor * np.ones(num_regimes)  # Symmetric Dirichlet prior
-        self.P = np.array([rng.dirichlet(alpha) for _ in range(num_regimes)])
+    @property
+    def K(self) -> int:
+        return len(self.delta) + 1
 
-    def log_prior_density(self, mu_mean=0.0, mu_sd=1.0, phi_a=20.0, phi_b=2.0, 
-                          sigma_eta_a=2.0, sigma_eta_b=5.0, delta_mean=0.0, delta_sd=2.0, P_factor=0.5) -> float:
-        """
-        Compute log p(theta) for the MSSV model parameters.
-        """
+    def _validate(self):
+        if self.sigma_eta <= 0:
+            raise ValueError("sigma_eta must be > 0")
+
+        if not (-1 < self.phi < 1):
+            raise ValueError("phi must be in (-1,1)")
+
+        if self.P.shape[0] != self.P.shape[1]:
+            raise ValueError("P must be square")
+
+        if self.P.shape[0] != self.K:
+            raise ValueError("P dimension must match number of regimes")
+
+        if np.any(self.P < 0):
+            raise ValueError("P must be non-negative")
+
+        row_sums = self.P.sum(axis=1)
+        if not np.allclose(row_sums, 1.0):
+            raise ValueError("Rows of P must sum to 1")
+
+
+# =========================
+# PRIOR
+# =========================
+class MSSVPrior(StateSpaceModelPrior):
+    def __init__(
+        self,
+        mu_mean=0.0,
+        mu_sd=1.0,
+        delta_mean=0.0,
+        delta_sd=2.0,
+        phi_a=20.0,
+        phi_b=2.0,
+        sigma_eta_a=2.0,
+        sigma_eta_b=5.0,
+        P_factor=0.5,
+    ):
+        self.mu_mean = mu_mean
+        self.mu_sd = mu_sd
+        self.delta_mean = delta_mean
+        self.delta_sd = delta_sd
+        self.phi_a = phi_a
+        self.phi_b = phi_b
+        self.sigma_eta_a = sigma_eta_a
+        self.sigma_eta_b = sigma_eta_b
+        self.P_factor = P_factor
+
+    def sample(self, rng: np.random.Generator, K: int) -> MSSVParams:
+        mu1 = rng.normal(self.mu_mean, self.mu_sd)
+        delta = rng.normal(self.delta_mean, self.delta_sd, size=K - 1)
+
+        u = rng.beta(self.phi_a, self.phi_b)
+        phi = 2 * u - 1
+
+        sigma_eta = rng.gamma(self.sigma_eta_a, scale=1.0 / self.sigma_eta_b)
+
+        alpha = self.P_factor * np.ones(K)
+        P = np.array([rng.dirichlet(alpha) for _ in range(K)])
+
+        return MSSVParams(mu1, delta, phi, sigma_eta, P)
+
+    def logpdf(self, params: MSSVParams) -> float:
         logp = 0.0
 
-        # ---- mu_k ----
-        logp += norm.logpdf(self.mu1, loc=mu_mean, scale=mu_sd)   # mu1 prior
-        logp += np.sum(norm.logpdf(self.delta, loc=delta_mean, scale=delta_sd))  # delta priors
+        logp += norm.logpdf(params.mu1, self.mu_mean, self.mu_sd)
+        logp += np.sum(norm.logpdf(params.delta, self.delta_mean, self.delta_sd))
 
-        # ---- phi ----
-        # Explicit check to avoid -inf surprises
-        if self.phi <= -1.0 or self.phi >= 1.0:
-            return -np.inf
-        logp += beta.logpdf((self.phi + 1) / 2, a=phi_a, b=phi_b)
+        u = (params.phi + 1) / 2
+        logp += beta.logpdf(u, self.phi_a, self.phi_b) - np.log(2)
 
-        # ---- sigma_eta ----
-        if self.sigma_eta <= 0.0:
-            return -np.inf
-        logp += gamma.logpdf(self.sigma_eta, a=sigma_eta_a, scale=1.0/sigma_eta_b)
+        logp += gamma.logpdf(
+            params.sigma_eta,
+            a=self.sigma_eta_a,
+            scale=1.0 / self.sigma_eta_b,
+        )
 
-        # ---- Transition matrix rows ----
-        for row in self.P:
-            # Dirichlet already enforces positivity and sum-to-1
-            logp += dirichlet.logpdf(row, alpha=P_factor*np.ones(len(row)))
+        alpha = self.P_factor * np.ones(params.K)
+        for row in params.P:
+            logp += dirichlet.logpdf(row, alpha)
 
         return logp
 
-    def _normalize_rows_strict(P, eps=EPS):
-        P = np.clip(P, eps, None)
-        P /= P.sum(axis=1, keepdims=True)
-        return P
 
-    def sample_transition(
-        self, 
-        rng: np.random.Generator,
-        step_mu=0.1,  
-        step_delta=0.1,  
-        step_phi=0.1,
-        step_sigma_eta=0.1,
-        step_P=20.0
-    ) -> 'MSSVModelParams':
-        """
-        Given the current parameters, sample a new set of parameters by perturbing the current ones.
-
-        Parameters
-        ----------
-            rng: np.random.Generator
-                Random number generator for reproducibility.
-            step_mu, step_delta, step_phi, step_sigma_eta, step_P: float
-                Step sizes for the proposal distribution for each parameter type. These control how much the new parameters can deviate from the current ones.
-
-        Returns
-        -------
-            new_params: MSSVModelParams
-                New set of parameters sampled from a proposal distribution.
-        """
-
-        K = len(self.mu)
-
-        # ---- mu_k : Gaussian RW ----
-        mu1 = self.mu1 + rng.normal(0, step_mu)
-        delta = self.delta + rng.normal(0, step_delta, size=len(self.delta))
-        mu = self._delta_to_mu(mu1, delta)
-
-        # ---- phi : transformed RW ----
-        # Propose in unconstrained space and transform back to (-1,1)
-        phi_unconstrained = logit((self.phi + 1) / 2)  # Map phi from (-1,1) to R
-        phi_unconstrained_new = phi_unconstrained + rng.normal(0, step_phi)
-        phi = 2 * expit(phi_unconstrained_new) - 1  # Map back to (-1,1)
-
-        # ---- sigma_eta : log RW ----
-        log_sigma = np.log(self.sigma_eta)
-        log_sigma_new = log_sigma + rng.normal(0.0, step_sigma_eta)
-        sigma_eta = np.exp(log_sigma_new)
-
-        # ---- transition matrix rows : Dirichlet RW ----
-        P = np.zeros_like(self.P)
-        for k in range(K):
-            alpha = step_P * np.clip(self.P[k], EPS, None)
-            row = rng.dirichlet(alpha)
-            row = np.clip(row, EPS, None)
-            row /= row.sum()
-
-            P[k] = row
-
-        return MSSVModelParams(mu=mu, phi=phi, sigma_eta=sigma_eta, P=P)
-
-    def log_transition_density(
+# =========================
+# PROPOSAL (MCMC)
+# =========================
+class MSSVProposal(StateSpaceModelProposal):
+    def __init__(
         self,
-        other: "MSSVModelParams",
         step_mu=0.1,
         step_delta=0.1,
         step_phi=0.1,
-        step_sigma_eta=0.1,
-        step_P=20.0
-    ) -> float:
-        """
-        Compute log q(other | self) where q is the proposal distribution used in sample_transition.
+        step_sigma=0.1,
+        step_P=20.0,
+    ):
+        self.step_mu = step_mu
+        self.step_delta = step_delta
+        self.step_phi = step_phi
+        self.step_sigma = step_sigma
+        self.step_P = step_P
 
-        Parameters
-        ----------
-            other: MSSVModelParams
-                The parameter set for which we want to compute the log transition density from self.
-            step_mu, step_delta, step_phi, step_sigma_eta, step_P: float
-                The step sizes used in the proposal distribution for each parameter type.
+    def sample(self, rng: np.random.Generator, p: MSSVParams) -> MSSVParams:
+        mu1 = p.mu1 + rng.normal(0, self.step_mu)
+        delta = p.delta + rng.normal(0, self.step_delta, size=len(p.delta))
 
-        Returns
-        -------
-            logq: float
-                The log of the proposal density q(other | self).
-        """
+        # phi (logit transform)
+        z = logit((p.phi + 1) / 2)
+        z_new = z + rng.normal(0, self.step_phi)
+        phi = 2 * expit(z_new) - 1
+
+        # sigma (log space)
+        log_sigma = np.log(p.sigma_eta)
+        sigma_eta = np.exp(log_sigma + rng.normal(0, self.step_sigma))
+
+        # transition matrix
+        P = np.empty_like(p.P)
+        for k in range(p.K):
+            alpha = self.step_P * np.clip(p.P[k], EPS, None)
+            P[k] = rng.dirichlet(alpha)
+
+        return MSSVParams(mu1, delta, phi, sigma_eta, P)
+
+    def logpdf(self, from_p: MSSVParams, to_p: MSSVParams) -> float:
         logq = 0.0
-        K = len(self.mu)
 
-        # ---- mu_k ----
-        logq += norm.logpdf(other.mu1, loc=self.mu1, scale=step_mu)
-
+        logq += norm.logpdf(to_p.mu1, from_p.mu1, self.step_mu)
         logq += np.sum(
-            norm.logpdf(other.delta, loc=self.delta, scale=step_delta)
+            norm.logpdf(to_p.delta, from_p.delta, self.step_delta)
         )
 
-        # ---- phi ----
-        # Propose in unconstrained space and transform back to (-1,1)
-        phi_unconstrained_self = logit((self.phi + 1) / 2)
-        phi_unconstrained_other = logit((other.phi + 1) / 2)
-        logq += norm.logpdf(
-            phi_unconstrained_other, loc=phi_unconstrained_self, scale=step_phi
-        )
-        # Jacobian
-        logq += np.log(2) - np.log(1 - other.phi**2)
+        # phi
+        z_from = logit((from_p.phi + 1) / 2)
+        z_to = logit((to_p.phi + 1) / 2)
+        logq += norm.logpdf(z_to, z_from, self.step_phi)
+        logq += np.log(2) - np.log(1 - to_p.phi**2)
 
-        # ---- sigma_eta (log space) ----
-        log_self = np.log(self.sigma_eta)
-        log_other = np.log(other.sigma_eta)
+        # sigma
+        log_from = np.log(from_p.sigma_eta)
+        log_to = np.log(to_p.sigma_eta)
+        logq += norm.logpdf(log_to, log_from, self.step_sigma)
+        logq -= log_to
 
-        logq += norm.logpdf(
-            log_other, loc=log_self, scale=step_sigma_eta
-        )
-        # Jacobian
-        logq -= log_other
-
-        # ---- transition matrix ----
-        for k in range(K):
-            alpha = step_P * np.clip(self.P[k], EPS, None)
-            row = np.clip(other.P[k], EPS, None)
-            row /= row.sum()
-
-            logq += dirichlet.logpdf(row, alpha=alpha)
+        # P
+        for k in range(from_p.K):
+            alpha = self.step_P * np.clip(from_p.P[k], EPS, None)
+            logq += dirichlet.logpdf(to_p.P[k], alpha)
 
         return logq
-
-    def sample_from_data(self, x_traj: list["MSSVModelState"], y: np.ndarray) -> "MSSVModelParams":
-        """
-        Sample new parameters from the conditional distribution p(theta | x_traj, y).
-        For simplicity, we will use a Metropolis-Hastings step here, using the current parameters as the proposal mean.
-
-        Parameters
-        ----------
-            x_traj: list of MSSVModelState
-                The latent trajectory (h_t, s_t) over time.
-            y: np.ndarray
-                The observed data over time.
-
-        Returns
-        -------
-            new_params: MSSVModelParams
-                New set of parameters sampled from p(theta | x_traj, y).
-        """
-        #TODO: Implement
-        raise NotImplementedError("Parameter sampling from data is not implemented yet.")
-        
-class MSSVModelState(StateSpaceModelState):
+       
+# =========================
+# STATE
+# =========================
+class MSSVState(StateSpaceModelState):
     """
     Container for MSSV model state: (h_t, s_t)
         h_t: continuous latent log-volatility vector
@@ -292,7 +223,7 @@ class MSSVModelState(StateSpaceModelState):
         self.s_t = s_t  # Regime (one-hot encoded)
 
     def __getitem__(self, idx):
-        return MSSVModelState(
+        return MSSVState(
             h_t=np.array(self.h_t[idx], copy=True),
             s_t=np.array(self.s_t[idx], copy=True)
         )
@@ -301,30 +232,33 @@ class MSSVModelState(StateSpaceModelState):
         return self.h_t.shape[0]
     
     def __repr__(self):
-        return f"MSSVModelState(h_t={self.h_t}, s_t={self.s_t})"
+        return f"MSSVState(h_t={self.h_t}, s_t={self.s_t})"
     
-    def add(self, other: "MSSVModelState") -> "MSSVModelState":
+    def add(self, other: "MSSVState") -> "MSSVState":
         """
-        Add another MSSVModelState to this one. This is a simple element-wise addition of the h_t and s_t components.
+        Add another MSSVState to this one. This is a simple element-wise addition of the h_t and s_t components.
 
         Parameters
         ----------
-            other: MSSVModelState
+            other: MSSVState
                 Another state to add to this one.
 
         Returns
         -------
-            new_state: MSSVModelState
-                A new MSSVModelState where h_t and s_t are the sums of the corresponding components of self and other.
+            new_state: MSSVState
+                A new MSSVState where h_t and s_t are the sums of the corresponding components of self and other.
         """
-        if not isinstance(other, MSSVModelState):
-            raise TypeError(f"Other must be an instance of MSSVModelState, got {type(other)}")
+        if not isinstance(other, MSSVState):
+            raise TypeError(f"Other must be an instance of MSSVState, got {type(other)}")
         
         new_h_t = np.concatenate((self.h_t, other.h_t), axis=0)
         new_s_t = np.concatenate((self.s_t, other.s_t), axis=0)
 
-        return MSSVModelState(h_t=new_h_t, s_t=new_s_t)
+        return MSSVState(h_t=new_h_t, s_t=new_s_t)
     
+# =========================
+# MODEL
+# =========================
 class MSSVModel(StateSpaceModel):
     """
     Markov-Switching Stochastic Volatility Model
@@ -343,27 +277,15 @@ class MSSVModel(StateSpaceModel):
         h_t | h_{t-1}, s_t ~ N(mu_{s_t} + phi * (h_{t-1} - mu_{s_t}), sigma_eta^2)
         y_t | h_t ~ N(0, exp(h_t))
     """
-    params_type = MSSVModelParams
-    state_type = MSSVModelState
-
-    def _check_params(self, theta):
-        if not isinstance(theta, self.params_type):
-            raise TypeError(
-                f"Expected params of type {self.params_type.__name__}, "
-                f"got {type(theta).__name__}"
-            )
-
-    def _check_state(self, state):
-        if not isinstance(state, self.state_type):
-            raise TypeError(
-                f"Expected state of type {self.state_type.__name__}, "
-                f"got {type(state).__name__}"
-            )
+    params_type = MSSVParams
+    state_type = MSSVState
+    prior_type = MSSVPrior
+    proposal_type = MSSVProposal
 
     def __init__(self, rng=None):
         super().__init__(rng)
 
-    def sample_observation(self, theta : MSSVModelParams, state: MSSVModelState) -> np.ndarray:
+    def sample_observation(self, theta : MSSVParams, state: MSSVState) -> np.ndarray:
         """
         Sample an observation y_t given state x_t = (h_t, s_t) and parameters theta.
 
@@ -371,22 +293,19 @@ class MSSVModel(StateSpaceModel):
 
         Parameters
         ----------
-            theta: MSSVModelParams
+            theta: MSSVParams
                 Model parameters.
-            state: MSSVModelState
+            state: MSSVState
                 Current state of size N. 
         Returns
         -------
             y_t: np.ndarray
                 Sampled observation with shape (N,).
         """
-        self._check_params(theta)
-        self._check_state(state)
-
         h_t = state.h_t
         return self.rng.normal(0.0, np.exp(0.5 * h_t))
 
-    def sample_initial_state(self, theta : MSSVModelParams, size: int = 1) -> MSSVModelState:
+    def sample_initial_state(self, theta : MSSVParams, size: int = 1) -> MSSVState:
         """
         Sample the initial state x_0 = (h_0, s_0) given initial parameters theta.
 
@@ -394,7 +313,7 @@ class MSSVModel(StateSpaceModel):
 
         Parameters
         ----------
-            theta: MSSVModelParams
+            theta: MSSVParams
                 Model parameters.
             size: int
                 Number of initial states to sample. This influences the shape of returned arrays in MSSVModelState. (default = 1)
@@ -405,8 +324,6 @@ class MSSVModel(StateSpaceModel):
                     h_0: (size,)
                     s_0: (size, K)
         """
-        self._check_params(theta)
-
         K = len(theta.mu)
         s0 = np.zeros((size, K))   # Initialize regime array as one-hot encoding
 
@@ -418,9 +335,9 @@ class MSSVModel(StateSpaceModel):
         var = theta.sigma_eta ** 2 / (1 - theta.phi ** 2)  # Stationary variance of AR(1) process
         h0 = self.rng.normal(theta.mu[regimes], np.sqrt(var))   # np.random.normal uses stddev as second parameter
 
-        return MSSVModelState(h0, s0)
+        return MSSVState(h0, s0)
 
-    def sample_next_state(self, theta : MSSVModelParams, state: MSSVModelState) -> MSSVModelState:
+    def sample_next_state(self, theta : MSSVParams, state: MSSVState) -> MSSVState:
         """
         Sample the next state x_t = (h_t, s_t) given previous state x_t-1 and new parameters theta.
 
@@ -428,18 +345,15 @@ class MSSVModel(StateSpaceModel):
 
         Parameters
         ----------
-            theta: MSSVModelParams
+            theta: MSSVParams
                 Model parameters.
-            state: MSSVModelState
+            state: MSSVState
                 Previous state of size N.
         Returns
         -------
-            state: MSSVModelState
+            state: MSSVState
                 Sampled next state of size N.
         """
-        self._check_params(theta)
-        self._check_state(state)
-        
         h_prev, s_prev = state.h_t, state.s_t
         N, K = s_prev.shape
 
@@ -455,9 +369,9 @@ class MSSVModel(StateSpaceModel):
 
         h_t = mu + theta.phi * (h_prev - mu) + self.rng.normal(size=N, scale=theta.sigma_eta)
     
-        return MSSVModelState(h_t, s_t)
+        return MSSVState(h_t, s_t)
     
-    def expected_next_state(self, theta : MSSVModelParams, state: MSSVModelState) -> MSSVModelState:
+    def expected_next_state(self, theta : MSSVParams, state: MSSVState) -> MSSVState:
         """
         Compute the expected next state given current state and parameters theta.
 
@@ -465,18 +379,15 @@ class MSSVModel(StateSpaceModel):
 
         Parameters
         ----------
-            theta: MSSVModelParams
+            theta: MSSVParams
                 Model parameters.
-            state: MSSVModelState
+            state: MSSVState
                 Current state of size N.
         Returns
         -------
-            state: MSSVModelState
+            state: MSSVState
                 Expected next state of size N.
         """
-        self._check_params(theta)
-        self._check_state(state)
-
         h_prev, s_prev = state.h_t, state.s_t
 
         # Expected regime distribution
@@ -491,9 +402,9 @@ class MSSVModel(StateSpaceModel):
             axis=1
         )                                            # (N,)
 
-        return MSSVModelState(h_exp, s_exp)
+        return MSSVState(h_exp, s_exp)
     
-    def likelihood(self, y_t, theta : MSSVModelParams, state: MSSVModelState) -> np.ndarray:
+    def likelihood(self, y_t, theta : MSSVParams, state: MSSVState) -> np.ndarray:
         """
         Compute the likelihoods of observation y_t given current states with shape (N,).
 
@@ -503,22 +414,19 @@ class MSSVModel(StateSpaceModel):
         ----------
             y_t: float
                 Observation at time t.
-            theta: MSSVModelParams
+            theta: MSSVParams
                 Model parameters.
-            state: MSSVModelState
+            state: MSSVState
                 Current state of size N.
         Returns
         -------
             likelihood: np.ndarray
                 Likelihood values with shape (N,).
         """
-        self._check_params(theta)
-        self._check_state(state)
-
         h_t = state.h_t
         return norm.pdf(y_t, loc=0.0, scale=np.exp(0.5 * h_t))  # scale parameter is standard deviation hence 0.5
 
-    def log_likelihood(self, y_t, theta : MSSVModelParams, state: MSSVModelState) -> np.ndarray:
+    def log_likelihood(self, y_t, theta : MSSVParams, state: MSSVState) -> np.ndarray:
         """
         Compute the log-likelihood of observation y_t given current state.
 
@@ -526,22 +434,19 @@ class MSSVModel(StateSpaceModel):
         ----------
             y_t: float
                 Observation at time t.
-            theta: MSSVModelParams
+            theta: MSSVParams
                 Model parameters.
-            state: MSSVModelState
+            state: MSSVState
                 Current state of size N.
         Returns
         -------
             log_likelihood: np.ndarray
                 Log-likelihood values with shape (N,).
         """
-        self._check_params(theta)
-        self._check_state(state)
-
         h_t = state.h_t
         return norm.logpdf(y_t, loc=0.0, scale=np.exp(0.5 * h_t))
     
-    def transition_density(self, theta : MSSVModelParams, state_prev: MSSVModelState, state_next: MSSVModelState) -> np.ndarray:
+    def transition_density(self, theta : MSSVParams, state_prev: MSSVState, state_next: MSSVState) -> np.ndarray:
         """
         Compute the state transition density p(x_t | x_{t-1}, theta).
 
@@ -549,21 +454,17 @@ class MSSVModel(StateSpaceModel):
 
         Parameters
         ----------
-            theta: MSSVModelParams
+            theta: MSSVParams
                 Model parameters.
-            state_prev: MSSVModelState
+            state_prev: MSSVState
                 Previous state of size N.
-            state_next: MSSVModelState
+            state_next: MSSVState
                 Next state of size N.
         Returns
         -------
             transition_prob: np.ndarray
                 Transition probabilities with shape (N,).
         """
-        self._check_params(theta)
-        self._check_state(state_prev)
-        self._check_state(state_next)
-
         h_prev, s_prev = state_prev.h_t, state_prev.s_t
         h_next, s_next = state_next.h_t, state_next.s_t
 
@@ -582,7 +483,7 @@ class MSSVModel(StateSpaceModel):
 
         return p_s * p_h                        # (N,)
     
-    def log_transition_density(self, theta : MSSVModelParams, state_prev: MSSVModelState, state_next: MSSVModelState) -> np.ndarray:
+    def log_transition_density(self, theta : MSSVParams, state_prev: MSSVState, state_next: MSSVState) -> np.ndarray:
         """
         Compute the log of the state transition density log p(x_t | x_{t-1}, theta).
 
@@ -590,21 +491,17 @@ class MSSVModel(StateSpaceModel):
 
         Parameters
         ----------
-            theta: MSSVModelParams
+            theta: MSSVParams
                 Model parameters.
-            state_prev: MSSVModelState
+            state_prev: MSSVState
                 Previous state of size N.
-            state_next: MSSVModelState
+            state_next: MSSVState
                 Next state of size N.
         Returns
         -------
             log_transition_prob: np.ndarray
                 Log transition probabilities with shape (N,).
         """
-        self._check_params(theta)
-        self._check_state(state_prev)
-        self._check_state(state_next)
-        
         h_prev, s_prev = state_prev.h_t, state_prev.s_t
         h_next, s_next = state_next.h_t, state_next.s_t
 

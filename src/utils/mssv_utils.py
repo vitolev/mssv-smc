@@ -1,8 +1,8 @@
 from typing import List
 import numpy as np
-from src.models.mssv import MSSVModelState
+from src.models.mssv import MSSVState
 
-def compute_transition_counts(samples: List[MSSVModelState]) -> List[np.ndarray]:
+def compute_transition_counts(samples: List[MSSVState]) -> List[np.ndarray]:
     """
     Compute transition counts between regimes for each trajectory m.
 

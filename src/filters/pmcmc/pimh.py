@@ -101,18 +101,28 @@ class ParticleIndependentMetropolisHastings:
 
         self._initialize()
 
+        # Burn-in phase
+        for i in range(burnin):
+            self._step()
+            if verbose and i % 100 == 0:
+                print(f"Iteration {i}/{n_iter}, acceptance rate: {self.acceptance_rate:.3f}")
+
+        # First sample after burn-in
+        self._step()
         samples = self.current_trajectory       # array of size T+1 for the initial trajectory
         logmarliks = [self.current_logmarlik]
+        if verbose and burnin % 100 == 0:
+            print(f"Iteration {burnin}/{n_iter}, acceptance rate: {self.acceptance_rate:.3f}")
 
-        for i in range(n_iter):
-            if verbose and (i + 1) % 100 == 0:
-                print(f"Iteration {i + 1}/{n_iter}, Acceptance Rate: {self.acceptance_rate:.3f}")
-
+        # Remain iterations
+        for i in range(burnin + 1, n_iter):
             self._step()
 
-            if i >= burnin:
-                samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
-                logmarliks.append(self.current_logmarlik)
+            samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
+            logmarliks.append(self.current_logmarlik)
+
+            if verbose and i % 100 == 0:
+                print(f"Iteration {i}/{n_iter}, acceptance rate: {self.acceptance_rate:.3f}")
 
         return samples, logmarliks
 
