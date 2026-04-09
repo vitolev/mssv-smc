@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=mssv_pmmh_bpf_synth
+#SBATCH --job-name=mssv_pmmh_bpf_synth_%j
 #SBATCH --partition=all
 #SBATCH --account=fri-users
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=16G
-#SBATCH --output=mssv_pmmh_bpf_synth.out
-#SBATCH --time=02:00:00
+#SBATCH --mem=8G
+#SBATCH --output=mssv_pmmh_bpf_synth_%j.out
+#SBATCH --time=04:00:00
 
 echo "Job started on $(hostname)"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"

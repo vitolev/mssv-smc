@@ -126,7 +126,7 @@ def plot_histograms(results, results_dir):
         if values.ndim == 1:
             plt.figure()
             all_values = np.concatenate([post_samples[chain][key] for chain in range(len(results))])
-            plt.hist(all_values, bins=30, density=True, alpha=0.7)
+            plt.hist(all_values, bins='auto', density=True, alpha=0.7)
             plt.title(f'Posterior Distribution: {key}')
             plt.xlabel(key)
             plt.ylabel('Density')
@@ -142,7 +142,7 @@ def plot_histograms(results, results_dir):
             for k in range(K):
                 plt.figure()
                 all_values = np.concatenate([post_samples[chain][key][:, k] for chain in range(len(results))])
-                plt.hist(all_values, bins=30, density=True, alpha=0.7)
+                plt.hist(all_values, bins='auto', density=True, alpha=0.7)
                 plt.title(f'Posterior Distribution: {key}[{k}]')
                 plt.xlabel(f'{key}[{k}]')
                 plt.ylabel('Density')
@@ -157,9 +157,20 @@ def plot_histograms(results, results_dir):
             N, K, K2 = values.shape
             for i in range(K):
                 for j in range(K2):
-                    plt.figure()
                     all_values = np.concatenate([post_samples[chain][key][:, i, j] for chain in range(len(results))])
-                    plt.hist(all_values, bins=30, density=True, alpha=0.7)
+                    plt.figure()
+                    vmin = np.min(all_values)
+                    vmax = np.max(all_values)
+                    data_range = vmax - vmin
+
+                    # 🔑 enforce minimum range
+                    if data_range < 1e-8:
+                        center = np.mean(all_values)
+                        half_width = 0.5 
+                        vmin = center - half_width
+                        vmax = center + half_width
+
+                    plt.hist(all_values, bins=100, range=(vmin, vmax), density=True, alpha=0.7)
                     plt.title(f'Posterior Distribution: {key}[{i},{j}]')
                     plt.xlabel(f'{key}[{i},{j}]')
                     plt.ylabel('Density')

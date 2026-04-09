@@ -9,20 +9,29 @@ class PGS_Chain:
     A single PGS chain.
     """
 
-    def __init__(self, pf: ParticleFilter, kwargs_for_params=None):
+    def __init__(self, pf: ParticleFilter, kwargs_prior=None, kwargs_model=None, kwargs_proposal=None):
         """
         Parameters
         ----------
         pf: ParticleFilter
             Particle filter class to use for the conditional SMC step. Must have a .run_conditional() method implemented.
-        kwargs_for_params: dict, optional
-            Additional keyword arguments to pass to the initialization of parameters. 
-            For example, for MSSV model, num_regimes is needed to initialize the parameters.
+        kwargs_model: dict, optional
+            Additional keyword arguments to pass to the initialization of the model. For example, for MSSV model, num_regimes is needed to initialize the model.
+        kwargs_prior: dict, optional
+            Additional keyword arguments to pass to the initialization of the prior distribution for parameters.
+        kwargs_proposal: dict, optional
+            Additional keyword arguments to pass to the proposal distribution.
         """
         self.pf = pf
-        self.model = pf.model
         self.rng = pf.rng
-        self.kwargs_for_params = kwargs_for_params if kwargs_for_params is not None else {}
+        self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
+        self.kwargs_model = kwargs_model if kwargs_model is not None else {}
+        self.kwargs_proposal = kwargs_proposal if kwargs_proposal is not None else {}
+
+        prior_cls = pf.model.prior_type
+        self.prior = prior_cls(**self.kwargs_prior)
+        proposal_cls = pf.model.proposal_type
+        self.proposal = proposal_cls(**self.kwargs_proposal)
 
     def _run_pf_and_sample(self, y, theta: StateSpaceModelParams, x_current):
         """
@@ -34,17 +43,32 @@ class PGS_Chain:
         logmarlik = history[-1][3]
 
         # sample trajectory from smoothing distribution
-        trajectories = self.pf.smoothing_trajectories(
+        trajectory, _ = self.pf.smoothing_trajectories(
             history,
             n_traj=1,
         )
 
-        # for standard PGS, we keep a single trajectory as the new trajectory
-        trajectory = trajectories[0]
-
         return trajectory, logmarlik
 
-    def run(self, y, n_iter: int, x_init=None):
+    def _initialize(self):
+        """
+        Initialize the chain with a conditional PF run.
+        """
+        self.theta = self.prior.sample(self.rng, **self.kwargs_model)
+        self.initial_params = self.theta.copy()
+        self.theta_vars = vars(self.theta)
+
+        # Generate initial trajectory by running one iteration of PF without conditioning,
+        # since we don't have a reference trajectory at this point. This will be used as the initial trajectory for the first iteration of PGS.
+        history = self.pf.run(self.y, self.theta)
+        logmarlik = history[-1][3]
+        trajectory, _ = self.pf.smoothing_trajectories(history, n_traj=1)
+
+        self.current_trajectory = trajectory
+        self.current_logmarlik = logmarlik
+        
+
+    def run(self, y, n_iter: int, burnin=0):
         """
         Run the Particle Gibbs sampler.
 
@@ -54,8 +78,8 @@ class PGS_Chain:
             Observation sequence.
         n_iter : int
             Number of PGS iterations.
-        x_init : list of StateSpaceModelState, optional
-            Initial trajectory. If None, sampled from model.
+        burnin : int, optional
+            Number of burn-in iterations to discard. Must be less than n_iter. Default is 0.
 
         Returns
         -------
@@ -66,39 +90,39 @@ class PGS_Chain:
         thetas : list of StateSpaceModelParams, size n_iter
             Sampled parameters from each iteration.
         """
-        # ---- Initialization ----
-        params_class = self.pf.model.params_type
-        self.theta = params_class(self.rng, **self.kwargs_for_params) # Initialize parameters by prior sampling
-        self.theta_vars = vars(self.theta)
-        T = len(y)
-        if x_init is None:
-            x_current = []
-            x_current.append(self.model.sample_initial_state(self.theta, size=1))
-            for t in range(1, T + 1):
-                x_next = self.model.sample_next_state(self.theta, x_current[-1])
-                x_current.append(x_next)
-        else:
-            x_current = x_init
+        if burnin >= n_iter:
+            raise ValueError("Burn-in must be less than the total number of iterations.")
+        
+        self.current_trajectory = None
+        self.current_logmarlik = None
 
-        thetas = {key: [] for key in self.theta_vars.keys()}
-        samples = []
+        self.y = y
+
+        self._initialize()
+
+        # Run burn-in iterations
+        for i in range(burnin):
+            self._step()
+
+        # Boundary iteration when we first collect samples
         logmarliks = []
+        thetas = {key: [] for key in self.theta_vars.keys()}
 
-        # ---- PGS iterations ----
-        for k in range(n_iter):
-            if (k+1) % 1000 == 0:
-                print(f"PGS iteration {k+1}/{n_iter}")
-            # ----- 1. Sample theta | x, y -----
-            self.theta = self.theta.sample_from_data(x_current, y)
+        self._step()  # First step
 
+        samples = self.current_trajectory
+        logmarliks.append(self.current_logmarlik)
+        for key in self.theta_vars.keys():
+            thetas[key].append(getattr(self.theta, key))
+
+        # Run remaining iterations
+        for i in range(burnin + 1, n_iter):
+            self._step()
+            samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
+            logmarliks.append(self.current_logmarlik)
             for key in self.theta_vars.keys():
                 thetas[key].append(getattr(self.theta, key))
 
-            # ----- 2. Conditional PF to sample x | theta, y -----
-            x_current, logmarlik = self._run_pf_and_sample(y, self.theta, x_current)
-            logmarliks.append(logmarlik)
-
-            samples.append(x_current)
         return samples, logmarliks, thetas
     
 class ParticleGibbsSampler:

@@ -63,7 +63,7 @@ class BootstrapParticleFilter(ParticleFilter):
 
         return history
     
-    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref):
+    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref: list):
         """
         Run conditional bootstrap particle filter given reference trajectory x_ref.
 
@@ -73,7 +73,7 @@ class BootstrapParticleFilter(ParticleFilter):
             Observations over time.
         theta : StateSpaceModelParams
             Model parameters.
-        x_ref : array-like, shape (T+1,)
+        x_ref : list of length T+1
             Reference trajectory to condition on. Must have length T+1, where T is the length of the observation sequence y.
 
         Returns

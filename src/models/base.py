@@ -16,12 +16,17 @@ class StateSpaceModelParams(ABC):
         """Validate parameter constraints."""
         pass
 
+    @abstractmethod
+    def copy(self):        
+        """Create a copy of the parameters."""
+        pass
+
 class StateSpaceModelPrior(ABC):
     """
     Base class for state space model prior distribution.
     """
     @abstractmethod
-    def sample(self, rng: np.random.Generator, *args, **kwargs):
+    def sample(self, rng: np.random.Generator, *args, **kwargs) -> StateSpaceModelParams:
         """Draw a sample of parameters."""
         pass
 

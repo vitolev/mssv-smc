@@ -12,6 +12,9 @@ EPS = 1e-10
 # =========================
 @dataclass(frozen=True)
 class MSSVParams(StateSpaceModelParams):
+    """
+    Parameters for the MSSV model.
+    """
     mu1: float
     delta: np.ndarray
     phi: float
@@ -29,7 +32,9 @@ class MSSVParams(StateSpaceModelParams):
         sigma_eta: float,
         P: np.ndarray,
     ) -> "MSSVParams":
-        # Convert inputs
+        """
+        Alternative constructor that takes vector of regime means mu (must be strictly increasing) instead of mu1 and delta. 
+        """
         mu = np.asarray(mu, dtype=float)
         P = np.asarray(P, dtype=float)
 
@@ -80,52 +85,86 @@ class MSSVParams(StateSpaceModelParams):
         if not np.allclose(row_sums, 1.0):
             raise ValueError("Rows of P must sum to 1")
 
+    def copy(self):
+        """
+        Create a copy of the MSSVParams instance. 
+        """
+        return MSSVParams(
+            mu1=self.mu1,
+            delta=np.array(self.delta, copy=True),
+            phi=self.phi,
+            sigma_eta=self.sigma_eta,
+            P=np.array(self.P, copy=True)
+        )
+
 
 # =========================
 # PRIOR
 # =========================
 class MSSVPrior(StateSpaceModelPrior):
+    """
+    Prior distribution for the MSSV model parameters.
+    """
     def __init__(
         self,
         mu_mean=0.0,
         mu_sd=1.0,
-        delta_mean=0.0,
-        delta_sd=2.0,
+        diff_mean=0.0,
+        diff_sd=2.0,
         phi_a=20.0,
         phi_b=2.0,
         sigma_eta_a=2.0,
         sigma_eta_b=5.0,
-        P_factor=0.5,
+        P_diag=2.5,
+        P_base=1.5,
     ):
         self.mu_mean = mu_mean
         self.mu_sd = mu_sd
-        self.delta_mean = delta_mean
-        self.delta_sd = delta_sd
+        self.diff_mean = diff_mean
+        self.diff_sigma = diff_sd
         self.phi_a = phi_a
         self.phi_b = phi_b
         self.sigma_eta_a = sigma_eta_a
         self.sigma_eta_b = sigma_eta_b
-        self.P_factor = P_factor
+        self.P_diag = P_diag
+        self.P_base = P_base
 
     def sample(self, rng: np.random.Generator, K: int) -> MSSVParams:
         mu1 = rng.normal(self.mu_mean, self.mu_sd)
-        delta = rng.normal(self.delta_mean, self.delta_sd, size=K - 1)
+        a = (0 - self.diff_mean) / self.diff_sigma   # lower bound
+        b = np.inf             # upper bound
+        diff = truncnorm.rvs(a, b, loc=self.diff_mean, scale=self.diff_sigma, random_state=rng, size=K - 1)
+        mu = np.concatenate(([mu1], mu1 + np.cumsum(diff)))
 
         u = rng.beta(self.phi_a, self.phi_b)
         phi = 2 * u - 1
 
         sigma_eta = rng.gamma(self.sigma_eta_a, scale=1.0 / self.sigma_eta_b)
 
-        alpha = self.P_factor * np.ones(K)
-        P = np.array([rng.dirichlet(alpha) for _ in range(K)])
+        P = []
+        for i in range(K):
+            alpha = self.P_base * np.ones(K)
+            alpha[i] += self.P_diag
+            P.append(rng.dirichlet(alpha))
+        P = np.array(P)
 
-        return MSSVParams(mu1, delta, phi, sigma_eta, P)
+        return MSSVParams.from_mu(mu, phi, sigma_eta, P)
 
     def logpdf(self, params: MSSVParams) -> float:
         logp = 0.0
 
         logp += norm.logpdf(params.mu1, self.mu_mean, self.mu_sd)
-        logp += np.sum(norm.logpdf(params.delta, self.delta_mean, self.delta_sd))
+
+        delta = params.delta
+        diff = np.exp(delta)
+
+        a = (0 - self.diff_mean) / self.diff_sigma
+        b = np.inf
+
+        logp += np.sum(
+            truncnorm.logpdf(diff, a, b, loc=self.diff_mean, scale=self.diff_sigma)
+            + delta   # Jacobian term
+        )
 
         u = (params.phi + 1) / 2
         logp += beta.logpdf(u, self.phi_a, self.phi_b) - np.log(2)
@@ -136,9 +175,12 @@ class MSSVPrior(StateSpaceModelPrior):
             scale=1.0 / self.sigma_eta_b,
         )
 
-        alpha = self.P_factor * np.ones(params.K)
-        for row in params.P:
-            logp += dirichlet.logpdf(row, alpha)
+        for i, row in enumerate(params.P):
+            alpha = self.P_base * np.ones(params.K)
+            alpha[i] += self.P_diag
+            row_safe = np.clip(row, EPS, 1.0)
+            row_safe = row_safe / row_safe.sum()
+            logp += dirichlet.logpdf(row_safe, alpha)
 
         return logp
 
@@ -147,6 +189,9 @@ class MSSVPrior(StateSpaceModelPrior):
 # PROPOSAL (MCMC)
 # =========================
 class MSSVProposal(StateSpaceModelProposal):
+    """
+    Proposal distribution for MCMC sampling of MSSV model parameters.
+    """
     def __init__(
         self,
         step_mu=0.1,
@@ -205,7 +250,11 @@ class MSSVProposal(StateSpaceModelProposal):
         # P
         for k in range(from_p.K):
             alpha = self.step_P * np.clip(from_p.P[k], EPS, None)
-            logq += dirichlet.logpdf(to_p.P[k], alpha)
+
+            row = np.clip(to_p.P[k], EPS, 1.0)
+            row = row / row.sum()
+
+            logq += dirichlet.logpdf(row, alpha)
 
         return logq
        

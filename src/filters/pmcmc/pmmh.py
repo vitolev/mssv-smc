@@ -62,6 +62,7 @@ class PMMH_Chain:
         Initialize the chain with a PF run by first sampling parameters from the prior and then running the PF to get an initial trajectory and marginal likelihood.
         """
         self.theta = self.prior.sample(self.rng, **self.kwargs_model)  # Sample initial parameters from the prior
+        self.initial_params = self.theta.copy()                        # Store the initial parameters for later reference
         self.theta_vars = vars(self.theta)
 
         traj, logmarlik = self._run_pf_and_sample(self.y, self.theta)
@@ -98,7 +99,7 @@ class PMMH_Chain:
         n_iter : int
             Number of PMMH iterations.
         burnin : int, optional
-            Number of initial iterations to discard as burn-in. Default is 0.
+            Number of initial iterations to discard as burn-in. Must be less than n_iter. Default is 0.
 
         Returns
         -------
@@ -111,6 +112,9 @@ class PMMH_Chain:
         logalphas : list 
             List of log acceptance probabilities for each iteration.
         """
+        if burnin >= n_iter:
+            raise ValueError("Burn-in must be less than the total number of iterations.")
+
         self.current_trajectory = None
         self.current_logmarlik = None
 
@@ -121,7 +125,7 @@ class PMMH_Chain:
 
         self._initialize()
 
-        for i in range(n_iter):
+        for i in range(burnin):
             log_alpha = self._step()
 
         # The boundary iteration when we first collect samples
@@ -208,8 +212,9 @@ class ParticleMarginalMetropolisHastings:
 
         result = chain.run(y, n_iter=n_iter, burnin=burnin)
         acceptance_rate = chain.n_accepted / chain.n_steps if chain.n_steps > 0 else 0.0
+        initial_parameters = chain.initial_params
 
-        return result, acceptance_rate, chain_id
+        return result, acceptance_rate, initial_parameters, chain_id
 
     def run(self, y, n_iter: int, n_chain: int, burnin=0):
         """
@@ -236,7 +241,7 @@ class ParticleMarginalMetropolisHastings:
 
         if n_chain == 1:
             # Run single chain without multiprocessing
-            result, acceptance_rate, _ = self._run_single_chain(
+            result, acceptance_rate, initial_parameters, _ = self._run_single_chain(
                 seed=self.rng.integers(0, 1_000_000),
                 y=y,
                 pf=self.pf,
@@ -247,7 +252,7 @@ class ParticleMarginalMetropolisHastings:
                 burnin=burnin,
                 chain_id=0,
             )
-            return [result], [acceptance_rate]
+            return [result], [acceptance_rate], [initial_parameters]
 
         seeds = self.rng.integers(0, 1_000_000, size=n_chain)  # Generate random seeds for each chain
 
@@ -269,10 +274,11 @@ class ParticleMarginalMetropolisHastings:
 
         all_results = [r[0] for r in results]          # PMMH samples etc.
         acceptance_rates = [r[1] for r in results]    # acceptance rates
-        chain_ids = [r[2] for r in results]          # chain IDs
+        initial_parameters = [r[2] for r in results]  # initial parameters
+        chain_ids = [r[3] for r in results]          # chain IDs
 
-        return all_results, acceptance_rates
-    
+        return all_results, acceptance_rates, initial_parameters
+
     def to_inference_data(self, results):
         """
         Convert PMMH results to an ArviZ InferenceData object for analysis and visualization.

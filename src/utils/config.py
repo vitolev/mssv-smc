@@ -16,3 +16,16 @@ class Config:
         with open(path, "r") as f:
             data = yaml.safe_load(f)
         return cls(data)
+
+    def save_yaml(self, path):
+        with open(path, "w") as f:
+            yaml.dump(self._to_dict(), f)
+
+    def _to_dict(self):
+        result = {}
+        for k, v in self.__dict__.items():
+            if isinstance(v, Config):
+                result[k] = v._to_dict()
+            else:
+                result[k] = v
+        return result

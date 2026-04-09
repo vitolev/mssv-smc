@@ -1,0 +1,25 @@
+K: 2
+N: 2000
+T: 1000
+name: 2_regime_T_1000
+pmmh:
+  C: 8
+  M: 10000
+  burnin: 5000
+prior:
+  P_base: 1.5
+  P_diag: 3.5
+  diff_mean: 0.0
+  diff_sd: 2.0
+  mu_mean: 0.0
+  mu_sd: 5.0
+  phi_a: 6
+  phi_b: 2
+  sigma_eta_a: 2.0
+  sigma_eta_b: 5.0
+proposal:
+  step_P: 400
+  step_delta: 0.15
+  step_mu: 0.2
+  step_phi: 0.1
+  step_sigma: 0.1

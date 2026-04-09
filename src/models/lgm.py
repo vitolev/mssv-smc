@@ -24,6 +24,9 @@ class LGModelParams(StateSpaceModelParams):
             raise ValueError(f"sigma_y must be positive, got {self.sigma_y}")
         if self.a < -1.0 or self.a > 1.0:
             raise ValueError(f"a must be in the range [-1, 1] for stationarity, got {self.a}")
+        
+    def copy(self):
+        return LGModelParams(a=self.a, b=self.b, sigma_x=self.sigma_x, sigma_y=self.sigma_y)
 
 # =========================
 # PRIOR

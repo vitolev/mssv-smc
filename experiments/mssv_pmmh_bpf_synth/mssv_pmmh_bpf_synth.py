@@ -11,7 +11,7 @@ import argparse
 import pandas as pd
 
 # Experiment specific imports
-from src.models.mssv import MSSVModelParams, MSSVModel
+from src.models.mssv import MSSVParams, MSSVModel
 from src.filters.pmcmc.pmmh import ParticleMarginalMetropolisHastings
 from src.filters.smc.bootstrap_pf import BootstrapParticleFilter
 from src.filters.smc.resampling import systematic_resampling
@@ -25,31 +25,38 @@ def main():
     config_path = script_dir / "config.yaml"
     config = Config.from_yaml(config_path)
     # Extact values from config
-    name = config.name
-    T = config.T
-    K = config.K
-    N = config.N
-    M = config.pmmh.M
-    C = config.pmmh.C
-    burnin = config.pmmh.burnin
+    name: str = config.name
+    T: int = config.T
+    K: int = config.K
+    N: int = config.N
+    M: int = config.pmmh.M
+    C: int = config.pmmh.C
+    burnin: int = config.pmmh.burnin
 
     # Prior parameters
-    mu_mean = config.prior.mu_mean
-    mu_sd = config.prior.mu_sd
-    phi_a = config.prior.phi_a
-    phi_b = config.prior.phi_b
-    sigma_eta_a = config.prior.sigma_eta_a
-    sigma_eta_b = config.prior.sigma_eta_b
-    delta_mean = config.prior.delta_mean
-    delta_sd = config.prior.delta_sd
-    P_factor = config.prior.P_factor
+    mu_mean: float = config.prior.mu_mean
+    mu_sd: float = config.prior.mu_sd
+    phi_a: float = config.prior.phi_a
+    phi_b: float = config.prior.phi_b
+    sigma_eta_a: float = config.prior.sigma_eta_a
+    sigma_eta_b: float = config.prior.sigma_eta_b
+    diff_mean: float = config.prior.diff_mean
+    diff_sd: float = config.prior.diff_sd
+    P_diag: float = config.prior.P_diag
+    P_base: float = config.prior.P_base
 
     # Proposal step sizes
-    step_mu = config.proposal.step_mu
-    step_delta = config.proposal.step_delta
-    step_phi = config.proposal.step_phi
-    step_sigma_eta = config.proposal.step_sigma_eta
-    step_P = config.proposal.step_P
+    step_mu: float = config.proposal.step_mu
+    step_delta: float = config.proposal.step_delta
+    step_phi: float = config.proposal.step_phi
+    step_sigma: float = config.proposal.step_sigma
+    step_P: int = config.proposal.step_P
+
+    # Create subfolder with name of the experiment
+    script_dir = script_dir / name
+    script_dir.mkdir(parents=True)
+    # Save a copy of config file in the experiment folder
+    config.save_yaml(script_dir / "config.yaml")
 
     logger = setup_main_logging(script_dir, name)
     logger.info("=" * 60)
@@ -86,7 +93,7 @@ def main():
     params_df = pd.read_csv(param_path)
     P_rows = params_df["P"].apply(ast.literal_eval).tolist()
     P = np.array(P_rows)
-    true_theta = MSSVModelParams(
+    true_theta = MSSVParams.from_mu(
         mu=params_df["mu"].values,
         phi=params_df["phi"].iloc[0],
         sigma_eta=params_df["sigma_eta"].iloc[0],
@@ -123,16 +130,16 @@ def main():
 
     logger.info("-" * 60)
 
-    kwargs_sampling = {
+    kwargs_proposal = {
         "step_mu": step_mu,
         "step_delta": step_delta,
         "step_phi": step_phi,
-        "step_sigma_eta": step_sigma_eta,
+        "step_sigma": step_sigma,
         "step_P": step_P
     }
 
     kwargs_model = {
-        "num_regimes": K,
+        "K": K,
     }
 
     kwargs_prior = {
@@ -142,44 +149,51 @@ def main():
         "phi_b": phi_b,
         "sigma_eta_a": sigma_eta_a,
         "sigma_eta_b": sigma_eta_b,
-        "delta_mean": delta_mean,
-        "delta_sd": delta_sd,
-        "P_factor": P_factor
+        "diff_mean": diff_mean,
+        "diff_sd": diff_sd,
+        "P_diag": P_diag,
+        "P_base": P_base
     }
 
-    pmmh = ParticleMarginalMetropolisHastings(bpf, kwargs_sampling=kwargs_sampling, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
+    pmmh = ParticleMarginalMetropolisHastings(bpf, kwargs_proposal=kwargs_proposal, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
 
     logger.info(f"Initialized PMMH sampler")
-    logger.info(f"Model parameters:\n%s",
-        "\n ".join(f"{k}: {v}" for k, v in kwargs_model.items())
-    )
-    logger.info(
-        "Sampling parameters:\n%s",
-        "\n ".join(f"{k}: {v}" for k, v in kwargs_sampling.items())
-    )
-    logger.info("Prior parameters:\n%s",
-        "\n ".join(f"{k}: {v}" for k, v in kwargs_prior.items())
-    )
+    logger.info("-" * 60)
+    logger.info("Model parameters:")
+    for k, v in kwargs_model.items():
+       logger.info("- %s: %s", k, v)
 
     logger.info("-" * 60)
 
-    logger.info(f"Initializing sampling with parameters:")
+    logger.info("Proposal parameters:")
+    for k, v in kwargs_proposal.items():
+        logger.info("- %s: %s", k, v)
+
+    logger.info("-" * 60)
+
+    logger.info("Prior parameters:")
+    for k, v in kwargs_prior.items():
+        logger.info("- %s: %s", k, v)
+
+    logger.info("-" * 60)
+
+    logger.info(f"Starting sampling with parameters:")
     logger.info(f"- M = {M}")
     logger.info(f"- C = {C}")
     logger.info(f"- Burn-in = {burnin}")
     logger.info("-" * 60)
 
-    results_bpf, acceptance_rates = pmmh.run(y, n_iter=M, n_chain=C, burnin=burnin)
+    results_bpf, acceptance_rates, initial_params = pmmh.run(y, n_iter=M, n_chain=C, burnin=burnin)
 
     logger.info(f"PMMH sampling completed.")
     logger.info(f"Acceptance rates for each chain: {acceptance_rates}")
+    logger.info(f"Initial parameters for each chain:")
+    for params in initial_params:
+        logger.info(f"- {params}")
 
     logger.info("-" * 60)
 
     logger.info("Plotting diagnostics ...")
-    
-    plot_traceplots(results_bpf, results_dir)
-    plot_histograms(results_bpf, results_dir)
 
     # Now let's look at samples of trajectories
     plt.figure(figsize=(12, 8))
@@ -198,6 +212,9 @@ def main():
     plt.grid()
     plt.savefig(results_dir / "mean_trajectory.png")
     plt.close()
+    
+    plot_traceplots(results_bpf, results_dir)
+    plot_histograms(results_bpf, results_dir)
 
     logger.info("Diagnostics plotting completed.")
 
