@@ -23,6 +23,7 @@ class PGS_Chain:
             Additional keyword arguments to pass to the proposal distribution.
         """
         self.pf = pf
+        self.model = pf.model
         self.rng = pf.rng
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
         self.kwargs_model = kwargs_model if kwargs_model is not None else {}
@@ -67,6 +68,39 @@ class PGS_Chain:
         self.current_trajectory = trajectory
         self.current_logmarlik = logmarlik
         
+    def _step(self):
+        """
+        Perform one iteration of the PGS algorithm: run conditional PF and sample new trajectory and parameters.
+        """
+        # Run conditional PF and sample new trajectory
+        trajectory, logmarlik = self._run_pf_and_sample(self.y, self.theta, self.current_trajectory)
+
+        # MH step on theta
+        theta_prop = self.proposal.sample(self.rng, self.theta)
+        log_prior_current = self.prior.logpdf(self.theta)
+        log_prior_prop = self.prior.logpdf(theta_prop)
+        log_q_forward = self.proposal.logpdf(self.theta, theta_prop)
+        log_q_backward = self.proposal.logpdf(theta_prop, self.theta)
+        log_lik_current = self.model.log_initial_state_density(trajectory[0], self.theta)
+        log_lik_prop = self.model.log_initial_state_density(trajectory[0], theta_prop)
+        for t in range(1, len(trajectory)):
+            log_lik_current += self.model.log_transition_density(self.theta, trajectory[t], trajectory[t-1])
+            log_lik_prop += self.model.log_transition_density(theta_prop, trajectory[t], trajectory[t-1])
+            log_lik_current += self.model.log_likelihood(self.y[t], self.theta, trajectory[t])
+            log_lik_prop += self.model.log_likelihood(self.y[t], theta_prop, trajectory[t])
+
+        log_accept_ratio = (log_prior_prop + log_lik_prop + log_q_backward) - (log_prior_current + log_lik_current + log_q_forward)
+        if np.log(self.rng.uniform()) < log_accept_ratio:
+            new_theta = theta_prop
+            self.n_accepted += 1
+        else:
+            new_theta = self.theta
+
+        # Update current state
+        self.current_trajectory = trajectory
+        self.current_logmarlik = logmarlik
+        self.theta = new_theta
+        self.n_steps += 1
 
     def run(self, y, n_iter: int, burnin=0):
         """
@@ -95,6 +129,9 @@ class PGS_Chain:
         
         self.current_trajectory = None
         self.current_logmarlik = None
+
+        self.n_accepted = 0
+        self.n_steps = 0
 
         self.y = y
 
@@ -130,22 +167,26 @@ class ParticleGibbsSampler:
     Particle Gibbs Sampler for state-space models.
     """
 
-    def __init__(self, pf: ParticleFilter, kwargs_for_params=None):
+    def __init__(self, pf: ParticleFilter, kwargs_model=None, kwargs_prior=None, kwargs_proposal=None):
         """
         Parameters
         ----------
         pf: ParticleFilter
             Particle filter class to use for the conditional SMC step. Must have a .run_conditional() method implemented.
-        kwargs_for_params: dict, optional
-            Additional keyword arguments to pass to the initialization of parameters. 
-            For example, for MSSV model, num_regimes is needed to initialize the parameters.
+        kwargs_model: dict, optional
+            Additional keyword arguments to pass to the initialization of the model. 
+        kwargs_prior: dict, optional
+            Additional keyword arguments to pass to the initialization of the prior distribution for parameters.
+        kwargs_proposal: dict, optional
+            Additional keyword arguments to pass to the proposal distribution.
         """
         self.pf = pf
         self.rng = pf.model.rng
-        self.model = pf.model
-        self.kwargs_for_params = kwargs_for_params if kwargs_for_params is not None else {}
+        self.kwargs_model = kwargs_model if kwargs_model is not None else {}
+        self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
+        self.kwargs_proposal = kwargs_proposal if kwargs_proposal is not None else {}
 
-    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_for_params, n_iter, x_init, chain_id):
+    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, kwargs_prior, kwargs_proposal, n_iter, burnin, chain_id):
         """
         Run a single PGS chain with a given random seed.
         """
@@ -163,13 +204,16 @@ class ParticleGibbsSampler:
             resampler=pf.resampler
         )
 
-        chain = PGS_Chain(pf_chain, kwargs_for_params)
+        chain = PGS_Chain(pf_chain, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model, kwargs_proposal=kwargs_proposal)
 
-        results = chain.run(y, n_iter, x_init)
+        result = chain.run(y, n_iter, burnin)
+        acceptance_rate = chain.n_accepted / chain.n_steps if chain.n_steps > 0 else 0.0
+        initial_parameters = chain.initial_params
 
-        return results, chain_id
+        return result, acceptance_rate, initial_parameters, chain_id
+
     
-    def run(self, y, n_iter: int, n_chain: int, x_init=None):
+    def run(self, y, n_iter: int, n_chain: int, burnin: int=0):
         """
         Run multiple PGS chains in parallel and return their results.
 
@@ -181,9 +225,9 @@ class ParticleGibbsSampler:
             Number of PGS iterations per chain.
         n_chains : int
             Number of parallel PGS chains to run.
-        x_init : list of StateSpaceModelState, optional
-            Initial trajectory for all chains. If None, sampled from model.
-
+        burnin : int, optional
+            Number of burn-in iterations to discard. Must be less than n_iter. Default is 0.
+            
         Returns
         -------
         all_results : list
@@ -192,16 +236,18 @@ class ParticleGibbsSampler:
 
         if n_chain == 1:
             # Run single chain without multiprocessing
-            results, _ = self._run_single_chain(
+            result, acceptance_rate, initial_parameters, _ = self._run_single_chain(
                 seed=self.rng.integers(0, 1_000_000),
                 y=y, 
                 pf=self.pf, 
-                kwargs_for_params=self.kwargs_for_params, 
+                kwargs_model=self.kwargs_model,
+                kwargs_prior=self.kwargs_prior,
+                kwargs_proposal=self.kwargs_proposal,
                 n_iter=n_iter, 
-                x_init=x_init, 
+                burnin=burnin,
                 chain_id=0
             )
-            return [results]
+            return [result], [acceptance_rate], [initial_parameters]
         
         seeds = self.rng.integers(0, 1_000_000, size=n_chain)
 
@@ -212,13 +258,22 @@ class ParticleGibbsSampler:
                     seeds,
                     [y] * n_chain,
                     [self.pf] * n_chain,
-                    [self.kwargs_for_params] * n_chain,
+                    [self.kwargs_model] * n_chain,
+                    [self.kwargs_prior] * n_chain,
+                    [self.kwargs_proposal] * n_chain,
                     [n_iter] * n_chain,
-                    [x_init] * n_chain,
+                    [burnin] * n_chain,
                     list(range(n_chain))
                 )
             )
-        return [r[0] for r in results]
+
+        all_results = [r[0] for r in results]          # PGS samples etc.
+        acceptance_rates = [r[1] for r in results]    # acceptance rates
+        initial_parameters = [r[2] for r in results]  # initial parameters
+        chain_ids = [r[3] for r in results]          # chain IDs
+
+        return all_results, acceptance_rates, initial_parameters
+
     
     def to_inference_data(self, results):
         """

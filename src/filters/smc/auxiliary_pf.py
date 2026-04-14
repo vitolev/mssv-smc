@@ -118,9 +118,6 @@ class AuxiliaryParticleFilter(ParticleFilter):
 
         logmarlik = 0.0
 
-        # Track reference particle index
-        ref_index = 0
-
         # ----- Main loop -----
         for t in range(T):
 
@@ -141,7 +138,7 @@ class AuxiliaryParticleFilter(ParticleFilter):
             ancestor_indices = self.resampler(aux_weights, self.model.rng)
 
             # Force reference lineage
-            ancestor_indices[0] = ref_index
+            ancestor_indices[0] = 0
 
             ancestor_particles = particles[ancestor_indices]
             ancestor_predicted = predicted_states[ancestor_indices]

@@ -97,7 +97,6 @@ class MSSVParams(StateSpaceModelParams):
             P=np.array(self.P, copy=True)
         )
 
-
 # =========================
 # PRIOR
 # =========================
@@ -183,7 +182,6 @@ class MSSVPrior(StateSpaceModelPrior):
             logp += dirichlet.logpdf(row_safe, alpha)
 
         return logp
-
 
 # =========================
 # PROPOSAL (MCMC)
@@ -273,9 +271,24 @@ class MSSVState(StateSpaceModelState):
 
     def __getitem__(self, idx):
         return MSSVState(
-            h_t=np.array(self.h_t[idx], copy=True),
-            s_t=np.array(self.s_t[idx], copy=True)
+            h_t=np.atleast_1d(self.h_t[idx]),
+            s_t=np.atleast_2d(self.s_t[idx])
         )
+    
+    def __setitem__(self, idx, value: "MSSVState"):
+        if not isinstance(value, MSSVState):
+            raise TypeError(f"Value must be an instance of MSSVState, got {type(value)}")
+        
+        # Shape checks
+        if self.h_t[idx].shape != value.h_t.shape:
+            raise ValueError(f"Mismatch in h_t shape for assignment. Expected {self.h_t[idx].shape}, got {value.h_t.shape}")
+
+        if self.s_t[idx].shape != value.s_t.shape:
+            raise ValueError(f"Mismatch in s_t shape for assignment. Expected {self.s_t[idx].shape}, got {value.s_t.shape}")
+
+        # Assign
+        self.h_t[idx] = value.h_t
+        self.s_t[idx] = value.s_t
 
     def __len__(self):
         return self.h_t.shape[0]
@@ -567,4 +580,68 @@ class MSSVModel(StateSpaceModel):
 
         return log_p_s + log_p_h
 
+    def initial_state_density(self, theta : MSSVParams, state: MSSVState) -> np.ndarray:
+        """
+        Compute the density of the initial state p(x_0 | theta).
 
+        p(x_0 | theta) = p(s_0 | theta) * p(h_0 | s_0, theta)
+
+        Parameters
+        ----------
+            theta: MSSVParams
+                Model parameters.
+            state: MSSVState
+                Initial state of size N.
+        Returns
+        -------
+            initial_density: np.ndarray
+                Initial state densities with shape (N,).
+        """
+        h_0, s_0 = state.h_t, state.s_t
+
+        # Regime indices per particle
+        idx = np.argmax(s_0, axis=1)    # (N,)
+
+        # Regime probabilities (uniform)
+        p_s = 1.0 / theta.K
+
+        # Volatility distribution
+        var = theta.sigma_eta ** 2 / (1 - theta.phi ** 2)
+        mu = theta.mu[idx]
+
+        p_h = norm.pdf(h_0, loc=mu, scale=np.sqrt(var))
+
+        return p_s * p_h                        # (N,)
+
+    def log_initial_state_density(self, theta : MSSVParams, state: MSSVState) -> np.ndarray:
+        """
+        Compute the log of the density of the initial state log p(x_0 | theta).
+
+        log p(x_0 | theta) = log p(s_0 | theta) + log p(h_0 | s_0, theta)
+
+        Parameters
+        ----------
+            theta: MSSVParams
+                Model parameters.
+            state: MSSVState
+                Initial state of size N.
+        Returns
+        -------
+            log_initial_density: np.ndarray
+                Log initial state densities with shape (N,).
+        """
+        h_0, s_0 = state.h_t, state.s_t
+
+        # Regime indices per particle
+        idx = np.argmax(s_0, axis=1)    # (N,)
+
+        # Regime probabilities (uniform)
+        log_p_s = -np.log(theta.K)
+
+        # Volatility distribution
+        var = theta.sigma_eta ** 2 / (1 - theta.phi ** 2)
+        mu = theta.mu[idx]
+
+        log_p_h = norm.logpdf(h_0, loc=mu, scale=np.sqrt(var))
+
+        return log_p_s + log_p_h

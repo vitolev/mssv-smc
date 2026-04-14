@@ -254,3 +254,15 @@ class LGModel(StateSpaceModel):
         Log transition probability log p(x_t | x_{t-1})
         """
         return norm.logpdf(state_next.x_t, loc=theta.a * state_prev.x_t, scale=theta.sigma_x)
+
+    def initial_state_density(self, theta: LGModelParams, state: LGModelState) -> np.ndarray:
+        """
+        Initial state density p(x_0)
+        """
+        return norm.pdf(state.x_t, loc=0.0, scale=10.0)
+
+    def log_initial_state_density(self, theta: LGModelParams, state: LGModelState) -> np.ndarray:
+        """
+        Log initial state density log p(x_0)
+        """
+        return norm.logpdf(state.x_t, loc=0.0, scale=10.0)

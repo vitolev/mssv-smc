@@ -61,6 +61,10 @@ class StateSpaceModelState(ABC):
         pass
 
     @abstractmethod
+    def __setitem__(self, idx, value):
+        pass
+
+    @abstractmethod
     def __len__(self):
         pass
 
@@ -242,5 +246,41 @@ class StateSpaceModel(ABC):
         -------
             log_transition_prob: np.ndarray
                 Log of transition probabilities with shape (N,).
+        """
+        pass
+
+    @abstractmethod
+    def initial_state_density(self, theta: StateSpaceModelParams, state: StateSpaceModelState) -> np.ndarray:
+        """
+        Compute the initial state density p(x_0 | theta).
+
+        Parameters
+        ----------
+            theta: StateSpaceModelParams
+                Model parameters.
+            state: StateSpaceModelState
+                Initial state of size N.
+        Returns
+        -------
+            initial_state_prob: np.ndarray
+                Initial state probabilities with shape (N,).
+        """
+        pass
+
+    @abstractmethod
+    def log_initial_state_density(self, theta: StateSpaceModelParams, state: StateSpaceModelState) -> np.ndarray:
+        """
+        Compute the log of the initial state density log p(x_0 | theta).
+
+        Parameters
+        ----------
+            theta: StateSpaceModelParams
+                Model parameters.
+            state: StateSpaceModelState
+                Initial state of size N.
+        Returns
+        -------
+            log_initial_state_prob: np.ndarray
+                Log of initial state probabilities with shape (N,).
         """
         pass
