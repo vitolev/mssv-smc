@@ -266,6 +266,8 @@ class MSSVState(StateSpaceModelState):
         s_t: one-hot encoded regime vector 
     """
     def __init__(self, h_t: np.ndarray, s_t: np.ndarray):
+        if len(h_t) != len(s_t):
+            raise ValueError(f"Length mismatch: h_t has length {len(h_t)}, s_t has length {len(s_t)}")
         self.h_t = h_t  # Log-volatility
         self.s_t = s_t  # Regime (one-hot encoded)
 
@@ -279,15 +281,26 @@ class MSSVState(StateSpaceModelState):
         if not isinstance(value, MSSVState):
             raise TypeError(f"Value must be an instance of MSSVState, got {type(value)}")
         
-        # Shape checks
-        if self.h_t[idx].shape != value.h_t.shape:
-            raise ValueError(f"Mismatch in h_t shape for assignment. Expected {self.h_t[idx].shape}, got {value.h_t.shape}")
+        if isinstance(idx, slice):
+            start, stop, step = idx.indices(len(self))
+            expected_len = len(range(start, stop, step))
+        elif np.isscalar(idx):
+            expected_len = 1
+        else:
+            # fancy indexing (list / array)
+            expected_len = len(idx)
 
-        if self.s_t[idx].shape != value.s_t.shape:
-            raise ValueError(f"Mismatch in s_t shape for assignment. Expected {self.s_t[idx].shape}, got {value.s_t.shape}")
+        # --- Check length ---
+        if len(value) != expected_len:
+            raise ValueError(
+                f"Length mismatch: expected {expected_len}, got {len(value)}"
+            )
 
         # Assign
-        self.h_t[idx] = value.h_t
+        if expected_len == 1:
+            self.h_t[idx] = value.h_t[0]
+        else:
+            self.h_t[idx] = value.h_t
         self.s_t[idx] = value.s_t
 
     def __len__(self):

@@ -1,33 +1,19 @@
 import numpy as np
 import pytest
 
-from src.models.mssv import MSSVModel, MSSVModelParams, MSSVState
+from src.models.mssv import MSSVModel, MSSVParams, MSSVState
 
 def test_mssv_params():
     # Test initialization with provided parameters
-    params = MSSVModelParams(
+    params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
-        phi=[0.9, 0.8],
-        sigma_eta=[0.2, 0.3],
+        phi=0.9,
+        sigma_eta=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
     assert len(params.mu) == 2
     assert params.P[0][0] == 0.9
-
-    with pytest.raises(ValueError):
-        params_invalid = MSSVModelParams(
-            mu=[0.0, 1.0],
-            phi=[0.9],
-            sigma_eta=[0.2, 0.3],
-            P=[[0.9, 0.1], [0.2, 0.8]]
-        )
-    
-    # Test sampling from prior
-    rng = np.random.default_rng(42)
-    params_prior = MSSVModelParams(rng=rng, num_regimes=3)
-    assert len(params_prior.mu) == 3
-    assert params_prior.P.shape == (3, 3)
 
 def test_mssv_state():
     h_t = np.array([0.5, -1.0])
@@ -38,13 +24,33 @@ def test_mssv_state():
     assert state.h_t.shape == (2,)
     assert state.s_t.shape == (2, 2)
 
+    assert state[0].h_t.shape == (1,)
+    assert state[0].s_t.shape == (1, 2)
+
+    assert state[0].h_t == 0.5
+    assert np.array_equal(state[1].s_t, [[0, 1]])
+    assert np.array_equal(state[0:2].h_t, h_t)
+
+    state[0] = MSSVState(np.array([0.3]), np.array([[0, 1]]))
+    assert state[0].h_t == 0.3
+
+    with pytest.raises(ValueError):
+        state = MSSVState(np.array([0.5]), np.array([[1, 0], [0, 1]]))
+
+    state1 = MSSVState(np.array([0.5]), np.array([[1, 0]]))
+    state2 = MSSVState(np.array([0.9]), np.array([[0, 1]]))
+    joined_state = state1.add(state2)
+    assert len(joined_state) == 2
+    assert joined_state.h_t.shape == (2,)
+    assert joined_state.s_t.shape == (2, 2)
+
 def test_sample_initial_state():
     rng = np.random.default_rng(42)
     model = MSSVModel(rng=rng)
-    params = MSSVModelParams(
+    params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
-        phi=[0.9, 0.8],
-        sigma_eta=[0.2, 0.3],
+        phi=0.9,
+        sigma_eta=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -66,10 +72,10 @@ def test_sample_initial_state():
 def test_sample_observation():
     rng = np.random.default_rng(42)
     model = MSSVModel(rng=rng)
-    params = MSSVModelParams(
+    params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
-        phi=[0.9, 0.8],
-        sigma_eta=[0.2, 0.3],
+        phi=0.9,
+        sigma_eta=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -91,10 +97,10 @@ def test_sample_observation():
 def test_sample_next_state():
     rng = np.random.default_rng(42)
     model = MSSVModel(rng=rng)
-    params = MSSVModelParams(
+    params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
-        phi=[0.9, 0.8],
-        sigma_eta=[0.2, 0.3],
+        phi=0.9,
+        sigma_eta=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -119,10 +125,10 @@ def test_sample_next_state():
 def test_expected_next_state():
     rng = np.random.default_rng(42)
     model = MSSVModel(rng=rng)
-    params = MSSVModelParams(
+    params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
-        phi=[0.9, 0.8],
-        sigma_eta=[0.2, 0.3],
+        phi=0.9,
+        sigma_eta=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -147,10 +153,10 @@ def test_expected_next_state():
 def test_likelihood():
     rng = np.random.default_rng(42)
     model = MSSVModel(rng=rng)
-    params = MSSVModelParams(
+    params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
-        phi=[0.9, 0.8],
-        sigma_eta=[0.2, 0.3],
+        phi=0.9,
+        sigma_eta=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -175,10 +181,10 @@ def test_likelihood():
 def test_log_likelihood():
     rng = np.random.default_rng(42)
     model = MSSVModel(rng=rng)
-    params = MSSVModelParams(
+    params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
-        phi=[0.9, 0.8],
-        sigma_eta=[0.2, 0.3],
+        phi=0.9,
+        sigma_eta=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -201,10 +207,10 @@ def test_log_likelihood():
 def test_state_transition():
     rng = np.random.default_rng(42)
     model = MSSVModel(rng=rng)
-    params = MSSVModelParams(
+    params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
-        phi=[0.9, 0.8],
-        sigma_eta=[0.2, 0.3],
+        phi=0.9,
+        sigma_eta=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -239,10 +245,10 @@ def test_state_transition():
 def test_log_state_transition():
     rng = np.random.default_rng(42)
     model = MSSVModel(rng=rng)
-    params = MSSVModelParams(
+    params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
-        phi=[0.9, 0.8],
-        sigma_eta=[0.2, 0.3],
+        phi=0.9,
+        sigma_eta=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
