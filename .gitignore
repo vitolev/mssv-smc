@@ -6,6 +6,9 @@ __pycache__/
 # Data files
 data/
 
+# Some experiments
+experiments/mab_simulations/
+
 # References and other sources
 references/
 temp/

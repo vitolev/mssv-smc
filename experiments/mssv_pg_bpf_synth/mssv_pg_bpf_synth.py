@@ -12,10 +12,10 @@ import pandas as pd
 
 # Experiment specific imports
 from src.models.mssv import MSSVParams, MSSVModel
-from src.filters.pmcmc.pgs import ParticleGibbsSampler
+from src.filters.pmcmc.pg import ParticleGibbsSampler
 from src.filters.smc.bootstrap_pf import BootstrapParticleFilter
 from src.filters.smc.resampling import systematic_resampling
-from src.diagnostics.plotting_pgs import plot_traceplots, plot_histograms
+from src.diagnostics.plotting_pg import plot_traceplots, plot_histograms
 from src.utils.utils import ROOT_DIR
 
 def main():
@@ -198,7 +198,9 @@ def main():
     # Now let's look at samples of trajectories
     plt.figure(figsize=(12, 8))
     for chain in range(len(results_bpf)):
-        samples, _, _, _ = results_bpf[chain]
+        samples, _, _, mh_states = results_bpf[chain]
+        for mh_state in mh_states:
+            logger.info(f"Chain {chain+1} MH state: {mh_state}")
         # Compute mean trajectory post burn-in
         samples_h = np.array([sample.h_t for sample in samples])    # shape (T+1, N)
         mean_trajectory = np.mean(samples_h, axis=1)

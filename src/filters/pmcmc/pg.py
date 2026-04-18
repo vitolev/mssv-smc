@@ -81,15 +81,17 @@ class PGS_Chain:
         log_prior_prop = self.prior.logpdf(theta_prop)
         log_q_forward = self.proposal.logpdf(self.theta, theta_prop)
         log_q_backward = self.proposal.logpdf(theta_prop, self.theta)
-        log_lik_current = self.model.log_initial_state_density(trajectory[0], self.theta)
-        log_lik_prop = self.model.log_initial_state_density(trajectory[0], theta_prop)
+        log_traj_current = self.model.log_initial_state_density(self.theta, trajectory[0])
+        log_traj_prop = self.model.log_initial_state_density(theta_prop, trajectory[0])
+        log_lik_current = 0
+        log_lik_prop = 0
         for t in range(1, len(trajectory)):
-            log_lik_current += self.model.log_transition_density(self.theta, trajectory[t], trajectory[t-1])
-            log_lik_prop += self.model.log_transition_density(theta_prop, trajectory[t], trajectory[t-1])
-            log_lik_current += self.model.log_likelihood(self.y[t], self.theta, trajectory[t])
-            log_lik_prop += self.model.log_likelihood(self.y[t], theta_prop, trajectory[t])
+            log_traj_current += self.model.log_transition_density(self.theta, trajectory[t], trajectory[t-1])
+            log_traj_prop += self.model.log_transition_density(theta_prop, trajectory[t], trajectory[t-1])
+            log_lik_current += self.model.log_likelihood(self.y[t-1], self.theta, trajectory[t])
+            log_lik_prop += self.model.log_likelihood(self.y[t-1], theta_prop, trajectory[t])
 
-        log_accept_ratio = (log_prior_prop + log_lik_prop + log_q_backward) - (log_prior_current + log_lik_current + log_q_forward)
+        log_accept_ratio = (log_prior_prop + log_lik_prop + log_traj_prop + log_q_backward) - (log_prior_current + log_lik_current + log_traj_current + log_q_forward)
         if np.log(self.rng.uniform()) < log_accept_ratio:
             new_theta = theta_prop
             self.n_accepted += 1
@@ -99,6 +101,17 @@ class PGS_Chain:
         # Update current state
         self.current_trajectory = trajectory
         self.current_logmarlik = logmarlik
+        self.mh_state = {
+            "log_accept_ratio": log_accept_ratio,
+            "log_prior_current": log_prior_current,
+            "log_prior_prop": log_prior_prop,
+            "log_q_forward": log_q_forward,
+            "log_q_backward": log_q_backward,
+            "log_lik_current": log_lik_current,
+            "log_lik_prop": log_lik_prop,
+            "log_traj_current": log_traj_current,
+            "log_traj_prop": log_traj_prop,
+        }
         self.theta = new_theta
         self.n_steps += 1
 
@@ -144,11 +157,13 @@ class PGS_Chain:
         # Boundary iteration when we first collect samples
         logmarliks = []
         thetas = {key: [] for key in self.theta_vars.keys()}
+        mh_states = []
 
         self._step()  # First step
 
         samples = self.current_trajectory
         logmarliks.append(self.current_logmarlik)
+        mh_states.append(self.mh_state.copy())
         for key in self.theta_vars.keys():
             thetas[key].append(getattr(self.theta, key))
 
@@ -157,10 +172,11 @@ class PGS_Chain:
             self._step()
             samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
             logmarliks.append(self.current_logmarlik)
+            mh_states.append(self.mh_state.copy())
             for key in self.theta_vars.keys():
                 thetas[key].append(getattr(self.theta, key))
 
-        return samples, logmarliks, thetas
+        return samples, logmarliks, thetas, mh_states
     
 class ParticleGibbsSampler:
     """

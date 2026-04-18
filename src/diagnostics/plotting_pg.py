@@ -15,7 +15,7 @@ def plot_traceplots(results, results_dir):
     # Plot log marginal likelihood traceplot
     plt.figure(figsize=(12, 8))
     for chain in range(len(results)):
-        samples, logmarliks, thetas = results[chain]
+        samples, logmarliks, thetas, _ = results[chain]
         plt.plot(logmarliks, label=f"Chain {chain+1}", alpha=0.7)
         
     plt.xlabel("Iteration")
@@ -29,7 +29,7 @@ def plot_traceplots(results, results_dir):
     post_samples = []
 
     for chain in range(len(results)):
-        _, _, thetas = results[chain]
+        _, _, thetas, _ = results[chain]
         thetas_post = {key: np.array(values) 
                     for key, values in thetas.items()}
         post_samples.append(thetas_post)
@@ -108,7 +108,7 @@ def plot_histograms(results, results_dir):
     post_samples = []
 
     for chain in range(len(results)):
-        _, _, thetas = results[chain]
+        _, _, thetas, _ = results[chain]
         thetas_post = {key: np.array(values) 
                     for key, values in thetas.items()}
         post_samples.append(thetas_post)

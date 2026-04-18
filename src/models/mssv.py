@@ -192,19 +192,36 @@ class MSSVProposal(StateSpaceModelProposal):
     """
     def __init__(
         self,
-        step_mu=0.1,
-        step_delta=0.1,
-        step_phi=0.1,
-        step_sigma=0.1,
-        step_P=20.0,
+        mode="rw",
+        params=None
     ):
-        self.step_mu = step_mu
-        self.step_delta = step_delta
-        self.step_phi = step_phi
-        self.step_sigma = step_sigma
-        self.step_P = step_P
+        self.mode = mode
+        default_params = {
+            "rw": {
+                "step_mu": 0.1,
+                "step_delta": 0.1,
+                "step_phi": 0.1,
+                "step_sigma": 0.1,
+                "step_P": 20.0,
+            },
+            "informed": {
+                "step_mu": 0.05,
+                "step_delta": 0.05,
+                "step_phi": 0.02,
+                "step_sigma": 0.02,
+                "step_P": 20.0,
+                "lam": 0.2,
+            },
+        }
 
-    def sample(self, rng: np.random.Generator, p: MSSVParams) -> MSSVParams:
+        # allow user overrides
+        if params is not None:
+            for k in params:
+                default_params[k].update(params[k])
+
+        self.params = default_params
+
+    def _sample_rw(self, rng: np.random.Generator, p: MSSVParams) -> MSSVParams:
         mu1 = p.mu1 + rng.normal(0, self.step_mu)
         delta = p.delta + rng.normal(0, self.step_delta, size=len(p.delta))
 
@@ -225,7 +242,7 @@ class MSSVProposal(StateSpaceModelProposal):
 
         return MSSVParams(mu1, delta, phi, sigma_eta, P)
 
-    def logpdf(self, from_p: MSSVParams, to_p: MSSVParams) -> float:
+    def _logpdf_rw(self, from_p: MSSVParams, to_p: MSSVParams) -> float:
         logq = 0.0
 
         logq += norm.logpdf(to_p.mu1, from_p.mu1, self.step_mu)

@@ -5,9 +5,9 @@ K: 2              # Number of regimes
 N: 2000           # Number of particles for the BPF
 
 pgs:
-  M: 10000        # Number of PGS iterations
+  M: 10000        # Number of PG iterations
   C: 8            # Number of parallel chains  
-  burnin: 5000    # Number of burn-in iterations to discard from the PGS output
+  burnin: 5000    # Number of burn-in iterations to discard from the PG output
 
 prior:           # prior parameters for the model
   mu_mean: 0.0
@@ -21,10 +21,10 @@ prior:           # prior parameters for the model
   P_diag: 3.5
   P_base: 1.5
 
-proposal:         # step sizes for the random walk proposal in PGS
-  step_mu: 0.2
-  step_phi: 0.1
-  step_sigma: 0.1
-  step_P: 400
-  step_delta: 0.15
+proposal:         # step sizes for the random walk proposal in PG
+  step_mu: 0.1
+  step_phi: 0.05
+  step_sigma: 0.05
+  step_P: 600
+  step_delta: 0.1
   
