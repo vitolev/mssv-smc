@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.models.mssv import MSSVModel, MSSVParams, MSSVState
+from src.models.mssv import MSSVModel, MSSVParams, MSSVState, MSSVProposal
 
 def test_mssv_params():
     # Test initialization with provided parameters
@@ -13,6 +13,7 @@ def test_mssv_params():
     )
 
     assert len(params.mu) == 2
+    assert params.K == 2
     assert params.P[0][0] == 0.9
 
 def test_mssv_state():
@@ -44,7 +45,30 @@ def test_mssv_state():
     assert joined_state.h_t.shape == (2,)
     assert joined_state.s_t.shape == (2, 2)
 
-def test_sample_initial_state():
+def test_mssv_proposal():
+    params = {"mode": "rw"}
+    rng = np.random.default_rng(42)
+    proposal = MSSVProposal(params)
+    assert proposal.mode == "rw"
+    theta = MSSVParams.from_mu(
+        mu=[0.0, 1.0],
+        phi=0.9,
+        sigma_eta=0.1,
+        P=[[0.9, 0.1], [0.2, 0.8]]
+    )
+    new_theta = proposal.sample(rng, theta)
+    assert isinstance(new_theta, MSSVParams)
+    assert new_theta.K == theta.K
+    log_prob = proposal.logpdf(theta, new_theta)
+    assert isinstance(log_prob, float)
+
+    params = {"mode": "informed"}
+    proposal = MSSVProposal(params)
+    assert proposal.mode == "informed"
+    with pytest.raises(ValueError):
+        proposal.sample(rng, theta) # For informed, sample need trajectory
+
+def test_mssv_model():
     rng = np.random.default_rng(42)
     model = MSSVModel(rng=rng)
     params = MSSVParams.from_mu(
@@ -69,16 +93,6 @@ def test_sample_initial_state():
     # Assert different values in h0 (due to randomness)
     assert not np.all(h0 == h0[0])
 
-def test_sample_observation():
-    rng = np.random.default_rng(42)
-    model = MSSVModel(rng=rng)
-    params = MSSVParams.from_mu(
-        mu=[0.0, 1.0],
-        phi=0.9,
-        sigma_eta=0.1,
-        P=[[0.9, 0.1], [0.2, 0.8]]
-    )
-
     h_t = np.array([0.5])
     s_t = np.array([[1, 0]])  # One-hot for regime 0
     y_t = model.sample_observation(params, MSSVState(h_t, s_t))
@@ -93,16 +107,6 @@ def test_sample_observation():
 
     # Assert correct number of samples
     assert y_t_samples.shape == (3,)
-
-def test_sample_next_state():
-    rng = np.random.default_rng(42)
-    model = MSSVModel(rng=rng)
-    params = MSSVParams.from_mu(
-        mu=[0.0, 1.0],
-        phi=0.9,
-        sigma_eta=0.1,
-        P=[[0.9, 0.1], [0.2, 0.8]]
-    )
 
     h_prev = np.array([0.5])
     s_prev = np.array([[1, 0]])  # One-hot for regime 0
@@ -122,16 +126,6 @@ def test_sample_next_state():
     assert h_next.shape == (3,)
     assert s_next.shape == (3, 2)
 
-def test_expected_next_state():
-    rng = np.random.default_rng(42)
-    model = MSSVModel(rng=rng)
-    params = MSSVParams.from_mu(
-        mu=[0.0, 1.0],
-        phi=0.9,
-        sigma_eta=0.1,
-        P=[[0.9, 0.1], [0.2, 0.8]]
-    )
-
     h_prev = np.array([0.5])
     s_prev = np.array([[1, 0]])  # One-hot for regime 0
     expected_state = model.expected_next_state(params, MSSVState(h_prev, s_prev))
@@ -150,69 +144,29 @@ def test_expected_next_state():
     assert h_exp.shape == (3,)
     assert s_exp.shape == (3, 2)
 
-def test_likelihood():
-    rng = np.random.default_rng(42)
-    model = MSSVModel(rng=rng)
-    params = MSSVParams.from_mu(
-        mu=[0.0, 1.0],
-        phi=0.9,
-        sigma_eta=0.1,
-        P=[[0.9, 0.1], [0.2, 0.8]]
-    )
-
     h_t = np.array([0.5])
     s_t = np.array([[1, 0]])  # One-hot for regime 0
     y_t = 0.7
     likelihood = model.likelihood(y_t, params, MSSVState(h_t, s_t))
+    log_likelihood = model.log_likelihood(y_t, params, MSSVState(h_t, s_t))
 
     # Assert likelihood is a positive number
     assert likelihood.shape == (1,)
     assert likelihood > 0
-
-    h_t = np.array([0.5, 1.0, -0.5])
-    s_t = np.array([[1, 0], [0, 1], [1, 0]])  # One-hot for regimes
-    y_t_values = [0.7, -1.2, 0.3]
-    likelihoods = model.likelihood(y_t_values, params, MSSVState(h_t, s_t))
-    
-    # Assert likelihoods are positive numbers and shape matches
-    assert likelihoods.shape == (3,)
-    assert np.all(likelihoods > 0)
-
-def test_log_likelihood():
-    rng = np.random.default_rng(42)
-    model = MSSVModel(rng=rng)
-    params = MSSVParams.from_mu(
-        mu=[0.0, 1.0],
-        phi=0.9,
-        sigma_eta=0.1,
-        P=[[0.9, 0.1], [0.2, 0.8]]
-    )
-
-    h_t = np.array([0.5])
-    s_t = np.array([[1, 0]])  # One-hot for regime 0
-    y_t = 0.7
-    log_likelihood = model.log_likelihood(y_t, params, MSSVState(h_t, s_t))
-
     # Assert log-likelihood is a number
     assert log_likelihood.shape == (1,)
 
     h_t = np.array([0.5, 1.0, -0.5])
     s_t = np.array([[1, 0], [0, 1], [1, 0]])  # One-hot for regimes
     y_t_values = [0.7, -1.2, 0.3]
+    likelihoods = model.likelihood(y_t_values, params, MSSVState(h_t, s_t))
     log_likelihoods = model.log_likelihood(y_t_values, params, MSSVState(h_t, s_t))
     
+    # Assert likelihoods are positive numbers and shape matches
+    assert likelihoods.shape == (3,)
+    assert np.all(likelihoods > 0)
     # Assert log-likelihoods shape matches
     assert log_likelihoods.shape == (3,)
-
-def test_state_transition():
-    rng = np.random.default_rng(42)
-    model = MSSVModel(rng=rng)
-    params = MSSVParams.from_mu(
-        mu=[0.0, 1.0],
-        phi=0.9,
-        sigma_eta=0.1,
-        P=[[0.9, 0.1], [0.2, 0.8]]
-    )
 
     h_prev = np.array([0.5])
     s_prev = np.array([[1, 0]])  # One-hot for regime 0
@@ -223,10 +177,17 @@ def test_state_transition():
         MSSVState(h_prev, s_prev),
         MSSVState(h_next, s_next)
     )
+    log_prob = model.log_transition_density(
+        params,
+        MSSVState(h_prev, s_prev),
+        MSSVState(h_next, s_next)
+    )
 
     # Assert log-probability shape and type
     assert prob.shape == (1,)
     assert isinstance(prob[0], np.floating)
+    assert log_prob.shape == (1,)
+    assert isinstance(log_prob[0], np.floating)
 
     h_prev = np.array([0.5, 1.0])
     s_prev = np.array([[1, 0], [0, 1]])  # One-hot for regimes
@@ -237,46 +198,14 @@ def test_state_transition():
         MSSVState(h_prev, s_prev),
         MSSVState(h_next, s_next)
     )
-    
-    # Assert log-probabilities shape matches and type
-    assert probs.shape == (2,)
-    assert np.all([isinstance(p, np.floating) for p in probs])
-
-def test_log_state_transition():
-    rng = np.random.default_rng(42)
-    model = MSSVModel(rng=rng)
-    params = MSSVParams.from_mu(
-        mu=[0.0, 1.0],
-        phi=0.9,
-        sigma_eta=0.1,
-        P=[[0.9, 0.1], [0.2, 0.8]]
-    )
-
-    h_prev = np.array([0.5])
-    s_prev = np.array([[1, 0]])  # One-hot for regime 0
-    h_next = np.array([0.6])
-    s_next = np.array([[1, 0]])  # One-hot for regime 0
-    log_prob = model.log_transition_density(
-        params,
-        MSSVState(h_prev, s_prev),
-        MSSVState(h_next, s_next)
-    )
-
-    # Assert log-probability shape and type
-    assert log_prob.shape == (1,)
-    assert isinstance(log_prob[0], np.floating)
-
-    h_prev = np.array([0.5, 1.0])
-    s_prev = np.array([[1, 0], [0, 1]])  # One-hot for regimes
-    h_next = np.array([0.6, 1.2])
-    s_next = np.array([[1, 0], [1, 0]])  # One-hot for regimes
     log_probs = model.log_transition_density(
         params,
         MSSVState(h_prev, s_prev),
         MSSVState(h_next, s_next)
     )
     
-    # Assert log-probabilities shape matches and type
+    assert probs.shape == (2,)
+    assert np.all([isinstance(p, np.floating) for p in probs])
     assert log_probs.shape == (2,)
     assert np.all([isinstance(p, np.floating) for p in log_probs])
 

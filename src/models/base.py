@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
-from typing import Type
+from typing import Type, List
 from dataclasses import dataclass
 
 @dataclass(frozen=True)
@@ -35,19 +35,6 @@ class StateSpaceModelPrior(ABC):
         """Compute log prior density."""
         pass
 
-class StateSpaceModelProposal(ABC):
-    """
-    Base class for state space model proposal distribution (for MCMC).
-    """
-    @abstractmethod
-    def sample(self, rng: np.random.Generator, p: StateSpaceModelParams) -> StateSpaceModelParams:
-        """Draw θ' ~ q(· | θ)."""
-        pass
-
-    @abstractmethod
-    def logpdf(self, from_p: StateSpaceModelParams, to_p: StateSpaceModelParams) -> float:
-        """Compute log q(θ' | θ)."""
-        pass
 
 class StateSpaceModelState(ABC):
     """
@@ -73,6 +60,26 @@ class StateSpaceModelState(ABC):
         """
         Extend the current state by adding another state
         """
+        pass
+
+class StateSpaceModelProposal(ABC):
+    """
+    Base class for state space model proposal distribution (for MCMC).
+    """
+    @abstractmethod
+    def sample(self, rng: np.random.Generator, 
+               p: StateSpaceModelParams=None, 
+               x: List[StateSpaceModelState]=None,
+               y: np.ndarray=None) -> StateSpaceModelParams:
+        """Draw θ' ~ q(· | θ, x, y). The concrete proposal depends on the implementation and might use any of θ, x, y."""
+        pass
+
+    @abstractmethod
+    def logpdf(self, to_p: StateSpaceModelParams, 
+               from_p: StateSpaceModelParams=None, 
+               x: List[StateSpaceModelState]=None, 
+               y: np.ndarray=None) -> float:
+        """Compute log q(θ' | θ, x, y). The concrete proposal depends on the implementation and might use any of θ, x, y."""
         pass
 
 class StateSpaceModel(ABC):

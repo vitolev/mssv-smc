@@ -96,6 +96,81 @@ class MSSVParams(StateSpaceModelParams):
             sigma_eta=self.sigma_eta,
             P=np.array(self.P, copy=True)
         )
+    
+# =========================
+# STATE
+# =========================
+class MSSVState(StateSpaceModelState):
+    """
+    Container for MSSV model state: (h_t, s_t)
+        h_t: continuous latent log-volatility vector
+        s_t: one-hot encoded regime vector 
+    """
+    def __init__(self, h_t: np.ndarray, s_t: np.ndarray):
+        if len(h_t) != len(s_t):
+            raise ValueError(f"Length mismatch: h_t has length {len(h_t)}, s_t has length {len(s_t)}")
+        self.h_t = h_t  # Log-volatility
+        self.s_t = s_t  # Regime (one-hot encoded)
+
+    def __getitem__(self, idx):
+        return MSSVState(
+            h_t=np.atleast_1d(self.h_t[idx]),
+            s_t=np.atleast_2d(self.s_t[idx])
+        )
+    
+    def __setitem__(self, idx, value: "MSSVState"):
+        if not isinstance(value, MSSVState):
+            raise TypeError(f"Value must be an instance of MSSVState, got {type(value)}")
+        
+        if isinstance(idx, slice):
+            start, stop, step = idx.indices(len(self))
+            expected_len = len(range(start, stop, step))
+        elif np.isscalar(idx):
+            expected_len = 1
+        else:
+            # fancy indexing (list / array)
+            expected_len = len(idx)
+
+        # --- Check length ---
+        if len(value) != expected_len:
+            raise ValueError(
+                f"Length mismatch: expected {expected_len}, got {len(value)}"
+            )
+
+        # Assign
+        if expected_len == 1:
+            self.h_t[idx] = value.h_t[0]
+        else:
+            self.h_t[idx] = value.h_t
+        self.s_t[idx] = value.s_t
+
+    def __len__(self):
+        return self.h_t.shape[0]
+    
+    def __repr__(self):
+        return f"MSSVState(h_t={self.h_t}, s_t={self.s_t})"
+    
+    def add(self, other: "MSSVState") -> "MSSVState":
+        """
+        Add another MSSVState to this one. This is a simple element-wise addition of the h_t and s_t components.
+
+        Parameters
+        ----------
+            other: MSSVState
+                Another state to add to this one.
+
+        Returns
+        -------
+            new_state: MSSVState
+                A new MSSVState where h_t and s_t are the sums of the corresponding components of self and other.
+        """
+        if not isinstance(other, MSSVState):
+            raise TypeError(f"Other must be an instance of MSSVState, got {type(other)}")
+        
+        new_h_t = np.concatenate((self.h_t, other.h_t), axis=0)
+        new_s_t = np.concatenate((self.s_t, other.s_t), axis=0)
+
+        return MSSVState(h_t=new_h_t, s_t=new_s_t)
 
 # =========================
 # PRIOR
@@ -192,10 +267,9 @@ class MSSVProposal(StateSpaceModelProposal):
     """
     def __init__(
         self,
-        mode="rw",
-        params=None
+        params
     ):
-        self.mode = mode
+        self.mode = params["mode"]  # "rw" or "informed"
         default_params = {
             "rw": {
                 "step_mu": 0.1,
@@ -215,56 +289,58 @@ class MSSVProposal(StateSpaceModelProposal):
         }
 
         # allow user overrides
-        if params is not None:
-            for k in params:
+        for k in params:
+            if k in default_params:
                 default_params[k].update(params[k])
 
         self.params = default_params
 
     def _sample_rw(self, rng: np.random.Generator, p: MSSVParams) -> MSSVParams:
-        mu1 = p.mu1 + rng.normal(0, self.step_mu)
-        delta = p.delta + rng.normal(0, self.step_delta, size=len(p.delta))
+        cfg = self.params["rw"]
+        mu1 = p.mu1 + rng.normal(0, cfg["step_mu"])
+        delta = p.delta + rng.normal(0, cfg["step_delta"], size=len(p.delta))
 
         # phi (logit transform)
         z = logit((p.phi + 1) / 2)
-        z_new = z + rng.normal(0, self.step_phi)
+        z_new = z + rng.normal(0, cfg["step_phi"])
         phi = 2 * expit(z_new) - 1
 
         # sigma (log space)
         log_sigma = np.log(p.sigma_eta)
-        sigma_eta = np.exp(log_sigma + rng.normal(0, self.step_sigma))
+        sigma_eta = np.exp(log_sigma + rng.normal(0, cfg["step_sigma"]))
 
         # transition matrix
         P = np.empty_like(p.P)
         for k in range(p.K):
-            alpha = self.step_P * np.clip(p.P[k], EPS, None)
+            alpha = cfg["step_P"] * np.clip(p.P[k], EPS, None)
             P[k] = rng.dirichlet(alpha)
 
         return MSSVParams(mu1, delta, phi, sigma_eta, P)
 
     def _logpdf_rw(self, from_p: MSSVParams, to_p: MSSVParams) -> float:
+        cfg = self.params["rw"]
         logq = 0.0
 
-        logq += norm.logpdf(to_p.mu1, from_p.mu1, self.step_mu)
+        logq += norm.logpdf(to_p.mu1, from_p.mu1, cfg["step_mu"])
         logq += np.sum(
-            norm.logpdf(to_p.delta, from_p.delta, self.step_delta)
+            norm.logpdf(to_p.delta, from_p.delta, cfg["step_delta"])
         )
 
         # phi
         z_from = logit((from_p.phi + 1) / 2)
         z_to = logit((to_p.phi + 1) / 2)
-        logq += norm.logpdf(z_to, z_from, self.step_phi)
+        logq += norm.logpdf(z_to, z_from, cfg["step_phi"])
         logq += np.log(2) - np.log(1 - to_p.phi**2)
 
         # sigma
         log_from = np.log(from_p.sigma_eta)
         log_to = np.log(to_p.sigma_eta)
-        logq += norm.logpdf(log_to, log_from, self.step_sigma)
+        logq += norm.logpdf(log_to, log_from, cfg["step_sigma"])
         logq -= log_to
 
         # P
         for k in range(from_p.K):
-            alpha = self.step_P * np.clip(from_p.P[k], EPS, None)
+            alpha = cfg["step_P"] * np.clip(from_p.P[k], EPS, None)
 
             row = np.clip(to_p.P[k], EPS, 1.0)
             row = row / row.sum()
@@ -273,80 +349,161 @@ class MSSVProposal(StateSpaceModelProposal):
 
         return logq
        
-# =========================
-# STATE
-# =========================
-class MSSVState(StateSpaceModelState):
-    """
-    Container for MSSV model state: (h_t, s_t)
-        h_t: continuous latent log-volatility vector
-        s_t: one-hot encoded regime vector 
-    """
-    def __init__(self, h_t: np.ndarray, s_t: np.ndarray):
-        if len(h_t) != len(s_t):
-            raise ValueError(f"Length mismatch: h_t has length {len(h_t)}, s_t has length {len(s_t)}")
-        self.h_t = h_t  # Log-volatility
-        self.s_t = s_t  # Regime (one-hot encoded)
+    def _estimate_P(self, z, K):
+        counts = np.zeros((K, K))
 
-    def __getitem__(self, idx):
-        return MSSVState(
-            h_t=np.atleast_1d(self.h_t[idx]),
-            s_t=np.atleast_2d(self.s_t[idx])
-        )
+        for t in range(1, len(z)):
+            counts[z[t-1], z[t]] += 1
+
+        # smoothing to avoid zeros
+        alpha = counts + 1.0
+
+        P_hat = alpha / alpha.sum(axis=1, keepdims=True)
+        return P_hat, alpha
+
+    def _estimate_theta_from_traj_regime(self, h, z, K):
+        T = h.shape[0]
+
+        mu_hat = np.zeros(K)
+
+        # --- estimate mu_k ---
+        for k in range(K):
+            idx = (z == k)
+            if np.sum(idx) < 5:
+                # If we have too few points in this regime, just use the overall mean as a fallback to avoid extreme estimates
+                mu_hat[k] = np.mean(h)
+            else:
+                mu_hat[k] = np.mean(h[idx])
+
+        # Sort mu_hat to ensure identifiability (enforce ordering)
+        mu_hat = np.sort(mu_hat)
+        eps = 1e-4
+        for k in range(1, K):
+            if mu_hat[k] <= mu_hat[k-1]:
+                mu_hat[k] = mu_hat[k-1] + eps
+
+        # --- estimate phi ---
+        x = []
+        y = []
+
+        for t in range(1, T):
+            k = z[t]
+            x.append(h[t-1] - mu_hat[k])
+            y.append(h[t] - mu_hat[k])
+
+        x = np.array(x)
+        y = np.array(y)
+
+        # Simple OLS regression to estimate phi
+        num = np.sum(x * y)
+        den = np.sum(x * x) + 1e-8
+        phi_hat = num / den
+
+        # --- estimate shared sigma ---
+        resid = y - phi_hat * x
+        sigma_hat = np.sqrt(np.mean(resid**2) + 1e-8)
+
+        return mu_hat, phi_hat, sigma_hat
+
+    def _sample_informed(self, rng: np.random.Generator, traj: List[MSSVState]) -> MSSVParams:
+        cfg = self.params["informed"]
+        h = np.array([state.h_t for state in traj])  # shape (T, 1)
+        h = h.squeeze()  # shape (T,)
+        s = np.array([state.s_t for state in traj])  # shape (T, 1, K)
+        K = s.shape[2]
+        z = np.argmax(s, axis=2)  # shape (T, 1)
+        z = z.squeeze()  # shape (T,)
+
+        mu_hat, phi_hat, sigma_hat = self._estimate_theta_from_traj_regime(h, z, K)
+        P_hat, alpha = self._estimate_P(z, K)
+
+        # --- mu ---
+        mu1 = mu_hat[0] + rng.normal(0, cfg["step_mu"])
+        delta_hat = np.log(np.diff(mu_hat))  
+        delta = delta_hat + rng.normal(0, cfg["step_delta"], size=len(delta_hat))
+
+        # --- phi ---
+        z_phi = logit((phi_hat + 1) / 2)
+        z_new = z_phi + rng.normal(0, cfg["step_phi"])
+        phi = 2 * expit(z_new) - 1
+
+        # --- sigma ---
+        log_sigma = np.log(sigma_hat)
+        sigma_eta = np.exp(log_sigma + rng.normal(0, cfg["step_sigma"]))
+
+        # --- P ---
+        P = np.zeros((K, K))
+        for k in range(K):
+            P[k] = rng.dirichlet(alpha[k])
+
+        return MSSVParams(mu1, delta, phi, sigma_eta, P)
+
+    def _logpdf_informed(self, p: MSSVParams, traj: List[MSSVState]) -> float:
+        cfg = self.params["informed"]
+
+        h = np.array([state.h_t for state in traj]).squeeze()
+        s = np.array([state.s_t for state in traj])
+        K = s.shape[2]
+        z = np.argmax(s, axis=2).squeeze()
+
+        mu_hat, phi_hat, sigma_hat = self._estimate_theta_from_traj_regime(h, z, K)
+        _, alpha = self._estimate_P(z, K)
+
+        logq = 0.0
+
+        # mu1
+        logq += norm.logpdf(p.mu1, mu_hat[0], cfg["step_mu"])
+
+        # delta 
+        delta_hat = np.log(np.diff(mu_hat))
+        logq += np.sum(norm.logpdf(p.delta, delta_hat, cfg["step_delta"]))
+
+        # phi
+        z_hat = logit((phi_hat + 1) / 2)
+        z = logit((p.phi + 1) / 2)
+
+        logq += norm.logpdf(z, z_hat, cfg["step_phi"])
+        logq += np.log(2) - np.log(1 - p.phi**2)
+
+        # sigma
+        log_sigma_hat = np.log(sigma_hat)
+        log_sigma = np.log(p.sigma_eta)
+
+        logq += norm.logpdf(log_sigma, log_sigma_hat, cfg["step_sigma"])
+        logq -= log_sigma
+
+        # P
+        for k in range(K):
+            row = np.clip(p.P[k], EPS, 1.0)
+            row = row / row.sum()
+            logq += dirichlet.logpdf(row, alpha[k])
+
+        return logq
     
-    def __setitem__(self, idx, value: "MSSVState"):
-        if not isinstance(value, MSSVState):
-            raise TypeError(f"Value must be an instance of MSSVState, got {type(value)}")
-        
-        if isinstance(idx, slice):
-            start, stop, step = idx.indices(len(self))
-            expected_len = len(range(start, stop, step))
-        elif np.isscalar(idx):
-            expected_len = 1
+    def sample(self, rng: np.random.Generator, from_p: MSSVParams = None, traj: List[MSSVState] = None) -> MSSVParams:
+        if self.mode == "rw":
+            if from_p is None:
+                raise ValueError("from_p must be provided for random walk proposal")
+            return self._sample_rw(rng, from_p)
+        elif self.mode == "informed":
+            if traj is None:
+                raise ValueError("traj must be provided for informed proposal")
+            return self._sample_informed(rng, traj)
         else:
-            # fancy indexing (list / array)
-            expected_len = len(idx)
-
-        # --- Check length ---
-        if len(value) != expected_len:
-            raise ValueError(
-                f"Length mismatch: expected {expected_len}, got {len(value)}"
-            )
-
-        # Assign
-        if expected_len == 1:
-            self.h_t[idx] = value.h_t[0]
-        else:
-            self.h_t[idx] = value.h_t
-        self.s_t[idx] = value.s_t
-
-    def __len__(self):
-        return self.h_t.shape[0]
-    
-    def __repr__(self):
-        return f"MSSVState(h_t={self.h_t}, s_t={self.s_t})"
-    
-    def add(self, other: "MSSVState") -> "MSSVState":
-        """
-        Add another MSSVState to this one. This is a simple element-wise addition of the h_t and s_t components.
-
-        Parameters
-        ----------
-            other: MSSVState
-                Another state to add to this one.
-
-        Returns
-        -------
-            new_state: MSSVState
-                A new MSSVState where h_t and s_t are the sums of the corresponding components of self and other.
-        """
-        if not isinstance(other, MSSVState):
-            raise TypeError(f"Other must be an instance of MSSVState, got {type(other)}")
+            raise ValueError(f"Unknown proposal mode: {self.mode}")
         
-        new_h_t = np.concatenate((self.h_t, other.h_t), axis=0)
-        new_s_t = np.concatenate((self.s_t, other.s_t), axis=0)
-
-        return MSSVState(h_t=new_h_t, s_t=new_s_t)
+    def logpdf(self, from_p: MSSVParams, to_p: MSSVParams = None, traj: List[MSSVState] = None) -> float:
+        if self.mode == "rw":
+            if from_p is None:
+                raise ValueError("from_p must be provided for random walk proposal")
+            return self._logpdf_rw(from_p, to_p)
+        elif self.mode == "informed":
+            if traj is None:
+                raise ValueError("traj must be provided for informed proposal")
+            return self._logpdf_informed(to_p, traj)
+        else:
+            raise ValueError(f"Unknown proposal mode: {self.mode}")
+    
     
 # =========================
 # MODEL

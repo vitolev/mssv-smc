@@ -105,7 +105,7 @@ def test_bootstrap_particle_filter_mssv():
         assert isinstance(smoothing_traj[t], MSSVState)
         assert len(smoothing_traj[t]) == 5
 
-def test_conditional_bootstrap_particle_filter():
+def test_conditional_bootstrap_particle_filter_lgm():
     rng = np.random.default_rng(42)
 
     # Define model parameters

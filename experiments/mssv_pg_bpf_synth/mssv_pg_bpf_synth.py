@@ -45,7 +45,8 @@ def main():
     P_diag: float = config.prior.P_diag
     P_base: float = config.prior.P_base
 
-    # Proposal step sizes
+    # Proposal parameters
+    mode = config.proposal.mode
     step_mu: float = config.proposal.step_mu
     step_delta: float = config.proposal.step_delta
     step_phi: float = config.proposal.step_phi
@@ -130,7 +131,8 @@ def main():
 
     logger.info("-" * 60)
 
-    kwargs_proposal = {
+    proposal_params = {
+        "mode": mode,
         "step_mu": step_mu,
         "step_delta": step_delta,
         "step_phi": step_phi,
@@ -155,7 +157,7 @@ def main():
         "P_base": P_base
     }
 
-    pgs = ParticleGibbsSampler(bpf, kwargs_proposal=kwargs_proposal, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
+    pgs = ParticleGibbsSampler(bpf, proposal_params=proposal_params, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
 
     logger.info(f"Initialized PGS sampler")
     logger.info("-" * 60)
@@ -166,7 +168,7 @@ def main():
     logger.info("-" * 60)
 
     logger.info("Proposal parameters:")
-    for k, v in kwargs_proposal.items():
+    for k, v in proposal_params.items():
         logger.info("- %s: %s", k, v)
 
     logger.info("-" * 60)

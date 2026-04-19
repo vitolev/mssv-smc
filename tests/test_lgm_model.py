@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.models.lgm import LGModel, LGModelParams, LGModelState
+from src.models.lgm import LGModel, LGModelParams, LGModelState, LGModelProposal
 
 def test_lgm_params():
     # Test initialization with provided parameters
@@ -19,7 +19,16 @@ def test_lgm_state():
 
     assert state.x_t.shape == (2,)
 
-def test_sample_initial_state():
+def test_lgm_proposal():
+    proposal = LGModelProposal()
+    rng = np.random.default_rng(42)
+    theta = LGModelParams(a=0.9, b=1.0, sigma_x=0.5, sigma_y=0.2)
+    new_theta = proposal.sample(rng, theta)
+    assert isinstance(new_theta, LGModelParams)
+    log_prob = proposal.logpdf(theta, new_theta)
+    assert isinstance(log_prob, float)
+
+def test_lgm_model():
     rng = np.random.default_rng(42)
     model = LGModel(rng=rng)
     params = LGModelParams(a=0.9, b=1.0, sigma_x=0.5, sigma_y=0.2)
@@ -37,11 +46,6 @@ def test_sample_initial_state():
     # Assert different values in x0 (due to randomness)
     assert not np.all(x0 == x0[0])
 
-def test_sample_next_state():
-    rng = np.random.default_rng(42)
-    model = LGModel(rng=rng)
-    params = LGModelParams(a=0.9, b=1.0, sigma_x=0.5, sigma_y=0.2)
-
     x_prev = np.array([0.0, 1.0, -1.0])
     state_prev = LGModelState(x_prev)
 
@@ -54,11 +58,6 @@ def test_sample_next_state():
     # Assert that next states are not equal to previous states (due to randomness)
     assert not np.all(x_next == x_prev)
 
-def test_sample_observation():
-    rng = np.random.default_rng(42)
-    model = LGModel(rng=rng)
-    params = LGModelParams(a=0.9, b=1.0, sigma_x=0.5, sigma_y=0.2)
-
     x_t = np.array([0.0, 1.0, -1.0])
     state = LGModelState(x_t)
 
@@ -66,11 +65,6 @@ def test_sample_observation():
 
     # Assert correct shape
     assert y_t.shape == (3,)
-
-def test_expected_next_state():
-    rng = np.random.default_rng(42)
-    model = LGModel(rng=rng)
-    params = LGModelParams(a=0.9, b=1.0, sigma_x=0.5, sigma_y=0.2)
 
     x_t = np.array([0.0, 1.0, -1.0])
     state = LGModelState(x_t)
@@ -84,11 +78,6 @@ def test_expected_next_state():
     # Assert expected values
     expected_values = params.a * x_t
     assert np.allclose(x_exp, expected_values)
-
-def test_likelihood_and_log_likelihood():
-    rng = np.random.default_rng(42)
-    model = LGModel(rng=rng)
-    params = LGModelParams(a=0.9, b=1.0, sigma_x=0.5, sigma_y=0.2)
 
     x_t = np.array([0.0, 1.0, -1.0])
     state = LGModelState(x_t)
@@ -104,11 +93,6 @@ def test_likelihood_and_log_likelihood():
 
     # Assert that log likelihoods are the logarithm of likelihoods
     assert np.allclose(log_likelihoods, np.log(likelihoods))
-
-def test_state_transition_and_log_state_transition():
-    rng = np.random.default_rng(42)
-    model = LGModel(rng=rng)
-    params = LGModelParams(a=0.9, b=1.0, sigma_x=0.5, sigma_y=0.2)
 
     x_prev = np.array([0.0, 1.0, -1.0])
     state_prev = LGModelState(x_prev)

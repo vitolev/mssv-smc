@@ -22,6 +22,7 @@ prior:           # prior parameters for the model
   P_base: 1.5
 
 proposal:         # step sizes for the random walk proposal in PMMH
+  mode: "rw"      # "rw" for random walk, "informed" for informed proposal
   step_mu: 0.2
   step_phi: 0.1
   step_sigma: 0.1

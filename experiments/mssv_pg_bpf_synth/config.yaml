@@ -21,7 +21,8 @@ prior:           # prior parameters for the model
   P_diag: 3.5
   P_base: 1.5
 
-proposal:         # step sizes for the random walk proposal in PG
+proposal:               # step sizes for the random walk proposal in PG
+  mode: "informed"      # "rw" for random walk, "informed" for informed proposal
   step_mu: 0.1
   step_phi: 0.05
   step_sigma: 0.05
