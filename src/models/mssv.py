@@ -270,6 +270,9 @@ class MSSVProposal(StateSpaceModelProposal):
         params
     ):
         self.mode = params["mode"]  # "rw" or "informed"
+        if self.mode not in ["rw", "informed"]:
+            raise ValueError(f"Unknown proposal mode: {self.mode}")
+        
         default_params = {
             "rw": {
                 "step_mu": 0.1,
@@ -284,14 +287,13 @@ class MSSVProposal(StateSpaceModelProposal):
                 "step_phi": 0.02,
                 "step_sigma": 0.02,
                 "step_P": 20.0,
-                "lam": 0.2,
             },
         }
 
         # allow user overrides
         for k in params:
-            if k in default_params:
-                default_params[k].update(params[k])
+            if k in default_params[self.mode]:
+                default_params[self.mode][k] = params[k]
 
         self.params = default_params
 
@@ -492,7 +494,7 @@ class MSSVProposal(StateSpaceModelProposal):
         else:
             raise ValueError(f"Unknown proposal mode: {self.mode}")
         
-    def logpdf(self, from_p: MSSVParams, to_p: MSSVParams = None, traj: List[MSSVState] = None) -> float:
+    def logpdf(self, to_p: MSSVParams, from_p: MSSVParams = None, traj: List[MSSVState] = None) -> float:
         if self.mode == "rw":
             if from_p is None:
                 raise ValueError("from_p must be provided for random walk proposal")

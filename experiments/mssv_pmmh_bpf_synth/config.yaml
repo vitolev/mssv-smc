@@ -1,6 +1,6 @@
-name: 2_regime_T_500
+name: test
 
-T: 500           # Number of time steps to use from the synthetic dataset
+T: 2000           # Number of time steps to use from the synthetic dataset
 K: 2              # Number of regimes
 N: 2000           # Number of particles for the BPF
 

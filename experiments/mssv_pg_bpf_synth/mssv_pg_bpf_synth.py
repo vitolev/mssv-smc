@@ -61,7 +61,7 @@ def main():
 
     logger = setup_main_logging(script_dir, name)
     logger.info("=" * 60)
-    logger.info("Particle Marginal Metropolis-Hastings (PMMH) algorithm with Bootstrap Particle Filter (BPF)")
+    logger.info("Particle Gibbs (PG) algorithm with Bootstrap Particle Filter (BPF)")
     logger.info("=" * 60)
 
     logger.info("Project overview:")
@@ -159,7 +159,7 @@ def main():
 
     pgs = ParticleGibbsSampler(bpf, proposal_params=proposal_params, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
 
-    logger.info(f"Initialized PGS sampler")
+    logger.info(f"Initialized PG sampler")
     logger.info("-" * 60)
     logger.info("Model parameters:")
     for k, v in kwargs_model.items():
@@ -187,7 +187,7 @@ def main():
 
     results_bpf, acceptance_rates, initial_params = pgs.run(y, n_iter=M, n_chain=C, burnin=burnin)
 
-    logger.info(f"PGS sampling completed.")
+    logger.info(f"PG sampling completed.")
     logger.info(f"Acceptance rates for each chain: {acceptance_rates}")
     logger.info(f"Initial parameters for each chain:")
     for params in initial_params:
@@ -200,9 +200,10 @@ def main():
     # Now let's look at samples of trajectories
     plt.figure(figsize=(12, 8))
     for chain in range(len(results_bpf)):
-        samples, _, _, mh_states = results_bpf[chain]
-        for mh_state in mh_states:
-            logger.info(f"Chain {chain+1} MH state: {mh_state}")
+        samples, logmarliks, thetas, mh_states = results_bpf[chain]
+        for i in range(len(mh_states)):
+            logger.info(f"Chain {chain+1} MH state: {mh_states[i]}")
+
         # Compute mean trajectory post burn-in
         samples_h = np.array([sample.h_t for sample in samples])    # shape (T+1, N)
         mean_trajectory = np.mean(samples_h, axis=1)

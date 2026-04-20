@@ -70,7 +70,7 @@ class PGS_Chain:
         
     def _step(self):
         """
-        Perform one iteration of the PGS algorithm: run conditional PF and sample new trajectory and parameters.
+        Perform one iteration of the PG algorithm: run conditional PF and sample new trajectory and parameters.
         """
         # Run conditional PF and sample new trajectory
         trajectory, logmarlik = self._run_pf_and_sample(self.y, self.theta, self.current_trajectory)
