@@ -9,6 +9,9 @@ data/
 # Some experiments
 experiments/mab_simulations/
 
+# Pickle files
+*.pkl
+
 # References and other sources
 references/
 temp/

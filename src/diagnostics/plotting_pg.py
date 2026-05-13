@@ -163,7 +163,7 @@ def plot_histograms(results, results_dir):
                     vmax = np.max(all_values)
                     data_range = vmax - vmin
 
-                    # 🔑 enforce minimum range
+                    # enforce minimum range
                     if data_range < 1e-8:
                         center = np.mean(all_values)
                         half_width = 0.5 

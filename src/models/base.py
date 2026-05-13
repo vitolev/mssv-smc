@@ -17,7 +17,7 @@ class StateSpaceModelParams(ABC):
         pass
 
     @abstractmethod
-    def copy(self):        
+    def copy(self) -> "StateSpaceModelParams":        
         """Create a copy of the parameters."""
         pass
 
@@ -59,6 +59,13 @@ class StateSpaceModelState(ABC):
     def add(self, other: "StateSpaceModelState") -> "StateSpaceModelState":
         """
         Extend the current state by adding another state
+        """
+        pass
+
+    @abstractmethod
+    def copy(self) -> "StateSpaceModelState":
+        """
+        Create a copy of the state.
         """
         pass
 

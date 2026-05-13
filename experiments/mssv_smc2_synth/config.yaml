@@ -1,0 +1,29 @@
+name: 2_regime_T_2000
+
+T: 2000            # Number of time steps to use from the synthetic dataset
+K: 2              # Number of regimes
+N_x: 2000           # Number of state particles
+N_theta: 2000       # Number of parameter particles
+gamma: 0.9         # ESS threshold for resampling (as a fraction of N_theta)
+x_thin: 5         # Thinning factor for state particles in the output history
+
+prior:           # prior parameters for the model
+  mu_mean: 0.0
+  mu_sd: 5.0
+  phi_a: 6
+  phi_b: 2
+  sigma_eta_a: 2.0
+  sigma_eta_b: 5.0
+  diff_mean: 0.0
+  diff_sd: 2.0
+  P_diag: 3.5
+  P_base: 1.5
+
+proposal:         # step sizes for the random walk proposal in SMC2
+  mode: "rw"      # use only "rw" (random walk) proposal
+  step_mu: 0.2
+  step_phi: 0.1
+  step_sigma: 0.1
+  step_P: 500
+  step_delta: 0.1
+  

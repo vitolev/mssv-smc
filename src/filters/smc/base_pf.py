@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
-from src.models.base import StateSpaceModel, StateSpaceModelParams
+from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
+from typing import List
 
 class ParticleFilter(ABC):
     """
@@ -36,7 +37,7 @@ class ParticleFilter(ABC):
         pass
 
     @abstractmethod
-    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref):
+    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref: List[StateSpaceModelState]):
         """
         Run the particle filter on observation sequence y, conditional on a fixed trajectory x_ref.
 
@@ -47,7 +48,7 @@ class ParticleFilter(ABC):
         theta : StateSpaceModelParams
             Model parameters.
         x_ref : array-like, shape (T+1,)
-            Reference trajectory to condition on. Must be of length T+1, where T is the length of y.
+            Reference trajectory to condition on. Must be of length T+1, where T is the length of y. Each element of trajectory is a StateSpaceModelState at that time.
 
         Returns
         -------

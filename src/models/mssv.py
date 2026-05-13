@@ -172,6 +172,20 @@ class MSSVState(StateSpaceModelState):
 
         return MSSVState(h_t=new_h_t, s_t=new_s_t)
 
+    def copy(self) -> "MSSVState":
+        """
+        Create a copy of this MSSVState instance.
+
+        Returns
+        -------
+            new_state: MSSVState
+                A new MSSVState with the same h_t and s_t values as this one.
+        """
+        return MSSVState(
+            h_t=np.array(self.h_t, copy=True),
+            s_t=np.array(self.s_t, copy=True)
+        )
+
 # =========================
 # PRIOR
 # =========================

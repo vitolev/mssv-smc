@@ -183,6 +183,12 @@ class LGModelState(StateSpaceModelState):
         new_x_t = np.hstack((self.x_t, other.x_t))
         return LGModelState(x_t=new_x_t)
 
+    def copy(self) -> "LGModelState":
+        """
+        Create a copy of the state.
+        """
+        return LGModelState(x_t=self.x_t.copy())
+
 class LGModel(StateSpaceModel):
     """
     Linear Gaussian State Space Model
