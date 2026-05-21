@@ -21,6 +21,16 @@ class StateSpaceModelParams(ABC):
         """Create a copy of the parameters."""
         pass
 
+    @abstractmethod
+    def to_unconstrained(self) -> np.ndarray:
+        """Convert parameters to an unconstrained vector representation."""
+        pass
+
+    @abstractmethod
+    def to_vector(self) -> np.ndarray:
+        """Convert parameters to a vector representation."""
+        pass
+
 class StateSpaceModelPrior(ABC):
     """
     Base class for state space model prior distribution.
@@ -87,6 +97,11 @@ class StateSpaceModelProposal(ABC):
                x: List[StateSpaceModelState]=None, 
                y: np.ndarray=None) -> float:
         """Compute log q(θ' | θ, x, y). The concrete proposal depends on the implementation and might use any of θ, x, y."""
+        pass
+
+    @abstractmethod
+    def update_params(self, new_params: dict):
+        """Update proposal parameters."""
         pass
 
 class StateSpaceModel(ABC):

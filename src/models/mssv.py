@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import norm, dirichlet, beta, gamma, truncnorm
+from scipy.stats import norm, dirichlet, beta, gamma, truncnorm, multivariate_normal
 from scipy.special import logit, expit
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState, StateSpaceModelPrior, StateSpaceModelProposal
 from typing import List, Tuple
@@ -96,7 +96,47 @@ class MSSVParams(StateSpaceModelParams):
             sigma_eta=self.sigma_eta,
             P=np.array(self.P, copy=True)
         )
-    
+
+    def to_unconstrained(self) -> np.ndarray:
+        """
+        Convert the constrained parameters to an unconstrained vector representation for MCMC proposals.
+
+        The transformation is as follows:
+            - mu1: unconstrained
+            - delta: unconstrained
+            - phi: unconstrained (arctanh transform)
+            - sigma_eta: unconstrained (log transform)
+            - P: unconstrained (logits for each row)
+        """
+        z = []
+        for i in range(self.K):
+            row = np.clip(self.P[i], EPS, 1.0)
+            row = row / row.sum()
+
+            logits = np.log(row[:-1]) - np.log(row[-1])
+
+            z.extend(logits)
+
+        return np.array([
+            self.mu1,
+            *self.delta,
+            np.arctanh(self.phi),
+            np.log(self.sigma_eta),
+            *z
+        ])
+
+    def to_vector(self) -> np.ndarray:
+        """
+        Convert parameters to a vector representation. Used for storing samples in a consistent format. 
+        """
+        return np.concatenate((
+            [self.mu1],
+            self.delta,
+            [self.phi],
+            [self.sigma_eta],
+            self.P.flatten()
+        ))
+
 # =========================
 # STATE
 # =========================
@@ -273,7 +313,7 @@ class MSSVPrior(StateSpaceModelPrior):
         return logp
 
 # =========================
-# PROPOSAL (MCMC)
+# PROPOSAL
 # =========================
 class MSSVProposal(StateSpaceModelProposal):
     """
@@ -283,8 +323,8 @@ class MSSVProposal(StateSpaceModelProposal):
         self,
         params
     ):
-        self.mode = params["mode"]  # "rw" or "informed"
-        if self.mode not in ["rw", "informed"]:
+        self.mode = params["mode"]  # "rw", "informed" or "independent"
+        if self.mode not in ["rw", "informed", "independent"]:
             raise ValueError(f"Unknown proposal mode: {self.mode}")
         
         default_params = {
@@ -302,6 +342,10 @@ class MSSVProposal(StateSpaceModelProposal):
                 "step_sigma": 0.02,
                 "step_P": 20.0,
             },
+            "independent": {
+                "mean": 1.0,
+                "covariance": 1.0
+            }
         }
 
         # allow user overrides
@@ -310,6 +354,11 @@ class MSSVProposal(StateSpaceModelProposal):
                 default_params[self.mode][k] = params[k]
 
         self.params = default_params
+
+    def update_params(self, new_params):
+        for k in new_params:
+            if k in self.params[self.mode]:
+                self.params[self.mode][k] = new_params[k]
 
     def _sample_rw(self, rng: np.random.Generator, p: MSSVParams) -> MSSVParams:
         cfg = self.params["rw"]
@@ -496,6 +545,142 @@ class MSSVProposal(StateSpaceModelProposal):
 
         return logq
     
+    def _sample_independent(self, rng: np.random.Generator) -> MSSVParams:
+        cfg = self.params["independent"]
+
+        mean = cfg["mean"]
+        cov = cfg["covariance"]
+
+        z = rng.multivariate_normal(mean=mean, cov=cov)
+
+        idx = 0
+        D = len(z)
+        K_float = np.sqrt(D - 2)
+        if not np.isclose(K_float, round(K_float)):
+            raise ValueError(
+                f"Invalid parameter vector dimension D={D}; "
+                f"expected D = K^2 + 2"
+            )
+        K = int(round(K_float))
+
+        mu1 = z[idx]
+        idx += 1
+
+        delta = z[idx: idx + (K - 1)]
+        idx += (K - 1)
+
+        phi_unconstrained = z[idx]
+        phi = np.tanh(phi_unconstrained)
+        idx += 1
+
+        log_sigma_eta = z[idx]
+        sigma_eta = np.exp(log_sigma_eta)
+        idx += 1
+
+        P = np.zeros((K, K))
+        for i in range(K):
+            logits = z[idx: idx + (K - 1)]
+            idx += (K - 1)
+
+            exp_logits = np.exp(logits)
+
+            denom = 1.0 + np.sum(exp_logits)
+
+            row = np.empty(K)
+            row[:-1] = exp_logits / denom
+            row[-1] = 1.0 / denom
+
+            P[i] = row
+
+        return MSSVParams(
+            mu1=mu1,
+            delta=np.asarray(delta),
+            phi=phi,
+            sigma_eta=sigma_eta,
+            P=P,
+        )
+
+    def _logpdf_independent(self, p: MSSVParams) -> float:
+        cfg = self.params["independent"]
+
+        mean = cfg["mean"]
+        cov = cfg["covariance"]
+
+        K = p.K
+        z_parts = []
+
+        z_parts.append(np.array([p.mu1]))   # mu1
+
+        z_parts.append(np.asarray(p.delta)) # delta
+
+        # -------------------------------------------------
+        # phi in (-1,1)
+        # x = atanh(phi)
+        #
+        # Jacobian:
+        #   dphi/dx = 1 - phi^2
+        # Therefore:
+        #   log |dphi/dx|
+        # -------------------------------------------------
+        phi = np.clip(p.phi, -1 + EPS, 1 - EPS)
+        phi_unconstrained = np.arctanh(phi)
+        z_parts.append(np.array([phi_unconstrained]))
+        log_jacobian = np.log(1.0 - phi**2)
+
+        # -------------------------------------------------
+        # sigma_eta > 0
+        # x = log(sigma)
+        #
+        # Jacobian:
+        #   dsigma/dx = sigma
+        # -------------------------------------------------
+        sigma_eta = max(p.sigma_eta, EPS)
+        log_sigma_eta = np.log(sigma_eta)
+        z_parts.append(np.array([log_sigma_eta]))
+        log_jacobian += np.log(sigma_eta)
+
+        # -------------------------------------------------
+        # Transition matrix
+        #
+        # Row transform:
+        #   a_j = log(p_j / p_K)
+        #
+        # Jacobian determinant for inverse softmax:
+        #   |J| = prod_j p_j
+        #
+        # Therefore:
+        #   log|J| = sum log(p_j)
+        # -------------------------------------------------
+        for i in range(K):
+            row = np.clip(p.P[i], EPS, 1.0)
+            row = row / row.sum()
+
+            logits = np.log(row[:-1]) - np.log(row[-1])
+
+            z_parts.append(logits)
+
+            log_jacobian += np.sum(np.log(row))
+
+        # -------------------------------------------------
+        # Build unconstrained vector
+        # -------------------------------------------------
+        z = np.concatenate(z_parts)
+
+        # -------------------------------------------------
+        # Gaussian log-density
+        # -------------------------------------------------
+        log_q_z = multivariate_normal.logpdf(
+            z,
+            mean=mean,
+            cov=cov,
+            allow_singular=False,
+        )
+
+        # -------------------------------------------------
+        # Density on constrained space
+        # -------------------------------------------------
+        return log_q_z - log_jacobian
+
     def sample(self, rng: np.random.Generator, from_p: MSSVParams = None, traj: List[MSSVState] = None) -> MSSVParams:
         if self.mode == "rw":
             if from_p is None:
@@ -505,6 +690,8 @@ class MSSVProposal(StateSpaceModelProposal):
             if traj is None:
                 raise ValueError("traj must be provided for informed proposal")
             return self._sample_informed(rng, traj)
+        elif self.mode == "independent":
+            return self._sample_independent(rng)
         else:
             raise ValueError(f"Unknown proposal mode: {self.mode}")
         
@@ -517,6 +704,8 @@ class MSSVProposal(StateSpaceModelProposal):
             if traj is None:
                 raise ValueError("traj must be provided for informed proposal")
             return self._logpdf_informed(to_p, traj)
+        elif self.mode == "independent":
+            return self._logpdf_independent(to_p)
         else:
             raise ValueError(f"Unknown proposal mode: {self.mode}")
     

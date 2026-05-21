@@ -12,6 +12,9 @@ experiments/mab_simulations/
 # Pickle files
 *.pkl
 
+# HDF5 files
+*.h5
+
 # References and other sources
 references/
 temp/

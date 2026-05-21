@@ -1,9 +1,9 @@
 K: 2
-N_theta: 2000
+N_theta: 6000
 N_x: 2000
-T: 2000
-gamma: 0.9
-name: 2_regime_T_2000
+T: 1500
+gamma: 0.5
+name: T_1500
 prior:
   P_base: 1.5
   P_diag: 3.5
@@ -16,10 +16,5 @@ prior:
   sigma_eta_a: 2.0
   sigma_eta_b: 5.0
 proposal:
-  mode: rw
-  step_P: 500
-  step_delta: 0.1
-  step_mu: 0.2
-  step_phi: 0.1
-  step_sigma: 0.1
+  mode: independent
 x_thin: 5

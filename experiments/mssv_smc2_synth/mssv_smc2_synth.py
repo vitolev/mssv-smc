@@ -15,7 +15,6 @@ from src.models.mssv import MSSVParams, MSSVModel
 from src.filters.smc2.smc2 import SMC2
 from src.filters.smc.bootstrap_pf import BootstrapParticleFilter
 from src.filters.smc.resampling import systematic_resampling
-from src.diagnostics.plotting_smc2 import plot_histograms
 from src.utils.utils import ROOT_DIR
 
 def main():
@@ -47,11 +46,6 @@ def main():
 
     # Proposal params
     mode = config.proposal.mode
-    step_mu: float = config.proposal.step_mu
-    step_delta: float = config.proposal.step_delta
-    step_phi: float = config.proposal.step_phi
-    step_sigma: float = config.proposal.step_sigma
-    step_P: int = config.proposal.step_P
 
     # Create subfolder with name of the experiment
     script_dir = script_dir / name
@@ -114,32 +108,10 @@ def main():
     logger.info(f"Initialized Bootstrap Particle Filter")
     logger.info(f"N_x = {N_x}")
 
-    # Test log marginal likelihood mean and variance for fixed parameters
-    logmarliks_bpf = []
-    for _ in range(200): 
-        history = bpf.run(y, true_theta)
-        logmarlik = history[-1][3]
-        logmarliks_bpf.append(logmarlik)
-
-    logger.info("-" * 60)
-
-    logger.info(f"BPF log marginal likelihood")
-    logger.info(f"Mean: {np.mean(logmarliks_bpf)}")
-    logger.info(f"Variance: {np.var(logmarliks_bpf)}\n")
-
-    logger.info(f"BPF marginal likelihood")
-    logger.info(f"Mean: {np.mean(np.exp(logmarliks_bpf))}")
-    logger.info(f"Variance: {np.var(np.exp(logmarliks_bpf))}")
-
     logger.info("-" * 60)
 
     proposal_params = {
         "mode": mode,
-        "step_mu": step_mu,
-        "step_delta": step_delta,
-        "step_phi": step_phi,
-        "step_sigma": step_sigma,
-        "step_P": step_P
     }
 
     kwargs_model = {
@@ -185,20 +157,9 @@ def main():
 
     logger.info(f"Starting sampling:")
 
-    history = smc2.run(y, logger=logger, thin=x_thin, output_dir=output_dir)
+    smc2.run(y, logger=logger, thin=x_thin, output_dir=output_dir)
 
     logger.info(f"SMC2 sampling completed.")
-    logger.info(f"Extracting results...")
-
-    # Parameter estimates at last time step
-    thetas, logweights, loglikelihoods, ess = history[-1]
-    weights = np.exp(logweights - np.max(logweights))  # Normalize log-weights
-    weights /= np.sum(weights)
-    logger.info(f"Parameter weights statistics: mean={np.mean(weights)}, var={np.var(weights)}, sum={np.sum(weights)}, min={np.min(weights)}, max={np.max(weights)}")
-    
-    logger.info("Started plotting...")
-    plot_histograms(thetas, weights, results_dir)
-    logger.info("Plotting completed.")
 
     logger.info("-" * 60)
 

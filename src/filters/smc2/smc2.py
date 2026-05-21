@@ -1,7 +1,7 @@
 import copy
 import numpy as np
 import arviz as az
-import pickle
+import h5py
 from concurrent.futures import ProcessPoolExecutor
 
 from src.filters.smc.base_pf import ParticleFilter
@@ -13,17 +13,15 @@ from typing import List
 
 class ThetaParticle:
     "Container for parameter particles in SMC2."
-    def __init__(self, theta: StateSpaceModelParams, x_particles: StateSpaceModelState, loglikelihood: float, logweight: float):
+    def __init__(self, theta: StateSpaceModelParams, x_particles: StateSpaceModelState, logweight: float):
         self.theta = theta                      # Model parameters in this particle
         self.x_particles = x_particles          # State particles associated with this parameter particle. 
-        self.loglikelihood = loglikelihood      # Log marginal likelihood estimate associated with this parameter particle
         self.logweight = logweight              # Log weight of this parameter particle 
     
     def copy(self):
         return ThetaParticle(
             theta=self.theta.copy(),
             x_particles=self.x_particles.copy(),
-            loglikelihood=self.loglikelihood,
             logweight=self.logweight
         )
 
@@ -63,7 +61,7 @@ class SMC2:
             theta = self.prior.sample(self.rng, **self.kwargs_model)
             x_particles = self.model.sample_initial_state(theta, size=self.N_x)
 
-            theta_particles.append(ThetaParticle(theta, x_particles, 0.0, 0.0))
+            theta_particles.append(ThetaParticle(theta, x_particles, 0.0))
 
         return theta_particles
 
@@ -114,6 +112,107 @@ class SMC2:
 
         return theta_particles
 
+    def _compute_proposal_moments(
+        self,
+        theta_particles: List[ThetaParticle]
+    ):
+        """
+        Compute weighted empirical mean/covariance
+        in unconstrained parameter space.
+        """
+
+        # -----------------------------------------
+        # normalized weights
+        # -----------------------------------------
+        w = self._normalize_weights(theta_particles)
+
+        # -----------------------------------------
+        # unconstrained particles
+        # shape: (N_theta, d)
+        # -----------------------------------------
+        Z = np.array([
+            p.theta.to_unconstrained()
+            for p in theta_particles
+        ])
+
+        # -----------------------------------------
+        # weighted mean
+        # -----------------------------------------
+        mu = np.sum(w[:, None] * Z, axis=0)
+
+        # -----------------------------------------
+        # weighted covariance
+        # -----------------------------------------
+        centered = Z - mu
+        Sigma = centered.T @ (w[:, None] * centered)
+
+        # -----------------------------------------
+        # regularization for numerical stability
+        # -----------------------------------------
+        Sigma += 1e-8 * np.eye(Sigma.shape[0])
+
+        return mu, Sigma
+
+    def _vector_dim(self, theta_particles: List[ThetaParticle]):
+        # Get dimension of vector representation of parameters
+        theta_example = theta_particles[0].theta
+        vec = theta_example.to_vector()
+        return len(vec)
+
+    def _init_hdf5_history(self, output_dir, theta_particles, T):
+        h5_path = output_dir / "history.h5"
+        theta_dim = self._vector_dim(theta_particles)
+
+        h5f = h5py.File(h5_path, "w")
+        h5f.create_dataset(
+            "theta",
+            shape=(T + 1, self.N_theta, theta_dim),
+            dtype="f8",
+            chunks=(1, self.N_theta, theta_dim),
+            compression="gzip",
+            compression_opts=4,
+        )
+
+        h5f.create_dataset(
+            "logweights",
+            shape=(T + 1, self.N_theta),
+            dtype="f8",
+            chunks=(1, self.N_theta),
+            compression="gzip",
+            compression_opts=4,
+        )
+
+        h5f.create_dataset(
+            "ess",
+            shape=(T + 1,),
+            dtype="f8",
+            chunks=(256,),
+            compression="gzip",
+            compression_opts=4,
+        )
+        h5f.create_dataset(
+            "resampled_times",
+            shape=(0,),
+            maxshape=(None,),
+            dtype="i8",
+            chunks=(256,),
+            compression="gzip",
+            compression_opts=4,
+        )
+        return h5f
+
+    def _write_history_step(self, h5f, t, theta_particles, ess):
+        theta_vecs = np.stack([p.theta.to_vector() for p in theta_particles], axis=0)
+        logweights = np.array([p.logweight for p in theta_particles], dtype=np.float64)
+
+        h5f["theta"][t] = theta_vecs
+        h5f["logweights"][t] = logweights
+        h5f["ess"][t] = ess
+
+    def _append_resampled_time(self, h5f, time_index):
+        ds = h5f["resampled_times"]
+        ds.resize((ds.shape[0] + 1,))
+        ds[-1] = time_index
 
     def run(self, y, logger=None, thin=1, output_dir=None):
         if logger is not None:
@@ -121,11 +220,15 @@ class SMC2:
         theta_particles = self._initialize_theta_particles()
         
         T = len(y)
-
-        history = []
+        resampled_times = []
+        h5f = None
+        if output_dir is not None:
+            if logger is not None:
+                logger.info("Opening HDF5 history file...")
+            h5f = self._init_hdf5_history(output_dir, theta_particles, T)
+            self._write_history_step(h5f, 0, theta_particles, np.nan)
 
         with ProcessPoolExecutor(max_workers=8) as executor:
-
             for t in range(T):
                 if logger is not None:
                     logger.info(f"Time step {t+1}/{T}")
@@ -156,30 +259,33 @@ class SMC2:
                     # Resample theta particles
                     theta_particles, idx = self._resample_theta_particles(theta_particles)
 
+                    # Update proposal moments
+                    mu, Sigma = self._compute_proposal_moments(theta_particles)
+                    new_params = {
+                        "mean": mu,
+                        "covariance": Sigma
+                    }
+                    self.proposal.update_params(new_params)
+                    if logger is not None:
+                        logger.debug(f"Mean vector: {mu}")
+                        logger.debug(f"Covariance matrix: {Sigma}")
+
                     # MCMC rejuvenation
                     theta_particles = self._rejuvenate(theta_particles, y[:t+1], executor)
 
-                # Save theta particles in memory
-                thetas = np.array([p.theta for p in theta_particles])
-                logweights = np.array([p.logweight for p in theta_particles])
-                logliks = np.array([p.loglikelihood for p in theta_particles])
-                history.append((thetas, logweights, logliks, ess))
+                    resampled_times.append(t+1)
+                    if h5f is not None:
+                        self._append_resampled_time(h5f, t+1)
 
-                # # Save x_particles on disk                # For now this is commented out because storing requires too much space. Maybe will do it somehow more efficient later.
-                # if output_dir is not None:
-                #     if logger is not None:
-                #         logger.info(f"- Saving x_particles to disk...")
-                #     with open(output_dir / f"x_particles_t{t}.pkl", "wb") as f:
-                #         pickle.dump([p.x_particles[::thin] for p in theta_particles], f)
+                if h5f is not None:
+                    self._write_history_step(h5f, t + 1, theta_particles, ess)
 
-        # Save history on disk
-        if output_dir is not None:
-            if logger is not None:
-                logger.info(f"- Saving history to disk...")
-            with open(output_dir / "history.pkl", "wb") as f:
-                pickle.dump(history, f)
-
-        return history
+        if h5f is not None:
+            h5f.attrs["T"] = T
+            h5f.attrs["N_theta"] = self.N_theta
+            h5f.attrs["N_x"] = self.N_x
+            h5f.attrs["gamma"] = self.gamma
+            h5f.close()
 
 
 def _update_theta_particle(args):
@@ -205,7 +311,6 @@ def _update_theta_particle(args):
     x_particles = x_particles[indices]      # All particles are now equally weighted (1/N_x), so we dont have to carry on weights.
 
     particle.x_particles = x_particles
-    particle.loglikelihood += loglik_increment
     particle.logweight += loglik_increment
 
     return particle
@@ -215,14 +320,14 @@ def _rejuvenate_particle(args):
     rng = np.random.default_rng(seed)
 
     theta_current = particle.theta
-    loglik_current = particle.loglikelihood
+    current_history = pf.run(y_history, theta_current)
+    loglik_current = current_history[-1][3]
 
     theta_prop = proposal.sample(rng, theta_current)
+    proposed_history = pf.run(y_history, theta_prop)
 
-    pf_history = pf.run(y_history, theta_prop)
-
-    x_particles = pf_history[-1][0]
-    loglik_prop = pf_history[-1][3]
+    x_particles = proposed_history[-1][0]
+    loglik_prop = proposed_history[-1][3]
 
     log_alpha = (
         loglik_prop
@@ -237,8 +342,6 @@ def _rejuvenate_particle(args):
         return ThetaParticle(
             theta_prop,
             x_particles,
-            
-            loglik_prop,
             0.0
         )
 

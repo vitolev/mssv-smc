@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=mssv_smc2_bpf_synth_%j
+#SBATCH --job-name=output_exploration_%j
 #SBATCH --partition=all
 #SBATCH --account=fri-users
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --output=mssv_smc2_bpf_synth_%j.out
-#SBATCH --time=08:00:00
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=8G
+#SBATCH --output=output_exploration_%j.out
+#SBATCH --time=00:10:00
 
 echo "Job started on $(hostname)"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"
@@ -29,4 +29,4 @@ source venv/bin/activate    # Make sure virtual environment is set up and adjust
 echo "Activated virtual environment. Starting Python script."
 
 # Run script
-python experiments/mssv_smc2_synth/mssv_smc2_synth.py
+python experiments/mssv_smc2_synth/output_exploration.py
