@@ -30,6 +30,7 @@ def main():
     N_x: int = config.N_x
     N_theta: int = config.N_theta
     gamma: float = config.gamma
+    R: int = config.R
     x_thin: int = config.x_thin
 
     # Prior parameters
@@ -131,11 +132,12 @@ def main():
         "P_base": P_base
     }
 
-    smc2 = SMC2(bpf, N_theta=N_theta, gamma=gamma, proposal_params=proposal_params, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
+    smc2 = SMC2(bpf, N_theta=N_theta, gamma=gamma, R=R, proposal_params=proposal_params, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
 
     logger.info(f"Initialized SMC2 sampler")
     logger.info(f"N_theta = {N_theta}")
     logger.info(f"Gamma = {gamma}")
+    logger.info(f"R = {R}")
     logger.info("-" * 60)
     logger.info("Model parameters:")
     for k, v in kwargs_model.items():

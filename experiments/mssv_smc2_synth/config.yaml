@@ -1,10 +1,11 @@
-name: T_2000_4
+name: T_2000_test_5
 
 T: 2000            # Number of time steps to use from the synthetic dataset
 K: 2              # Number of regimes
 N_x: 2000           # Number of state particles
-N_theta: 6000       # Number of parameter particles
-gamma: 0.9         # ESS threshold for resampling (as a fraction of N_theta)
+N_theta: 4000       # Number of parameter particles
+gamma: 0.0         # ESS threshold for resampling (as a fraction of N_theta)
+R: 6              # Number of MCMC rejuvenation steps after resampling
 x_thin: 5         # Thinning factor for state particles in the output history
 
 prior:           # prior parameters for the model

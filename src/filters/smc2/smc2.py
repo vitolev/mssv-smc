@@ -31,6 +31,7 @@ class SMC2:
         pf: ParticleFilter,
         N_theta: int,
         gamma: float = 1.0,
+        R: int = 1,
         kwargs_model=None,
         proposal_params=None,
         kwargs_prior=None,
@@ -42,6 +43,7 @@ class SMC2:
         self.N_theta = N_theta
         self.N_x = pf.N
         self.gamma = gamma
+        self.R = R
 
         self.kwargs_model = kwargs_model if kwargs_model is not None else {}
         self.proposal_params = proposal_params if proposal_params is not None else {}
@@ -106,11 +108,13 @@ class SMC2:
             for particle in theta_particles
         ]
 
-        theta_particles = list(
+        results = list(
             executor.map(_rejuvenate_particle, args)
         )
+        theta_particles = [res[0] for res in results]
+        diagnostics = [res[1] for res in results]
 
-        return theta_particles
+        return theta_particles, diagnostics
 
     def _compute_proposal_moments(
         self,
@@ -215,6 +219,24 @@ class SMC2:
         ds[-1] = time_index
 
     def run(self, y, logger=None, thin=1, output_dir=None):
+        """
+        Run the SMC2 algorithm on the given data.
+
+        Parameters
+        ----------
+        y: list or array-like, shape (T,)
+            Observations over time.
+        logger: logging.Logger, optional
+            Logger for debug/info messages. If None, no logging is done.
+        thin: int, optional
+            Thinning interval for storing particles in history. (default is 1, meaning store every step)
+        output_dir: pathlib.Path, optional
+            Directory to save all the history.
+
+        Returns
+        -------
+        None. The history of particles, weights, ESS, and resampled times are saved in an HDF5 file in the output directory if provided.
+        """
         if logger is not None:
             logger.info("Initializing theta particles...")
         theta_particles = self._initialize_theta_particles()
@@ -270,12 +292,16 @@ class SMC2:
                         logger.debug(f"Mean vector: {mu}")
                         logger.debug(f"Covariance matrix: {Sigma}")
 
-                    # MCMC rejuvenation
-                    theta_particles = self._rejuvenate(theta_particles, y[:t+1], executor)
-
                     resampled_times.append(t+1)
                     if h5f is not None:
                         self._append_resampled_time(h5f, t+1)
+
+                    for r in range(self.R):
+                        if logger is not None:
+                            logger.info(f"Rejuvenation step {r+1}/{self.R}...")
+
+                        # MCMC rejuvenation
+                        theta_particles, diagnostics = self._rejuvenate(theta_particles, y[:t+1], executor)
 
                 if h5f is not None:
                     self._write_history_step(h5f, t + 1, theta_particles, ess)
@@ -329,20 +355,21 @@ def _rejuvenate_particle(args):
     x_particles = proposed_history[-1][0]
     loglik_prop = proposed_history[-1][3]
 
+    prior_prop = prior.logpdf(theta_prop)
+    prior_current = prior.logpdf(theta_current)
+    proposal_forward = proposal.logpdf(theta_prop, theta_current)
+    proposal_backward = proposal.logpdf(theta_current, theta_prop)
+
     log_alpha = (
         loglik_prop
-        + prior.logpdf(theta_prop)
-        + proposal.logpdf(theta_current, theta_prop)
+        + prior_prop
+        + proposal_backward
         - loglik_current
-        - prior.logpdf(theta_current)
-        - proposal.logpdf(theta_prop, theta_current)
+        - prior_current
+        - proposal_forward
     )
 
     if np.log(rng.uniform()) < log_alpha:
-        return ThetaParticle(
-            theta_prop,
-            x_particles,
-            0.0
-        )
+        return ThetaParticle(theta_prop, x_particles, 0.0), (log_alpha, loglik_prop, loglik_current, prior_prop, prior_current, proposal_backward, proposal_forward)
 
-    return particle
+    return particle, (log_alpha, loglik_prop, loglik_current, prior_prop, prior_current, proposal_backward, proposal_forward)

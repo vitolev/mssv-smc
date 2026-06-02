@@ -1,0 +1,21 @@
+K: 2
+N_theta: 2000
+N_x: 2000
+R: 6
+T: 2000
+gamma: 0.5
+name: T_2000_test_3
+prior:
+  P_base: 1.5
+  P_diag: 3.5
+  diff_mean: 0.0
+  diff_sd: 2.0
+  mu_mean: 0.0
+  mu_sd: 5.0
+  phi_a: 6
+  phi_b: 2
+  sigma_eta_a: 2.0
+  sigma_eta_b: 5.0
+proposal:
+  mode: independent
+x_thin: 5

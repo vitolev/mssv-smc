@@ -132,7 +132,7 @@ def generate_names(n_params):
 
 def main():
     script_dir = Path(__file__).resolve().parent
-    script_dir = script_dir / "T_2000_3"
+    script_dir = script_dir / "T_2000_test_5"
     output_dir = script_dir / "output"
     results_dir = script_dir / "results"
     with h5py.File(output_dir / "history.h5", "r") as h5f:
