@@ -225,6 +225,13 @@ class MSSVState(StateSpaceModelState):
             h_t=np.array(self.h_t, copy=True),
             s_t=np.array(self.s_t, copy=True)
         )
+    
+    def to_numpy(self) -> np.ndarray:
+        """
+        Convert the MSSVState to a single numpy array for easier storage or processing. 
+        It forms a matrix of shape (N, 1 + K) where the first column is h_t and the next K columns are the one-hot encoded s_t.
+        """
+        return np.hstack((self.h_t.reshape(-1, 1), self.s_t))
 
 # =========================
 # PRIOR

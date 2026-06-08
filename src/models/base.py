@@ -79,6 +79,13 @@ class StateSpaceModelState(ABC):
         """
         pass
 
+    @abstractmethod
+    def to_numpy(self) -> np.ndarray:
+        """
+        Convert the state to a numpy array.
+        """
+        pass
+
 class StateSpaceModelProposal(ABC):
     """
     Base class for state space model proposal distribution (for MCMC).

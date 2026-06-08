@@ -5,7 +5,7 @@ import h5py
 from concurrent.futures import ProcessPoolExecutor
 
 from src.filters.smc.base_pf import ParticleFilter
-from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
+from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState, StateSpaceModelPrior, StateSpaceModelProposal
 from src.filters.smc.resampling import systematic_resampling
 
 from typing import List
@@ -13,16 +13,16 @@ from typing import List
 
 class ThetaParticle:
     "Container for parameter particles in SMC2."
-    def __init__(self, theta: StateSpaceModelParams, x_particles: StateSpaceModelState, logweight: float):
+    def __init__(self, theta: StateSpaceModelParams, x_particles: StateSpaceModelState, theta_logweight: float):
         self.theta = theta                      # Model parameters in this particle
         self.x_particles = x_particles          # State particles associated with this parameter particle. 
-        self.logweight = logweight              # Log weight of this parameter particle 
+        self.theta_logweight = theta_logweight        # Log weight of this parameter particle 
     
     def copy(self):
         return ThetaParticle(
             theta=self.theta.copy(),
             x_particles=self.x_particles.copy(),
-            logweight=self.logweight
+            theta_logweight=self.theta_logweight
         )
 
 class SMC2:
@@ -69,7 +69,7 @@ class SMC2:
 
     def _normalize_weights(self, theta_particles: List[ThetaParticle]):
         logweights = np.array([
-            p.logweight
+            p.theta_logweight
             for p in theta_particles
         ])
 
@@ -90,7 +90,7 @@ class SMC2:
         for i in idx:
             p: ThetaParticle = theta_particles[i]
             p = p.copy()
-            p.logweight = 0.0
+            p.theta_logweight = 0.0
             new_particles.append(p)
 
         return new_particles, idx
@@ -163,8 +163,8 @@ class SMC2:
         vec = theta_example.to_vector()
         return len(vec)
 
-    def _init_hdf5_history(self, output_dir, theta_particles, T):
-        h5_path = output_dir / "history.h5"
+    def _init_theta_hdf5_history(self, output_dir, theta_particles: List[ThetaParticle], T):
+        h5_path = output_dir / "theta_history.h5"
         theta_dim = self._vector_dim(theta_particles)
 
         h5f = h5py.File(h5_path, "w")
@@ -190,7 +190,6 @@ class SMC2:
             "ess",
             shape=(T + 1,),
             dtype="f8",
-            chunks=(256,),
             compression="gzip",
             compression_opts=4,
         )
@@ -199,26 +198,76 @@ class SMC2:
             shape=(0,),
             maxshape=(None,),
             dtype="i8",
-            chunks=(256,),
             compression="gzip",
             compression_opts=4,
         )
         return h5f
 
-    def _write_history_step(self, h5f, t, theta_particles, ess):
+    def _write_theta_step(self, h5f, t, theta_particles: List[ThetaParticle], ess):
         theta_vecs = np.stack([p.theta.to_vector() for p in theta_particles], axis=0)
-        logweights = np.array([p.logweight for p in theta_particles], dtype=np.float64)
+        logweights = np.array([p.theta_logweight for p in theta_particles], dtype=np.float64)
+
+        # Save normalized logweights
+        max_logw = np.max(logweights)
+        w = np.exp(logweights - max_logw)
+        w /= np.sum(w)
+        logweights = np.log(w)
 
         h5f["theta"][t] = theta_vecs
         h5f["logweights"][t] = logweights
         h5f["ess"][t] = ess
+
+    def _init_state_hdf5_history(self, output_dir, theta_particles: List[ThetaParticle], T, save_factor):
+        h5_path = output_dir / "state_history.h5"
+        state_dim = theta_particles[0].x_particles.to_numpy().shape[1]  # The shape is (N, state_dim)
+
+        h5f = h5py.File(h5_path, "w")
+        # We will store the state particles at resampling times only to save space.
+        h5f.create_dataset(
+            "x_particles",
+            shape=(T+1, self.N_x * save_factor, state_dim),  # Store save_factor times the number of x_particles across all theta particles for better diversity visualization
+            dtype="f8",
+            chunks=(1, self.N_x * save_factor, state_dim),
+            compression="gzip",
+            compression_opts=4,
+        )
+        h5f.create_dataset(
+            "trajectories",
+            shape=(self.N_theta, T+1, save_factor, state_dim),  # shape (N_theta, save_factor, T+1, state_dim)
+            dtype="f8",
+            chunks=(1, T+1, save_factor, state_dim),
+            compression="gzip",
+            compression_opts=4,
+        )
+        return h5f
+    
+    def _write_state_step(self, h5f, t, theta_particles: List[ThetaParticle], save_factor: int):
+        x_particles = np.array([p.x_particles.to_numpy() for p in theta_particles])
+        theta_logweights = np.array([p.theta_logweight for p in theta_particles], dtype=np.float64)
+
+        # Change theta_logweights so that each element appears N_x times (for each state particle) and normalize
+        w = np.exp(theta_logweights - np.max(theta_logweights))
+        w /= np.sum(w)
+        w_expanded = np.repeat(w, self.N_x)  # shape (N_theta * N_x,)
+        w_expanded /= np.sum(w_expanded)  # Normalize the expanded weights
+        x_particles = x_particles.reshape(-1, x_particles.shape[-1])
+
+        idx = systematic_resampling(w_expanded, self.rng, N_out=self.N_x * save_factor)
+        x_particles = x_particles[idx]
+
+        # Save the resampled state particles at this time step
+        h5f["x_particles"][t] = x_particles
+
+    def _write_trajectories_step(self, h5f, theta_id, trajectories: np.ndarray):
+        # trajectories shape: (1, T+1, save_factor, state_dim)
+        h5f["trajectories"][theta_id] = trajectories
 
     def _append_resampled_time(self, h5f, time_index):
         ds = h5f["resampled_times"]
         ds.resize((ds.shape[0] + 1,))
         ds[-1] = time_index
 
-    def run(self, y, logger=None, thin=1, output_dir=None):
+    def run(self, y, output_dir, logger=None, save_factor=1):
         """
         Run the SMC2 algorithm on the given data.
 
@@ -228,14 +277,14 @@ class SMC2:
             Observations over time.
         logger: logging.Logger, optional
             Logger for debug/info messages. If None, no logging is done.
-        thin: int, optional
-            Thinning interval for storing particles in history. (default is 1, meaning store every step)
-        output_dir: pathlib.Path, optional
+        save_factor: int, optional, default=1
+            Factor to determine the number of state particles to save in the history at each time step. The number of state particles saved will be N_x * save_factor.
+        output_dir: pathlib.Path
             Directory to save all the history.
 
         Returns
         -------
-        None. The history of particles, weights, ESS, and resampled times are saved in an HDF5 file in the output directory if provided.
+        None. The history of particles, weights, ESS, and resampled times are saved in an HDF5 file in the output directory.
         """
         if logger is not None:
             logger.info("Initializing theta particles...")
@@ -243,12 +292,12 @@ class SMC2:
         
         T = len(y)
         resampled_times = []
-        h5f = None
-        if output_dir is not None:
-            if logger is not None:
-                logger.info("Opening HDF5 history file...")
-            h5f = self._init_hdf5_history(output_dir, theta_particles, T)
-            self._write_history_step(h5f, 0, theta_particles, np.nan)
+        if logger is not None:
+            logger.info("Opening HDF5 history file...")
+        h5f_theta = self._init_theta_hdf5_history(output_dir, theta_particles, T)
+        h5f_state = self._init_state_hdf5_history(output_dir, theta_particles, T, save_factor)
+        self._write_theta_step(h5f_theta, 0, theta_particles, np.nan)
+        self._write_state_step(h5f_state, 0, theta_particles, save_factor)
 
         with ProcessPoolExecutor(max_workers=8) as executor:
             for t in range(T):
@@ -293,8 +342,7 @@ class SMC2:
                         logger.debug(f"Covariance matrix: {Sigma}")
 
                     resampled_times.append(t+1)
-                    if h5f is not None:
-                        self._append_resampled_time(h5f, t+1)
+                    self._append_resampled_time(h5f_theta, t+1)
 
                     for r in range(self.R):
                         if logger is not None:
@@ -303,21 +351,41 @@ class SMC2:
                         # MCMC rejuvenation
                         theta_particles, diagnostics = self._rejuvenate(theta_particles, y[:t+1], executor)
 
-                if h5f is not None:
-                    self._write_history_step(h5f, t + 1, theta_particles, ess)
+                
+                self._write_theta_step(h5f_theta, t + 1, theta_particles, ess)
+                self._write_state_step(h5f_state, t + 1, theta_particles, save_factor)
 
-        if h5f is not None:
-            h5f.attrs["T"] = T
-            h5f.attrs["N_theta"] = self.N_theta
-            h5f.attrs["N_x"] = self.N_x
-            h5f.attrs["gamma"] = self.gamma
-            h5f.close()
+        h5f_theta.attrs["T"] = T
+        h5f_theta.attrs["N_theta"] = self.N_theta
+        h5f_theta.attrs["N_x"] = self.N_x
+        h5f_theta.attrs["gamma"] = self.gamma
+        h5f_theta.close()
 
+        if logger is not None:
+            logger.info(f"SMC2 completed. Moving to smoothing problem")
+        
+        # For each theta particle, run the particle filter forward and save the trajectories
+        for i, particle in enumerate(theta_particles):
+            theta = particle.theta
+            if logger is not None:
+                logger.info(f"Running particle filter for smoothing trajectories for theta particle {i+1}/{self.N_theta}")
+            history = self.pf.run(y, theta)
+            trajectories, _ = self.pf.smoothing_trajectories(history, n_traj=save_factor)      # Sample only save_factor trajectories per theta particle to save space
 
-def _update_theta_particle(args):
+            # Convert to numpy
+            trajectories = np.array([traj.to_numpy() for traj in trajectories])  # shape (T+1, save_factor, state_dim)
+            self._write_trajectories_step(h5f_state, i, trajectories)
+        
+        h5f_state.attrs["T"] = T
+        h5f_state.attrs["N_theta"] = self.N_theta
+        h5f_state.attrs["N_x"] = self.N_x
+        h5f_state.attrs["save_factor"] = save_factor
+        h5f_state.close()
+
+def _update_theta_particle(args: tuple[ThetaParticle, float, StateSpaceModel, int, int]) -> ThetaParticle:
     particle, y_t, model, N_x, seed = args
     rng = np.random.default_rng(seed)
-
+    
     # Propagation
     x_particles = model.sample_next_state(particle.theta, particle.x_particles)
 
@@ -337,11 +405,11 @@ def _update_theta_particle(args):
     x_particles = x_particles[indices]      # All particles are now equally weighted (1/N_x), so we dont have to carry on weights.
 
     particle.x_particles = x_particles
-    particle.logweight += loglik_increment
+    particle.theta_logweight += loglik_increment
 
     return particle
 
-def _rejuvenate_particle(args):
+def _rejuvenate_particle(args: tuple[ThetaParticle, np.ndarray, ParticleFilter, StateSpaceModelPrior, StateSpaceModelProposal, int]):
     particle, y_history, pf, prior, proposal, seed = args
     rng = np.random.default_rng(seed)
 

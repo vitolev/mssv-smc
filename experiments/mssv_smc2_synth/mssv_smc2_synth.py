@@ -31,7 +31,7 @@ def main():
     N_theta: int = config.N_theta
     gamma: float = config.gamma
     R: int = config.R
-    x_thin: int = config.x_thin
+    x_save_factor: int = config.x_save_factor
 
     # Prior parameters
     mu_mean: float = config.prior.mu_mean
@@ -159,7 +159,7 @@ def main():
 
     logger.info(f"Starting sampling:")
 
-    smc2.run(y, logger=logger, thin=x_thin, output_dir=output_dir)
+    smc2.run(y, logger=logger, save_factor=x_save_factor, output_dir=output_dir)
 
     logger.info(f"SMC2 sampling completed.")
 

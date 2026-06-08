@@ -68,9 +68,12 @@ def main():
     logs_dir = script_dir / 'logs'
     results_dir = script_dir / 'results'
     results_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = script_dir / 'output'
+    output_dir.mkdir(parents=True, exist_ok=True)
     data_dir = ROOT_DIR / 'data'
     logger.info(f"- Logs dir: {logs_dir}")
     logger.info(f"- Results dir: {results_dir}")
+    logger.info(f"- Output dir: {output_dir}")
     logger.info(f"- Data dir: {data_dir}")
 
     logger.info("=" * 60)
@@ -185,40 +188,32 @@ def main():
     logger.info(f"- Burn-in = {burnin}")
     logger.info("-" * 60)
 
-    results_bpf, acceptance_rates, initial_params = pmmh.run(y, n_iter=M, n_chain=C, burnin=burnin)
+    pmmh.run(y, n_iter=M, n_chain=C, burnin=burnin, output_dir=output_dir)
 
     logger.info(f"PMMH sampling completed.")
-    logger.info(f"Acceptance rates for each chain: {acceptance_rates}")
-    logger.info(f"Initial parameters for each chain:")
-    for params in initial_params:
-        logger.info(f"- {params}")
 
-    logger.info("-" * 60)
-
-    logger.info("Plotting diagnostics ...")
-
-    # Now let's look at samples of trajectories
-    plt.figure(figsize=(12, 8))
-    for chain in range(len(results_bpf)):
-        samples, _, _, _ = results_bpf[chain]
-        # Compute mean trajectory post burn-in
-        samples_h = np.array([sample.h_t for sample in samples])    # shape (T+1, N)
-        mean_trajectory = np.mean(samples_h, axis=1)
-        plt.plot(mean_trajectory, label=f"Chain {chain+1}", alpha=0.7)
+    # # Now let's look at samples of trajectories
+    # plt.figure(figsize=(12, 8))
+    # for chain in range(len(results_bpf)):
+    #     samples, _, _, _ = results_bpf[chain]
+    #     # Compute mean trajectory post burn-in
+    #     samples_h = np.array([sample.h_t for sample in samples])    # shape (T+1, N)
+    #     mean_trajectory = np.mean(samples_h, axis=1)
+    #     plt.plot(mean_trajectory, label=f"Chain {chain+1}", alpha=0.7)
             
-    plt.plot(np.arange(1, len(h_true)+1), h_true, label="True Trajectory", color='black', linestyle='--')
-    plt.xlabel("Time")
-    plt.ylabel("Log Volatility")
-    plt.title("Mean Trajectory of Particles")
-    plt.legend()
-    plt.grid()
-    plt.savefig(results_dir / "mean_trajectory.png")
-    plt.close()
+    # plt.plot(np.arange(1, len(h_true)+1), h_true, label="True Trajectory", color='black', linestyle='--')
+    # plt.xlabel("Time")
+    # plt.ylabel("Log Volatility")
+    # plt.title("Mean Trajectory of Particles")
+    # plt.legend()
+    # plt.grid()
+    # plt.savefig(results_dir / "mean_trajectory.png")
+    # plt.close()
     
-    plot_traceplots(results_bpf, results_dir)
-    plot_histograms(results_bpf, results_dir)
+    # plot_traceplots(results_bpf, results_dir)
+    # plot_histograms(results_bpf, results_dir)
 
-    logger.info("Diagnostics plotting completed.")
+    # logger.info("Diagnostics plotting completed.")
 
 if __name__ == "__main__":
     main()

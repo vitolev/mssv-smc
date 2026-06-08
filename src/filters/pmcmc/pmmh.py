@@ -1,9 +1,11 @@
+import h5py
 import numpy as np
 import arviz as az
 from concurrent.futures import ProcessPoolExecutor
+from typing import List
 
 from src.filters.smc.base_pf import ParticleFilter
-from src.models.base import StateSpaceModel, StateSpaceModelParams
+from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
 
 class PMMH_Chain:
     """
@@ -87,8 +89,53 @@ class PMMH_Chain:
 
         self.n_steps += 1
         return log_alpha
+    
+    def _init_hdf5_chain(self, output_dir, chain_id: int, n_samples: int, theta_dim: int, state_dim: int, T: int):
+        h5_path = output_dir / f"chain_{chain_id}.h5"
 
-    def run(self, y, n_iter: int, burnin=0):
+        h5f = h5py.File(h5_path, "w")
+
+        h5f.create_dataset(
+            "thetas",
+            shape=(n_samples, theta_dim),
+            dtype="f8",
+            compression="gzip",
+            compression_opts=4,
+        )
+
+        h5f.create_dataset(
+            "trajectories",
+            shape=(n_samples, T, state_dim),
+            dtype="f8",
+            compression="gzip",
+            compression_opts=4,
+        )
+
+        h5f.create_dataset(
+            "logmarliks",
+            shape=(n_samples,),
+            dtype="f8",
+            compression="gzip",
+            compression_opts=4,
+        )
+
+        h5f.create_dataset(
+            "logalphas",
+            shape=(n_samples,),
+            dtype="f8",
+            compression="gzip",
+            compression_opts=4,
+        )
+    
+        return h5f
+    
+    def _write_chain_step(self, h5f, idx: int, theta: StateSpaceModelParams, trajectory: List[StateSpaceModelState], logmarlik: float, log_alpha: float):
+        h5f["thetas"][idx] = theta.to_vector()
+        h5f["trajectories"][idx] = np.array([state.to_numpy() for state in trajectory]).reshape(h5f["trajectories"].shape[1:])  # reshape to (T, state_dim)
+        h5f["logmarliks"][idx] = logmarlik
+        h5f["logalphas"][idx] = log_alpha
+
+    def run(self, y, n_iter: int, output_dir, burnin=0, chain_id=0):
         """
         Run the PMMH algorithm.
 
@@ -100,17 +147,14 @@ class PMMH_Chain:
             Number of PMMH iterations.
         burnin : int, optional
             Number of initial iterations to discard as burn-in. Must be less than n_iter. Default is 0.
+        output_dir : str
+            Directory to save intermediate results or logs.
+        chain_id : int, optional
+            Identifier for the chain. Default is 0.
 
         Returns
         -------
-        samples : list 
-            List of sampled trajectories after burn-in. 
-        logmarliks : list 
-            List of log marginal likelihoods corresponding to the sampled trajectories. 
-        thetas : dict of lists 
-            Dictionary where each key is a parameter name and the value is a list of sampled parameter values after burn-in. 
-        logalphas : list 
-            List of log acceptance probabilities for each iteration.
+        None. The results are stored in the HDF5 file specified by output_dir.
         """
         if burnin >= n_iter:
             raise ValueError("Burn-in must be less than the total number of iterations.")
@@ -125,34 +169,23 @@ class PMMH_Chain:
 
         self._initialize()
 
+        h5f = self._init_hdf5_chain(output_dir, chain_id, n_iter - burnin, len(self.theta.to_vector()), self.current_trajectory[0].to_numpy().shape[1], len(self.current_trajectory))
+
         for i in range(burnin):
             log_alpha = self._step()
 
-        # The boundary iteration when we first collect samples
-        logmarliks = []     # Initialize list to store log marginal likelihoods for each sampled trajectory
-        thetas = {key: [] for key in self.theta_vars.keys()}  # Initialize dictionary to store sampled parameter values
-        logalphas = []     # Initialize list to store log acceptance probabilities
-
         log_alpha = self._step()    # First step
-
-        samples = self.current_trajectory
-        logmarliks.append(self.current_logmarlik)
-        for key in thetas.keys():
-            thetas[key].append(getattr(self.theta, key))
-        logalphas.append(log_alpha)
+        self._write_chain_step(h5f, 0, self.theta, self.current_trajectory, self.current_logmarlik, log_alpha)  # Store the first sample after burn-in
 
         # The second loop to run the remaining iterations and store samples after burn-in
         for i in range(burnin+1, n_iter):
             log_alpha = self._step()
+            self._write_chain_step(h5f, i - burnin, self.theta, self.current_trajectory, self.current_logmarlik, log_alpha)
 
-            samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
-            logmarliks.append(self.current_logmarlik)
-            for key in thetas.keys():
-                thetas[key].append(getattr(self.theta, key))
-            logalphas.append(log_alpha)
+        h5f.attrs["acceptance_rate"] = self.n_accepted / self.n_steps if self.n_steps > 0 else 0.0
+        h5f.attrs["initial_parameters"] = self.initial_params.to_vector()
+        h5f.close()
 
-        return samples, logmarliks, thetas, logalphas
-    
 class ParticleMarginalMetropolisHastings:
     """
     Particle Marginal Metropolis-Hastings (PMMH) using a ParticleFilter.
@@ -185,7 +218,7 @@ class ParticleMarginalMetropolisHastings:
         self.proposal_param = proposal_param if proposal_param is not None else {}
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
 
-    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, proposal_param, kwargs_prior, n_iter, burnin, chain_id):
+    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, proposal_param, kwargs_prior, n_iter, burnin, chain_id, output_dir):
         """
         Worker function for a single PMMH chain.
         """
@@ -210,13 +243,9 @@ class ParticleMarginalMetropolisHastings:
             kwargs_prior=kwargs_prior
         )
 
-        result = chain.run(y, n_iter=n_iter, burnin=burnin)
-        acceptance_rate = chain.n_accepted / chain.n_steps if chain.n_steps > 0 else 0.0
-        initial_parameters = chain.initial_params
+        chain.run(y, n_iter=n_iter, burnin=burnin, output_dir=output_dir, chain_id=chain_id)
 
-        return result, acceptance_rate, initial_parameters, chain_id
-
-    def run(self, y, n_iter: int, n_chain: int, burnin=0):
+    def run(self, y, n_iter: int, n_chain: int, output_dir, burnin=0):
         """
         Run multiple PMMH chains in parallel and return the results.
 
@@ -230,18 +259,17 @@ class ParticleMarginalMetropolisHastings:
             Number of parallel PMMH chains to run.
         burnin : int, optional
             Number of initial iterations to discard as burn-in. Default is 0.
-
+        output_dir : str
+            Directory to save intermediate results or logs. If None, returns error, as output_dir is required to save results.
+            
         Returns
         -------
-        all_results : list
-            List of results from each chain. Each element is a tuple (samples, logmarliks, thetas, logalphas) for that chain. 
-        acceptance_rates : list
-            List of acceptance rates for each chain.
+        None. The results are stored in the HDF5 file specified by output_dir.
         """
 
         if n_chain == 1:
             # Run single chain without multiprocessing
-            result, acceptance_rate, initial_parameters, _ = self._run_single_chain(
+            self._run_single_chain(
                 seed=self.rng.integers(0, 1_000_000),
                 y=y,
                 pf=self.pf,
@@ -251,8 +279,9 @@ class ParticleMarginalMetropolisHastings:
                 n_iter=n_iter,
                 burnin=burnin,
                 chain_id=0,
+                output_dir=output_dir,
             )
-            return [result], [acceptance_rate], [initial_parameters]
+            return None
 
         seeds = self.rng.integers(0, 1_000_000, size=n_chain)  # Generate random seeds for each chain
 
@@ -268,43 +297,8 @@ class ParticleMarginalMetropolisHastings:
                     [self.kwargs_prior] * n_chain,
                     [n_iter] * n_chain,
                     [burnin] * n_chain,
-                    list(range(n_chain))
+                    list(range(n_chain)),
+                    [output_dir] * n_chain,
                 )
             )
-
-        all_results = [r[0] for r in results]          # PMMH samples etc.
-        acceptance_rates = [r[1] for r in results]    # acceptance rates
-        initial_parameters = [r[2] for r in results]  # initial parameters
-        chain_ids = [r[3] for r in results]          # chain IDs
-
-        return all_results, acceptance_rates, initial_parameters
-
-    def to_inference_data(self, results):
-        """
-        Convert PMMH results to an ArviZ InferenceData object for analysis and visualization.
-
-        Parameters
-        ----------
-        results : list
-            List of results from each chain. Each element is a tuple (samples, logmarliks, thetas, logalphas) for that chain.
-
-        Returns
-        -------
-        inference_data : arviz.InferenceData
-            An ArviZ InferenceData object containing the log marginal likelihoods and parameter samples from all chains.
-        """
-        data = {}
-        for chain_result in results:
-            if "logmarliks" not in data:
-                data["logmarliks"] = []
-            _, logmarliks, thetas, _ = chain_result
-            data["logmarliks"].append(logmarliks)
-            for param_name, param_values in thetas.items():
-                if param_name not in data:
-                    data[param_name] = []
-                data[param_name].append(param_values)
-        
-        for key in data:
-            data[key] = np.array(data[key])
-            
-        return az.from_dict(data)
+        return None
