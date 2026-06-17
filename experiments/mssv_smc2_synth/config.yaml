@@ -1,11 +1,11 @@
-name: test
+name: dataset_1
 
-T: 20            # Number of time steps to use from the synthetic dataset
+T: 2000            # Number of time steps to use from the synthetic dataset
 K: 2              # Number of regimes
-N_x: 100           # Number of state particles
-N_theta: 100       # Number of parameter particles
-gamma: 0.0         # ESS threshold for resampling (as a fraction of N_theta)
-R: 6              # Number of MCMC rejuvenation steps after resampling
+N_x: 2000           # Number of state particles
+N_theta: 4000       # Number of parameter particles
+gamma: 0.5         # ESS threshold for resampling (as a fraction of N_theta)
+R: 10              # Number of MCMC rejuvenation steps after resampling
 x_save_factor: 5         # Save factor for state particles in the output history
 
 prior:           # prior parameters for the model

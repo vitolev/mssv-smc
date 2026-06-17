@@ -8,6 +8,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import h5py
 
+# Experiment specific imports
+from src.models.mssv import MSSVParams, MSSVModel
+from src.utils.utils import ROOT_DIR
+
 def weighted_quantile(values, quantiles, sample_weight):
     """
     Compute weighted quantiles for 1D samples.
@@ -131,15 +135,42 @@ def generate_names(n_params):
 
 
 def main():
+    K = 2
     script_dir = Path(__file__).resolve().parent
-    script_dir = script_dir / "T_2000_test_5"
+    script_dir = script_dir / "T_2000"
     output_dir = script_dir / "output"
     results_dir = script_dir / "results"
-    with h5py.File(output_dir / "history.h5", "r") as h5f:
+
+    data_dir = ROOT_DIR / 'data'
+
+    # Load data
+    data_path = data_dir / "synthetic" / f"data_T_2000_{K}_regime.csv"
+    data = pd.read_csv(data_path)
+    y = data["y"].values
+    h_true = data["h_true"].values
+    s_true = data["s_true"].values.astype(int)
+
+    param_path = data_dir / "synthetic" / f"data_T_2000_{K}_regime_params.csv"
+    params_df = pd.read_csv(param_path)
+    P_rows = params_df["P"].apply(ast.literal_eval).tolist()
+    P = np.array(P_rows)
+    true_theta = MSSVParams.from_mu(
+        mu=params_df["mu"].values,
+        phi=params_df["phi"].iloc[0],
+        sigma_eta=params_df["sigma_eta"].iloc[0],
+        P=P
+    )
+    true_theta = true_theta.to_vector()
+
+
+    with h5py.File(output_dir / "theta_history.h5", "r") as h5f:
         theta = h5f["theta"][:]
         logweights = h5f["logweights"][:]
 
     T_plus_1, N_theta, n_params = theta.shape
+
+    h_true = h_true[:T_plus_1-1]  # Exclude t=0 since it's the prior
+    s_true = s_true[:T_plus_1-1]  # Exclude t=0 since it's the prior
 
     parameter_names = generate_names(n_params)
     print("Parameter names:", parameter_names)
@@ -159,16 +190,12 @@ def main():
             # weighted mean
             means[t, j] = np.sum(w * x)
             # weighted CI
-            lo, hi = weighted_credible_interval(
-                x,
-                w,
-                alpha=0.05
-            )
+            lo, hi = weighted_credible_interval(x, w, alpha=0.05)
             lower[t, j] = lo
             upper[t, j] = hi
 
     # ---------------------------------------------------
-    # Plot
+    # Plot theta parameters with time
     # ---------------------------------------------------
     time = np.arange(T_plus_1-1)  # Exclude t=0 since it's the prior
 
@@ -176,6 +203,8 @@ def main():
         plt.figure(figsize=(10, 5))
         plt.plot(time,means[1:, j],label="Mean")                                        # Exclude t=0 since it's the prior
         plt.fill_between(time,lower[1:, j],upper[1:, j],alpha=0.3,label="95% CI")       # Exclude t=0 since it's the prior
+
+        plt.axhline(true_theta[j], color="red", linestyle="--", label="True Value")
 
         plt.xlabel("Time")
         plt.ylabel(f"{parameter_names[j]}")
@@ -186,6 +215,77 @@ def main():
 
         plt.tight_layout()
         plt.savefig(results_dir / f"{parameter_names[j]}.png")
+
+    with h5py.File(output_dir / "state_history.h5", "r") as h5f:
+        x_particles = h5f["x_particles"][:]
+        trajectories = h5f["trajectories"][:]
+        x_particles_pred = h5f["x_particles_pred"][:]
+
+    # Plot smoothing distribution (mean and 95% CI) with time
+    last_theta_weights = logweights[-1]
+    last_theta_weights = normalize_logweights(last_theta_weights)   # shape (N_theta,)
+    N_theta, Tp1, save_factor, state_dim = trajectories.shape
+
+    trajectories = (
+        np.swapaxes(trajectories, 1, 2)      # (N_theta, save_factor, T+1, state_dim)
+        .reshape(N_theta * save_factor, Tp1, state_dim)
+    )
+
+    last_traj_weights = np.repeat(last_theta_weights, save_factor)   # shape (N_theta * save_factor,)
+    last_traj_weights = last_traj_weights / np.sum(last_traj_weights)
+
+    h_values = trajectories[:, :, 0]     # shape (N_theta * save_factor, T+1)
+    means = np.sum(last_traj_weights[:, None] * h_values, axis=0)
+    lower, higher = weighted_credible_interval(h_values, last_traj_weights, alpha=0.05)
+
+    plt.figure(figsize=(12, 8))
+    plt.plot(means, label="Mean", color='blue')
+    plt.fill_between(np.arange(len(means)), lower, higher, alpha=0.3, label="95% CI", color='blue')
+    plt.plot(np.arange(1, len(h_true)+1), h_true, label="True value", color='black', linestyle='--')
+    plt.xlabel("Time")
+    plt.ylabel("Log Volatility")
+    plt.title("Smoothing Distribution of Log Volatility over Time")
+    plt.grid(True)
+    plt.legend()
+    plt.savefig(results_dir / "smoothing_h.png")
+    ax = plt.gca()
+    ylims = ax.get_ylim()
+    plt.close()
+
+    # Plot filtering distribution (mean and 95% CI) with time
+    h_values = x_particles[:, :, 0]     # Particles are equally weighted, so we can just take the mean and quantiles without weights
+    means = np.mean(h_values, axis=1)
+    lower, higher = np.percentile(h_values, [2.5, 97.5], axis=1)
+    plt.figure(figsize=(12, 8))
+    plt.plot(means, label="Mean", color='blue')
+    plt.fill_between(np.arange(len(means)), lower, higher, alpha=0.3, label="95% CI", color='blue')
+    plt.plot(np.arange(1, len(h_true)+1), h_true, label="True value", color='black', linestyle='--')
+    plt.xlabel("Time")
+    plt.ylabel("Log Volatility")
+    plt.title("Filtering Distribution of Log Volatility over Time")
+    plt.grid(True)
+    plt.legend()
+    plt.ylim(ylims)  # Use the same y-limits as the smoothing plot for better comparison
+    plt.savefig(results_dir / "filtering_h.png")
+    plt.close()
+
+    # Plot filtering predicative distribution (mean and 95% CI) with time
+    h_values = x_particles_pred[:, :, 0]     # Particles are equally weighted, so we can just take the mean and quantiles without weights
+    means = np.mean(h_values, axis=1)
+    lower, higher = np.percentile(h_values, [2.5, 97.5], axis=1)
+    plt.figure(figsize=(12, 8))
+    plt.plot(np.arange(1, len(means)+1), means, label="Mean", color='blue')     # Start at 1, because we predict p(h_{t+1} | y_{1:t})
+    plt.fill_between(np.arange(1, len(means)+1), lower, higher, alpha=0.3, label="95% CI", color='blue')    # Same here
+    plt.plot(np.arange(1, len(h_true)+1), h_true, label="True value", color='black', linestyle='--')
+    plt.xlabel("Time")
+    plt.ylabel("Log Volatility")
+    plt.title("Predictive Distribution of Log Volatility over Time")
+    plt.grid(True)
+    plt.ylim(ylims)  # Use the same y-limits as the smoothing plot for better comparison
+    plt.legend()
+    plt.savefig(results_dir / "predictive_h.png")
+    plt.close()
+
 
 if __name__ == "__main__":
     main()

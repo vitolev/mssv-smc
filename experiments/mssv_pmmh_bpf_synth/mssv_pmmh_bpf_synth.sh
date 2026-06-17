@@ -5,9 +5,9 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=8G
+#SBATCH --mem=16G
 #SBATCH --output=mssv_pmmh_bpf_synth_%j.out
-#SBATCH --time=06:00:00
+#SBATCH --time=04:00:00
 
 echo "Job started on $(hostname)"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"
