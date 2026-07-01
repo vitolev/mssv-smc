@@ -78,7 +78,7 @@ def main():
     model = MSSVModel(rng=rng)
 
     # Load data
-    data_path = data_dir / "synthetic" / f"data_T_2000_{K}_regime.csv"
+    data_path = data_dir / "synthetic" / f"{name}.csv"
     data = pd.read_csv(data_path)
     y = data["y"].values
     h_true = data["h_true"].values
@@ -87,7 +87,7 @@ def main():
     h_true = h_true[:T]
     s_true = s_true[:T]
 
-    param_path = data_dir / "synthetic" / f"data_T_2000_{K}_regime_params.csv"
+    param_path = data_dir / "synthetic" / f"{name}_params.csv"
     params_df = pd.read_csv(param_path)
     P_rows = params_df["P"].apply(ast.literal_eval).tolist()
     P = np.array(P_rows)

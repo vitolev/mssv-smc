@@ -1,4 +1,4 @@
-name: dataset_1
+name: dataset_1   # Name of experiment and dataset to use for the experiment
 
 T: 2000            # Number of time steps to use from the synthetic dataset
 K: 2              # Number of regimes

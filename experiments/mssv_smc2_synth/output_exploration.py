@@ -135,22 +135,22 @@ def generate_names(n_params):
 
 
 def main():
-    K = 2
+    name = "dataset_3"
     script_dir = Path(__file__).resolve().parent
-    script_dir = script_dir / "T_2000"
+    script_dir = script_dir / name
     output_dir = script_dir / "output"
     results_dir = script_dir / "results"
 
     data_dir = ROOT_DIR / 'data'
 
     # Load data
-    data_path = data_dir / "synthetic" / f"data_T_2000_{K}_regime.csv"
+    data_path = data_dir / "synthetic" / f"{name}.csv"
     data = pd.read_csv(data_path)
     y = data["y"].values
     h_true = data["h_true"].values
     s_true = data["s_true"].values.astype(int)
 
-    param_path = data_dir / "synthetic" / f"data_T_2000_{K}_regime_params.csv"
+    param_path = data_dir / "synthetic" / f"{name}_params.csv"
     params_df = pd.read_csv(param_path)
     P_rows = params_df["P"].apply(ast.literal_eval).tolist()
     P = np.array(P_rows)

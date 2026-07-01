@@ -1,0 +1,84 @@
+#!/bin/bash
+#SBATCH --job-name=generate_synth_data
+#SBATCH --partition=all
+#SBATCH --account=fri-users
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=8G
+#SBATCH --output=generate_synth_data.out
+#SBATCH --time=00:10:00
+
+echo "Job started on $(hostname)"
+echo "SLURM_JOB_ID: $SLURM_JOB_ID"
+
+# Move to project directory
+cd ~/mssv-smc   # Adjust this path to your project directory
+
+# Set project root
+export ROOT_DIR=$(pwd)
+# Make src visible to Python
+export PYTHONPATH=$ROOT_DIR:$PYTHONPATH
+
+# Load Python module
+module load Python/3.13.1-GCCcore-14.2.0    # Adjust the module name and version if necessary
+echo "Loaded Python module."
+
+# Activate virtual environment
+source venv/bin/activate    # Make sure virtual environment is set up and adjust path if necessary
+echo "Activated virtual environment. Starting Python script."
+
+# Run script
+python experiments/generate_synth_data/generate_synth_data.py \
+    --name "dataset_1" \
+    --T 2000 \
+    --mu -5.0 -2.0 \
+    --phi 0.9 \
+    --sigma_eta 0.1 \
+    --P 0.99 0.01 0.015 0.985
+
+python experiments/generate_synth_data/generate_synth_data.py \
+    --name "dataset_2" \
+    --T 2000 \
+    --mu -5.0 -2.0 \
+    --phi 0.7 \
+    --sigma_eta 0.1 \
+    --P 0.99 0.01 0.015 0.985
+
+python experiments/generate_synth_data/generate_synth_data.py \
+    --name "dataset_3" \
+    --T 2000 \
+    --mu -5.0 -2.0 \
+    --phi 0.5 \
+    --sigma_eta 0.1 \
+    --P 0.99 0.01 0.015 0.985
+
+python experiments/generate_synth_data/generate_synth_data.py \
+    --name "dataset_4" \
+    --T 2000 \
+    --mu -1.0 1.0 \
+    --phi 0.9 \
+    --sigma_eta 0.1 \
+    --P 0.99 0.01 0.05 0.95
+
+python experiments/generate_synth_data/generate_synth_data.py \
+    --name "dataset_5" \
+    --T 2000 \
+    --mu -1.0 1.0 \
+    --phi 0.7 \
+    --sigma_eta 0.1 \
+    --P 0.99 0.01 0.05 0.95
+
+python experiments/generate_synth_data/generate_synth_data.py \
+    --name "dataset_6" \
+    --T 2000 \
+    --mu -1.0 1.0 \
+    --phi 0.5 \
+    --sigma_eta 0.1 \
+    --P 0.99 0.01 0.05 0.95
+
+
+
+
+
+
