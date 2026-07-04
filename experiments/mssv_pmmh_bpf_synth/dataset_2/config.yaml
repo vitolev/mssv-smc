@@ -1,10 +1,6 @@
 K: 2
 N: 2000
-<<<<<<<< HEAD:experiments/mssv_pmmh_synth/dataset_4/config.yaml
-name: dataset_4
-========
-name: dataset_1
->>>>>>>> c94d4dee0d913b66ab2eb9dd29edd8188d46f64d:experiments/mssv_pmmh_bpf_synth/dataset_1/config.yaml
+name: dataset_2
 pmmh:
   C: 8
   M: 10000
