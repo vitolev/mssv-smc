@@ -4,6 +4,8 @@ import numpy as np
 import arviz as az
 import h5py
 from concurrent.futures import ProcessPoolExecutor
+import tempfile
+from pathlib import Path
 
 from src.filters.smc.base_pf import ParticleFilter
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState, StateSpaceModelPrior, StateSpaceModelProposal
@@ -377,32 +379,60 @@ class SMC2:
                 self._write_theta_step(h5f_theta, t + 1, theta_particles, ess)
                 self._write_state_step(h5f_state, t + 1, theta_particles, x_particles_pred, save_factor)
 
-        h5f_theta.attrs["T"] = T
-        h5f_theta.attrs["N_theta"] = self.N_theta
-        h5f_theta.attrs["N_x"] = self.N_x
-        h5f_theta.attrs["gamma"] = self.gamma
-        h5f_theta.close()
+            h5f_theta.attrs["T"] = T
+            h5f_theta.attrs["N_theta"] = self.N_theta
+            h5f_theta.attrs["N_x"] = self.N_x
+            h5f_theta.attrs["gamma"] = self.gamma
+            h5f_theta.close()
 
-        if logger is not None:
-            logger.info(f"SMC2 completed. Moving to smoothing problem")
-        
-        # For each theta particle, run the particle filter forward and save the trajectories
-        for i, particle in enumerate(theta_particles):
-            theta = particle.theta
             if logger is not None:
-                logger.info(f"Running particle filter for smoothing trajectories for theta particle {i+1}/{self.N_theta}")
-            history = self.pf.run(y, theta)
-            trajectories, _ = self.pf.smoothing_trajectories(history, n_traj=save_factor)      # Sample only save_factor trajectories per theta particle to save space
+                logger.info(f"SMC2 completed. Moving to smoothing problem")
 
-            # Convert to numpy
-            trajectories = np.array([traj.to_numpy() for traj in trajectories])  # shape (T+1, save_factor, state_dim)
-            self._write_trajectories_step(h5f_state, i, trajectories)
-        
-        h5f_state.attrs["T"] = T
-        h5f_state.attrs["N_theta"] = self.N_theta
-        h5f_state.attrs["N_x"] = self.N_x
-        h5f_state.attrs["save_factor"] = save_factor
-        h5f_state.close()
+            args = [
+                (
+                    i,
+                    particle,
+                    y,
+                    self.pf,
+                    save_factor,
+                    output_dir,
+                )
+                for i, particle in enumerate(theta_particles)
+            ]
+
+            for i, tmp_file in executor.map(_compute_smoothing_trajectories, args):
+                if logger is not None:
+                    logger.info(f"Writing smoothing trajectories for theta particle {i+1}/{self.N_theta}")
+
+                trajectories = np.load(tmp_file)
+                self._write_trajectories_step(h5f_state, i, trajectories)
+                os.remove(tmp_file)
+            
+            h5f_state.attrs["T"] = T
+            h5f_state.attrs["N_theta"] = self.N_theta
+            h5f_state.attrs["N_x"] = self.N_x
+            h5f_state.attrs["save_factor"] = save_factor
+            h5f_state.close()
+
+def _compute_smoothing_trajectories(args: tuple[int, ThetaParticle, np.ndarray, ParticleFilter, int, str]) -> tuple[int, str]:
+    i, particle, y, pf, save_factor, output_dir = args
+
+    theta = particle.theta
+
+    history = pf.run(y, theta)
+    trajectories, _ = pf.smoothing_trajectories(
+        history,
+        n_traj=save_factor,
+    )
+
+    trajectories = np.array(
+        [traj.to_numpy() for traj in trajectories]
+    )
+
+    tmp_file = Path(output_dir) / f"traj_{i}.npy"
+    np.save(tmp_file, trajectories)
+
+    return i, str(tmp_file)
 
 def _update_theta_particle(args: tuple[ThetaParticle, float, StateSpaceModel, int, int]) -> tuple[ThetaParticle, StateSpaceModelState]:
     particle, y_t, model, N_x, seed = args

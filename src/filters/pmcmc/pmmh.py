@@ -6,6 +6,7 @@ from typing import List
 
 from src.filters.smc.base_pf import ParticleFilter
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
+from src.utils.log import setup_chain_logging
 
 class PMMH_Chain:
     """
@@ -135,7 +136,7 @@ class PMMH_Chain:
         h5f["logmarliks"][idx] = logmarlik
         h5f["logalphas"][idx] = log_alpha
 
-    def run(self, y, n_iter: int, output_dir, burnin=0, chain_id=0):
+    def run(self, y, n_iter: int, output_dir, burnin=0, chain_id=0, logger=None):
         """
         Run the PMMH algorithm.
 
@@ -149,6 +150,8 @@ class PMMH_Chain:
             Number of initial iterations to discard as burn-in. Must be less than n_iter. Default is 0.
         output_dir : str
             Directory to save intermediate results or logs.
+        logger : logging.Logger, optional
+            Logger for logging information. If None, no logging is performed.
         chain_id : int, optional
             Identifier for the chain. Default is 0.
 
@@ -158,6 +161,9 @@ class PMMH_Chain:
         """
         if burnin >= n_iter:
             raise ValueError("Burn-in must be less than the total number of iterations.")
+
+        if logger is not None:
+            logger.info(f"Initializing PMMH chain {chain_id} with {n_iter} iterations and burn-in of {burnin}.")
 
         self.current_trajectory = None
         self.current_logmarlik = None
@@ -171,8 +177,18 @@ class PMMH_Chain:
 
         h5f = self._init_hdf5_chain(output_dir, chain_id, n_iter - burnin, len(self.theta.to_vector()), self.current_trajectory[0].to_numpy().shape[1], len(self.current_trajectory))
 
+        if logger is not None:
+            logger.info("-" * 60)
+            logger.info(f"PMMH chain {chain_id} initialized. Starting burn-in...")
+
         for i in range(burnin):
             log_alpha = self._step()
+            if logger is not None:
+                logger.info(f"Chain {chain_id} - Burn-in step {i+1}/{burnin}, log_alpha: {log_alpha:.4f}")
+
+        if logger is not None:
+            logger.info("-" * 60)
+            logger.info(f"Burn-in completed for chain {chain_id}. Starting sampling...")
 
         log_alpha = self._step()    # First step
         self._write_chain_step(h5f, 0, self.theta, self.current_trajectory, self.current_logmarlik, log_alpha)  # Store the first sample after burn-in
@@ -181,10 +197,17 @@ class PMMH_Chain:
         for i in range(burnin+1, n_iter):
             log_alpha = self._step()
             self._write_chain_step(h5f, i - burnin, self.theta, self.current_trajectory, self.current_logmarlik, log_alpha)
+            if logger is not None:
+                logger.info(f"Chain {chain_id} - Sampling step {i-burnin}/{n_iter-burnin}, log_alpha: {log_alpha:.4f}")
 
         h5f.attrs["acceptance_rate"] = self.n_accepted / self.n_steps if self.n_steps > 0 else 0.0
         h5f.attrs["initial_parameters"] = self.initial_params.to_vector()
         h5f.close()
+
+        if logger is not None:
+            logger.info("-" * 60)
+            logger.info(f"PMMH chain {chain_id} completed. Acceptance rate: {h5f.attrs['acceptance_rate']:.4f}")
+            logger.info(f"Results saved to {output_dir / f'chain_{chain_id}.h5'}")
 
 class ParticleMarginalMetropolisHastings:
     """
@@ -218,7 +241,7 @@ class ParticleMarginalMetropolisHastings:
         self.proposal_param = proposal_param if proposal_param is not None else {}
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
 
-    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, proposal_param, kwargs_prior, n_iter, burnin, chain_id, output_dir):
+    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, proposal_param, kwargs_prior, n_iter, burnin, chain_id, output_dir, logs_dir=None):
         """
         Worker function for a single PMMH chain.
         """
@@ -243,9 +266,14 @@ class ParticleMarginalMetropolisHastings:
             kwargs_prior=kwargs_prior
         )
 
-        chain.run(y, n_iter=n_iter, burnin=burnin, output_dir=output_dir, chain_id=chain_id)
+        if logs_dir is not None:
+            logger = setup_chain_logging(logs_dir, "PMMH", chain_id)
+        else:
+            logger = None
 
-    def run(self, y, n_iter: int, n_chain: int, output_dir, burnin=0):
+        chain.run(y, n_iter=n_iter, burnin=burnin, output_dir=output_dir, chain_id=chain_id, logger=logger)
+
+    def run(self, y, n_iter: int, n_chain: int, output_dir, burnin=0, logs_dir=None):
         """
         Run multiple PMMH chains in parallel and return the results.
 
@@ -261,6 +289,8 @@ class ParticleMarginalMetropolisHastings:
             Number of initial iterations to discard as burn-in. Default is 0.
         output_dir : str
             Directory to save intermediate results or logs. If None, returns error, as output_dir is required to save results.
+        logs_dir : str, optional
+            Directory to save logs. If None, no logs are saved.
             
         Returns
         -------
@@ -280,6 +310,7 @@ class ParticleMarginalMetropolisHastings:
                 burnin=burnin,
                 chain_id=0,
                 output_dir=output_dir,
+                logs_dir=logs_dir
             )
             return None
 
@@ -299,6 +330,7 @@ class ParticleMarginalMetropolisHastings:
                     [burnin] * n_chain,
                     list(range(n_chain)),
                     [output_dir] * n_chain,
+                    [logs_dir] * n_chain
                 )
             )
         return None

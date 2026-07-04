@@ -1,0 +1,25 @@
+name: sp500   # Name of experiment and dataset to use for the experiment
+
+T: 6663            # Number of last T time steps to use from the SP500 dataset
+K: 2              # Number of regimes
+N_x: 8000           # Number of state particles
+N_theta: 8000       # Number of parameter particles
+gamma: 0.5         # ESS threshold for resampling (as a fraction of N_theta)
+R: 10              # Number of MCMC rejuvenation steps after resampling
+x_save_factor: 5         # Save factor for state particles in the output history
+
+prior:           # prior parameters for the model
+  mu_mean: 0.0
+  mu_sd: 5.0
+  phi_a: 6
+  phi_b: 2
+  sigma_eta_a: 2.0
+  sigma_eta_b: 5.0
+  diff_mean: 0.0
+  diff_sd: 2.0
+  P_diag: 3.5
+  P_base: 1.5
+
+proposal:
+  mode: "independent"   
+  

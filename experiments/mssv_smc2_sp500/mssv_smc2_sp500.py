@@ -64,7 +64,7 @@ def main():
 
     logger = setup_main_logging(logs_dir, name)
     logger.info("=" * 60)
-    logger.info("SMC^2 algorithm with Bootstrap Particle Filter (BPF)")
+    logger.info("SMC^2 algorithm for S&P 500 dataset")
     logger.info("=" * 60)
 
     logger.info("Project overview:")
@@ -80,29 +80,11 @@ def main():
     model = MSSVModel(rng=rng)
 
     # Load data
-    data_path = data_dir / "synthetic" / f"{name}.csv"
+    data_path = data_dir / "real" / "sp500" / "sp500.csv"
     data = pd.read_csv(data_path)
-    y = data["y"].values
-    h_true = data["h_true"].values
-    s_true = data["s_true"].values.astype(int)
-    y = y[:T]
-    h_true = h_true[:T]
-    s_true = s_true[:T]
+    y = data["Close"].values
+    y = y[-T:]       # Keep only the last T observations
 
-    param_path = data_dir / "synthetic" / f"{name}_params.csv"
-    params_df = pd.read_csv(param_path)
-    P_rows = params_df["P"].apply(ast.literal_eval).tolist()
-    P = np.array(P_rows)
-    true_theta = MSSVParams.from_mu(
-        mu=params_df["mu"].values,
-        phi=params_df["phi"].iloc[0],
-        sigma_eta=params_df["sigma_eta"].iloc[0],
-        P=P
-    )
-
-    logger.info(f"True parameters: {true_theta}")
-    logger.info(f"True log-volatility shape: {h_true.shape}")
-    logger.info(f"True regimes shape: {s_true.shape}")
     logger.info(f"Observations (returns) shape: {y.shape}")
     logger.info("-" * 60)
 
