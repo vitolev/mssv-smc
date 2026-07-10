@@ -379,15 +379,17 @@ class SMC2:
                 self._write_theta_step(h5f_theta, t + 1, theta_particles, ess)
                 self._write_state_step(h5f_state, t + 1, theta_particles, x_particles_pred, save_factor)
 
-            h5f_theta.attrs["T"] = T
-            h5f_theta.attrs["N_theta"] = self.N_theta
-            h5f_theta.attrs["N_x"] = self.N_x
-            h5f_theta.attrs["gamma"] = self.gamma
-            h5f_theta.close()
+        h5f_theta.attrs["T"] = T
+        h5f_theta.attrs["N_theta"] = self.N_theta
+        h5f_theta.attrs["N_x"] = self.N_x
+        h5f_theta.attrs["gamma"] = self.gamma
+        h5f_theta.close()
 
-            if logger is not None:
-                logger.info(f"SMC2 completed. Moving to smoothing problem")
+        if logger is not None:
+            logger.info(f"SMC2 completed. Moving to smoothing problem")
 
+        # Create new exceutor for smoothing trajectories with fewer workers to avoid memory issues, as smoothing is much more memory intensive.
+        with ProcessPoolExecutor(max_workers=max(1, self.n_workers // 8)) as executor:
             args = [
                 (
                     i,
@@ -466,11 +468,11 @@ def _rejuvenate_particle(args: tuple[ThetaParticle, np.ndarray, ParticleFilter, 
     rng = np.random.default_rng(seed)
 
     theta_current = particle.theta
-    current_history = pf.run(y_history, theta_current)
+    current_history = pf.run(y_history, theta_current, only_last_step=True)
     loglik_current = current_history[-1][3]
 
     theta_prop = proposal.sample(rng, theta_current)
-    proposed_history = pf.run(y_history, theta_prop)
+    proposed_history = pf.run(y_history, theta_prop, only_last_step=True)
 
     x_particles = proposed_history[-1][0]
     loglik_prop = proposed_history[-1][3]

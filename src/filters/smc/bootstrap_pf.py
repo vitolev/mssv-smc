@@ -9,7 +9,7 @@ class BootstrapParticleFilter(ParticleFilter):
     def __init__(self, model : StateSpaceModel, n_particles : int, resampler):
         super().__init__(model, n_particles, resampler)
 
-    def run(self, y, theta: StateSpaceModelParams):
+    def run(self, y, theta: StateSpaceModelParams, only_last_step=False):
         """
         Run the particle filter on observation sequence y.
 
@@ -19,10 +19,12 @@ class BootstrapParticleFilter(ParticleFilter):
             Observations over time.
         theta : StateSpaceModelParams
             Model parameters.
+        only_last_step : bool, optional
+            If True, only store and return the last step's particles and weights. Default is False.
 
         Returns
         -------
-        history : list of tuples of size T+1.
+        history : list of tuples of size T+1 (or 1 if only_last_step is True).
             Each element is (particles, weights, indices, logmarlik) at each time step t.
             - particles: StateSpaceModelState with batched N particles.
             - weights: np.ndarray of shape (N,) with normalized weights of the particles.
@@ -36,7 +38,8 @@ class BootstrapParticleFilter(ParticleFilter):
         particles = self.model.sample_initial_state(theta, size=self.N)  # Sample initial particles
         weights = np.ones(self.N) / self.N                               # Initialize weights uniformly
 
-        history.append((particles, weights, np.array([], dtype=int), 0.0))    # Store history    
+        if not only_last_step:
+            history.append((particles, weights, np.array([], dtype=int), 0.0))    # Store history    
         indices = np.arange(self.N)                                      # Initial indices
 
         logmarlik = 0.0  # initialize log marginal likelihood
@@ -55,15 +58,19 @@ class BootstrapParticleFilter(ParticleFilter):
             logmarlik += max_log_w + np.log(weights_sum / self.N)
 
             # Store history
-            history.append((particles, weights, indices, logmarlik)) # No need to copy particles as new object is created each time
+            if not only_last_step:
+                history.append((particles, weights, indices, logmarlik)) # No need to copy particles as new object is created each time
 
             # Resampling
             indices = self.resampler(weights, self.model.rng)
             particles = particles[indices]
 
-        return history
-    
-    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref: list):
+        if only_last_step:
+            return [(particles, weights, indices, logmarlik)]
+        else:
+            return history
+
+    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref: list, only_last_step=False):
         """
         Run conditional bootstrap particle filter given reference trajectory x_ref.
 
@@ -75,6 +82,8 @@ class BootstrapParticleFilter(ParticleFilter):
             Model parameters.
         x_ref : list of length T+1
             Reference trajectory to condition on. Must have length T+1, where T is the length of the observation sequence y.
+        only_last_step : bool, optional
+            If True, only store and return the last step's particles and weights. Default is False.
 
         Returns
         -------
@@ -90,7 +99,8 @@ class BootstrapParticleFilter(ParticleFilter):
         particles[0] = x_ref[0]
 
         weights = np.ones(self.N) / self.N
-        history.append((particles, weights, np.array([], dtype=int), 0.0))
+        if not only_last_step:
+            history.append((particles, weights, np.array([], dtype=int), 0.0))
 
         logmarlik = 0.0
         indices = np.arange(self.N)
@@ -114,7 +124,10 @@ class BootstrapParticleFilter(ParticleFilter):
             logmarlik += max_log_w + np.log(weights_sum / self.N)
 
             # Store history
-            history.append((particles, weights, indices, logmarlik))
+            if not only_last_step:
+                history.append((particles, weights, indices, logmarlik))
+            else:
+                history = [(particles, weights, indices, logmarlik)]  # Only keep the last step
             
             # Resampling
             indices = self.resampler(weights, self.model.rng)

@@ -14,7 +14,7 @@ class ParticleFilter(ABC):
         self.rng = model.rng
 
     @abstractmethod
-    def run(self, y, theta: StateSpaceModelParams):
+    def run(self, y, theta: StateSpaceModelParams, only_last_step=False):
         """
         Run the particle filter on observation sequence y.
 
@@ -24,10 +24,12 @@ class ParticleFilter(ABC):
             Observations over time.
         theta : StateSpaceModelParams
             Model parameters.
+        only_last_step : bool, optional
+            If True, only store and return the last step's particles and weights. Default is False.
 
         Returns
         -------
-        history : list of tuples of size T+1.
+        history : list of tuples of size T+1 (or 1 if only_last_step is True).
             Each element is (particles, weights, indices, logmarlik) at each time step t.
             - particles: StateSpaceModelState with batched N particles.
             - weights: np.ndarray of shape (N,) with normalized weights of the particles.
@@ -37,7 +39,7 @@ class ParticleFilter(ABC):
         pass
 
     @abstractmethod
-    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref: List[StateSpaceModelState]):
+    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref: List[StateSpaceModelState], only_last_step=False):
         """
         Run the particle filter on observation sequence y, conditional on a fixed trajectory x_ref.
 
@@ -49,10 +51,12 @@ class ParticleFilter(ABC):
             Model parameters.
         x_ref : array-like, shape (T+1,)
             Reference trajectory to condition on. Must be of length T+1, where T is the length of y. Each element of trajectory is a StateSpaceModelState at that time.
+        only_last_step : bool, optional
+            If True, only store and return the last step's particles and weights. Default is False.
 
         Returns
         -------
-        history : list of tuples of size T+1.
+        history : list of tuples of size T+1 (or 1 if only_last_step is True).
             Each element is (particles, weights, indices, logmarlik) at each time step t.
             - particles: StateSpaceModelState with batched N particles.
             - weights: np.ndarray of shape (N,) with normalized weights of the particles.

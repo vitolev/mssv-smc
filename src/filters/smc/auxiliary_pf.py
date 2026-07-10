@@ -9,7 +9,7 @@ class AuxiliaryParticleFilter(ParticleFilter):
     def __init__(self, model: StateSpaceModel, n_particles: int, resampler):
         super().__init__(model, n_particles, resampler)
 
-    def run(self, y, theta: StateSpaceModelParams):
+    def run(self, y, theta: StateSpaceModelParams, only_last_step=False):
         """
         Run the auxiliary particle filter on observation sequence y.
 
@@ -19,10 +19,12 @@ class AuxiliaryParticleFilter(ParticleFilter):
             Observations over time.
         theta : StateSpaceModelParams
             Model parameters.
+        only_last_step : bool, optional
+            If True, only store and return the last step's particles and weights. Default is False
 
         Returns
         -------
-        history : list of tuples of size T+1.
+        history : list of tuples of size T+1 (or 1 if only_last_step is True).
             Each element is (particles, weights, indices, logmarlik) at each time step t.
             - particles: StateSpaceModelState with batched N particles.
             - weights: np.ndarray of shape (N,) with normalized weights of the particles.
@@ -35,7 +37,8 @@ class AuxiliaryParticleFilter(ParticleFilter):
         # ----- Initialization -----
         particles = self.model.sample_initial_state(theta, size=self.N)         # Sample initial particles
         weights = np.ones(self.N) / self.N                                      # Initialize weights uniformly
-        history.append((particles, weights.copy(), np.array([], dtype=int), 0.0))    # Store history
+        if not only_last_step:
+            history.append((particles, weights.copy(), np.array([], dtype=int), 0.0))    # Store history
 
         logmarlik = 0.0  # initialize log marginal likelihood
 
@@ -83,11 +86,15 @@ class AuxiliaryParticleFilter(ParticleFilter):
             weights = weights_unnorm / weights_sum
 
             # --- Store history ---
-            history.append((particles, weights.copy(), ancestor_indices, logmarlik))
+            if not only_last_step:
+                history.append((particles, weights.copy(), ancestor_indices, logmarlik))
 
-        return history
-    
-    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref):
+        if only_last_step:
+            return [(particles, weights, ancestor_indices, logmarlik)]
+        else:
+            return history
+
+    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref, only_last_step=False):
         """
         Run conditional auxiliary particle filter given reference trajectory x_ref.
 
@@ -99,6 +106,8 @@ class AuxiliaryParticleFilter(ParticleFilter):
             Model parameters.
         x_ref : array-like, shape (T+1,)
             Reference trajectory to condition on. Must have length T+1, where T is the length of the observation sequence y.
+        only_last_step : bool, optional
+            If True, only store and return the last step's particles and weights. Default is False
 
         Returns
         -------
@@ -114,7 +123,8 @@ class AuxiliaryParticleFilter(ParticleFilter):
         particles[0] = x_ref[0]
 
         weights = np.ones(self.N) / self.N
-        history.append((particles, weights.copy(), np.array([], dtype=int), 0.0))
+        if not only_last_step:
+            history.append((particles, weights.copy(), np.array([], dtype=int), 0.0))
 
         logmarlik = 0.0
 
@@ -168,8 +178,12 @@ class AuxiliaryParticleFilter(ParticleFilter):
             weights = weights_unnorm / weights_sum
 
             # --- Store history ---
-            history.append((particles, weights.copy(), ancestor_indices, logmarlik))
+            if not only_last_step:
+                history.append((particles, weights.copy(), ancestor_indices, logmarlik))
 
-        return history
+        if only_last_step:
+            return [(particles, weights, ancestor_indices, logmarlik)]
+        else:
+            return history
     
     

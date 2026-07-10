@@ -1,0 +1,31 @@
+name: sp500
+
+K: 2              # Number of regimes
+N: 8000           # Number of particles for the BPF
+T: 6663
+
+pmmh:
+  M: 16000        # Number of PMMH iterations
+  C: 8            # Number of parallel chains  
+  burnin: 8000    # Number of burn-in iterations to discard from the PMMH output
+
+prior:           # prior parameters for the model
+  mu_mean: 0.0
+  mu_sd: 5.0
+  phi_a: 6
+  phi_b: 2
+  sigma_eta_a: 2.0
+  sigma_eta_b: 5.0
+  diff_mean: 0.0
+  diff_sd: 2.0
+  P_diag: 3.5
+  P_base: 1.5
+
+proposal:         # step sizes for the random walk proposal in PMMH
+  mode: "rw"      # "rw" for random walk, "informed" for informed proposal
+  step_mu: 0.2
+  step_phi: 0.1
+  step_sigma: 0.1
+  step_P: 500
+  step_delta: 0.1
+  

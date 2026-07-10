@@ -1,4 +1,4 @@
-name: sp500   # Name of experiment and dataset to use for the experiment
+name: sp500   # Name of experiment
 
 T: 6663            # Number of last T time steps to use from the SP500 dataset
 K: 2              # Number of regimes

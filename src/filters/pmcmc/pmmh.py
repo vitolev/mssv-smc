@@ -202,12 +202,13 @@ class PMMH_Chain:
 
         h5f.attrs["acceptance_rate"] = self.n_accepted / self.n_steps if self.n_steps > 0 else 0.0
         h5f.attrs["initial_parameters"] = self.initial_params.to_vector()
-        h5f.close()
 
         if logger is not None:
             logger.info("-" * 60)
             logger.info(f"PMMH chain {chain_id} completed. Acceptance rate: {h5f.attrs['acceptance_rate']:.4f}")
             logger.info(f"Results saved to {output_dir / f'chain_{chain_id}.h5'}")
+
+        h5f.close()
 
 class ParticleMarginalMetropolisHastings:
     """

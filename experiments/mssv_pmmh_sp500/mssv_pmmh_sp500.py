@@ -12,7 +12,7 @@ import pandas as pd
 
 # Experiment specific imports
 from src.models.mssv import MSSVParams, MSSVModel
-from src.filters.smc2.smc2 import SMC2
+from src.filters.pmcmc.pmmh import ParticleMarginalMetropolisHastings
 from src.filters.smc.bootstrap_pf import BootstrapParticleFilter
 from src.filters.smc.resampling import systematic_resampling
 from src.utils.utils import ROOT_DIR
@@ -27,11 +27,10 @@ def main():
     name: str = config.name
     T: int = config.T
     K: int = config.K
-    N_x: int = config.N_x
-    N_theta: int = config.N_theta
-    gamma: float = config.gamma
-    R: int = config.R
-    x_save_factor: int = config.x_save_factor
+    N: int = config.N
+    M: int = config.pmmh.M
+    C: int = config.pmmh.C
+    burnin: int = config.pmmh.burnin
 
     # Prior parameters
     mu_mean: float = config.prior.mu_mean
@@ -47,6 +46,11 @@ def main():
 
     # Proposal params
     mode = config.proposal.mode
+    step_mu: float = config.proposal.step_mu
+    step_delta: float = config.proposal.step_delta
+    step_phi: float = config.proposal.step_phi
+    step_sigma: float = config.proposal.step_sigma
+    step_P: int = config.proposal.step_P
 
     # Create subfolder with name of the experiment
     script_dir = script_dir / name
@@ -58,18 +62,19 @@ def main():
     output_dir = script_dir / 'output'
     output_dir.mkdir(parents=True, exist_ok=True)
     data_dir = ROOT_DIR / 'data'
-    
+
     # Save a copy of config file in the experiment folder
     config.save_yaml(script_dir / "config.yaml")
 
     logger = setup_main_logging(logs_dir, name)
     logger.info("=" * 60)
-    logger.info("SMC^2 algorithm for S&P 500 dataset")
+    logger.info("Particle Marginal Metropolis-Hastings (PMMH) algorithm for S&P 500 dataset")
     logger.info("=" * 60)
 
     logger.info("Project overview:")
     logger.info(f"- Logs dir: {logs_dir}")
     logger.info(f"- Results dir: {results_dir}")
+    logger.info(f"- Output dir: {output_dir}")
     logger.info(f"- Data dir: {data_dir}")
 
     logger.info("=" * 60)
@@ -91,14 +96,19 @@ def main():
     logger.info("-" * 60)
 
     # BPF initialization
-    bpf = BootstrapParticleFilter(model, N_x, resampler=systematic_resampling)
+    bpf = BootstrapParticleFilter(model, N, resampler=systematic_resampling)
     logger.info(f"Initialized Bootstrap Particle Filter")
-    logger.info(f"N_x = {N_x}")
+    logger.info(f"N = {N}")
 
     logger.info("-" * 60)
 
     proposal_params = {
         "mode": mode,
+        "step_mu": step_mu,
+        "step_delta": step_delta,
+        "step_phi": step_phi,
+        "step_sigma": step_sigma,
+        "step_P": step_P
     }
 
     kwargs_model = {
@@ -118,12 +128,9 @@ def main():
         "P_base": P_base
     }
 
-    smc2 = SMC2(bpf, N_theta=N_theta, gamma=gamma, R=R, proposal_params=proposal_params, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
+    pmmh = ParticleMarginalMetropolisHastings(bpf, proposal_param=proposal_params, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
 
-    logger.info(f"Initialized SMC2 sampler")
-    logger.info(f"N_theta = {N_theta}")
-    logger.info(f"Gamma = {gamma}")
-    logger.info(f"R = {R}")
+    logger.info(f"Initialized PMMH sampler")
     logger.info("-" * 60)
     logger.info("Model parameters:")
     for k, v in kwargs_model.items():
@@ -143,13 +150,15 @@ def main():
 
     logger.info("-" * 60)
 
-    logger.info(f"Starting sampling:")
-
-    smc2.run(y, logger=logger, save_factor=x_save_factor, output_dir=output_dir)
-
-    logger.info(f"SMC2 sampling completed.")
-
+    logger.info(f"Starting sampling with parameters:")
+    logger.info(f"- M = {M}")
+    logger.info(f"- C = {C}")
+    logger.info(f"- Burn-in = {burnin}")
     logger.info("-" * 60)
+
+    pmmh.run(y, n_iter=M, n_chain=C, burnin=burnin, output_dir=output_dir, logs_dir=logs_dir)
+
+    logger.info(f"PMMH sampling completed.")
 
 if __name__ == "__main__":
     main()

@@ -1,15 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=mssv_smc2_sp500_%j
+#SBATCH --job-name=mssv_pmmh_sp500_%j
 #SBATCH --partition=all
 #SBATCH --account=fri-users
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=128
-#SBATCH --mem=512G
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
 #SBATCH --nodelist=wn[021-061]
-#SBATCH --output=mssv_smc2_sp500_%j.out
+#SBATCH --output=mssv_pmmh_sp500_%j.out
 #SBATCH --time=2-00:00:00
-
 
 echo "Job started on $(hostname)"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"
@@ -31,4 +30,4 @@ source venv/bin/activate    # Make sure virtual environment is set up and adjust
 echo "Activated virtual environment. Starting Python script."
 
 # Run script
-python experiments/mssv_smc2_sp500/mssv_smc2_sp500.py
+python experiments/mssv_pmmh_sp500/mssv_pmmh_sp500.py
