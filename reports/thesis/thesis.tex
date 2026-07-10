@@ -1,0 +1,312 @@
+%================================================================
+% SLO
+%----------------------------------------------------------------
+% datoteka: 	thesis_template.tex
+%
+% opis: 		predloga za pisanje diplomskega dela v formatu LaTeX na
+% 				Univerza v Ljubljani, Fakulteti za računalništvo in informatiko
+%
+% pripravili: 	Matej Kristan, Zoran Bosnić, Andrej Čopar,
+%			  	po začetni predlogi Gašperja Fijavža
+%
+% popravil: 	Domen Rački, Jaka Cikač, Matej Kristan
+%
+% verzija: 		30. september 2016 (dodan razširjeni povzetek)
+%================================================================
+
+
+%================================================================
+% SLO: definiraj strukturo dokumenta
+% ENG: define file structure
+%================================================================
+\documentclass[a4paper, 12pt]{book}
+ 
+
+%================================================================
+% SLO: Odkomentiraj "\SLOtrue " za izbiro slovenskega jezika
+% ENG: Uncomment "\SLOfalse" to chose English languagge
+%================================================================
+\newif\ifSLO
+\newif\ifTRACKEXIST
+\newif\ifTRACKCS
+\newif\ifPROGRAMMM
+\newif\ifPROGRAMEMAI
+
+
+% ---------------------------------------------------------------------------------------
+% IMPORTANT: Adjust the thesis language, your study program and track within this block
+% ---------------------------------------------------------------------------------------
+% ** switch language ** %
+%\SLOtrue % Enables Slovenian language
+\SLOfalse  % Enables English language
+
+% ** Switch programs: ** %
+
+% ** Uncomment if Program: Computer Science, Track: Computer Science **%
+%\TRACKCStrue
+%\TRACKEXISTtrue
+
+% ** Uncomment if Program: Computer Science, Track: Data Science **%
+\TRACKCSfalse
+\TRACKEXISTtrue
+
+% ** Uncomment if Program: Multimedia **%
+%\PROGRAMMMtrue 
+%\TRACKEXISTfalse 
+
+% ** Uncomment if Program: EMAI **%
+%\PROGRAMEMAItrue
+%\SLOfalse 
+
+% -------------------------------------------------------------------------------------------
+% End of language, program and track adjustment
+% -------------------------------------------------------------------------------------------
+
+
+%================================================================
+% SLO: vključi oblikovanje in pakete
+% ENG: include design and packages
+%================================================================
+\input{style/thesis_style}
+
+%----------------------------------------------------------------
+% |||||||||||||||||||||| USTREZNO POPRAVI |||||||||||||||||||||||
+% |||||||||||||||||||||| EDIT ACCORDINGLY |||||||||||||||||||||||
+%----------------------------------------------------------------
+\newcommand{\ttitle}{Ocenjevanje volatilnosti z Markovskim prehajanjem na finančnih trgih s sekvenčnimi Monte Carlo metodami}
+\newcommand{\ttitleEn}{Estimating Markov switching volatility in financial markets using sequential Monte Carlo methods}
+\newcommand{\tsubject}{\ttitle}
+\newcommand{\tsubjectEn}{\ttitleEn}
+\newcommand{\tauthor}{Vito Levstik}
+\newcommand{\temail}{vito.levstik@gmail.com}
+\newcommand{\myyear}{2026}
+\newcommand{\tkeywords}{računalnik, računalnik, računalnik}
+\newcommand{\tkeywordsEn}{computer, computer, computer}
+\newcommand{\mysupervisor}{izr.~prof.~dr.\ Jure Demšar}
+% Uncomment and define the following definition if you have a co-supervisor
+%\newcommand{\mycosupervisor}{akad.~prof.~dr.\ Martin Krpan}
+ 
+
+%%  Code publication under GNU
+% NOTE: If you chose to publish the source code as part of the thesis, then put the url here and change the appropriate switch below !!
+\newcommand{\linktosourcecode}{https://LINK-to-sourcecode-on-GIT}
+\newif\ifCODEPUBLISHED
+
+% Chosing the published code "true" will automatically generate the licence statement for the code on the licence page.
+ \CODEPUBLISHEDtrue % uncomment if the code is published
+% \CODEPUBLISHEDfalse % uncomment if the code is not published
+%% End of Code publication under GNU
+
+% include formatted front pages
+\input{style/thesis_front_pages}
+
+%================================================================
+% ENG: main pages of the thesis
+%================================================================
+
+%----------------------------------------------------------------
+% Chapter 1
+%----------------------------------------------------------------
+\chapter{Introduction}
+
+% ----------------------------------------------------------------
+% Chapter 2
+% ----------------------------------------------------------------
+\chapter{Stochastic Volatility}
+Volatility is a fundamental concept in financial econometrics and is commonly used as a measure of the variability or uncertainty of asset returns. In its most basic form, volatility refers to the standard deviation of returns over a given time horizon, and therefore quantifies the magnitude of fluctuations around the expected return.
+
+Many models assume that volatility is constant. In practice, however, financial markets exhibit periods of high volatility, such as during financial crises, and periods of low volatility, such as during stable economic conditions. Stochastic volatility models capture this behavior by allowing volatility to vary over time according to a stochastic process.
+
+This chapter begins by introducing volatility and then develops the state space formulation used throughout the thesis, with particular emphasis on the Markov switching stochastic volatility (MSSV) model.
+
+\section{Volatility}
+Let $P_t$ denote the price of an asset (stock, index, commodity, etc.) at time $t$. The log return of the asset is defined as
+\begin{equation}
+    Y_t = \log(P_t) - \log(P_{t-1}) = \log\left(\frac{P_t}{P_{t-1}}\right).
+\end{equation}
+The advantage of using log returns rather than simple returns lies in their additive structure over time and their natural treatment of compounding effects \cite{fan2017elements}. Throughout this thesis, the term return refers to a log return.
+
+While returns are directly observable, volatility is a characteristic of the underlying return distribution and is not directly observable from a single realization. At each time point $t$, only one return $Y_t$ is observed, whereas volatility is defined through the variability of the entire return-generating distribution. Consequently, time-varying volatility must be inferred from data rather than measured directly.
+
+To formalize this idea, let $\mathcal{F}_{t-1}$ denote the information available up to time $t-1$. The conditional mean and variance of the return are defined as
+\begin{align}
+    \mu_t &= \mathbb{E}[Y_t | \mathcal{F}_{t-1}], \\
+    \sigma_t^2 &= \text{Var}(Y_t | \mathcal{F}_{t-1}) = \mathbb{E}[(Y_t - \mu_t)^2 | \mathcal{F}_{t-1}].
+\end{align}
+The quantity $\sigma_t$ is referred to as the conditional volatility. In many financial applications, the conditional mean is assumed to be negligible relative to the variability of returns, so that the focus is primarily on modelling the conditional volatility process.
+
+When high-frequency intraday data are available, volatility can be estimated nonparametrically using realized volatility. Suppose that within a fixed time interval, for example one trading day, we observe intraday log returns $r_{t,i}$ for $i = 1, \ldots, m$.
+The realized variance is defined as
+\begin{equation}
+    RV_t = \sum_{i=1}^{m} r_{t,i}^2,
+\end{equation}
+Under certain regularity conditions, as the sampling frequency increases (i.e., $m \to \infty$), the realized variance converges to the quadratic variation of the log-price process, which in the absence of jumps corresponds to the integrated variance over the interval. This provides a theoretical justification for using realized volatility as a consistent estimator of latent daily volatility.
+
+\section{State space models}
+A state space model describes a dynamical system in which an unobserved (latent) stochastic process drives the evolution of an observed process. The central idea is that the system evolves through hidden states, while only noisy measurements of those states are available.
+
+Let $\{X_t\}_{t \geq 0}$ denote the latent state process and let $\{Y_t\}_{t \geq 1}$ denote the observed process. $X_t$ takes values in a measurable state space $(\mathcal{X}, \mathcal{B}(\mathcal{X}))$ and $Y_t$ takes values in $(\mathcal{Y}, \mathcal{B}(\mathcal{Y}))$. Together, $\{(X_t, Y_t)\}_{t \geq 1}$ forms a stochastic process on the joint space $(\mathcal{X} \times \mathcal{Y}, \mathcal{B}(\mathcal{X}) \otimes \mathcal{B}(\mathcal{Y}))$ \cite{chopin2020smc}.
+
+The latent process $\{X_t\}_{t \geq 0}$ is modelled as a Markov process, while the observations $\{Y_t\}_{t \geq 1}$ are conditionally independent given the state process. The model is specified by the following densities:
+\begin{align}
+    X_0 &\sim \chi(x_0 | \theta), \\
+    X_t | X_{t-1}=x_{t-1} &\sim p(x_t | x_{t-1}, \theta), \\
+    Y_t | X_t=x_t &\sim q(y_t | x_t, \theta),
+\end{align}
+where $\chi$ is the \textit{initial density}, $p$ is the \textit{transition density}, and $q$ is the \textit{observation} or \textit{emission density}. The vector $\theta \in \Theta$ denotes the collection of model parameters \cite{chopin2020smc, doucet2001sequential,tingstrom2015smc2sv}. 
+
+A potential problem with this definition is that conditional distribution of $X_t$ given $X_{t-1}$ may not always admit a density. A proper way would be to define the state space model in a more measure theoretic way using probability kernels \cite{chopin2020smc}.
+However, we will not deal with this more general definition in this thesis, as our models will have nice densities.
+
+\section{MSSV model}
+The Markov switching stochastic volatility (MSSV) model is a state space model in which the hidden state is the tuple $X_t = (H_t, S_t)$. The log volatility $H_t$ is continuous, while the regime indicator $S_t$ is discrete and takes values in $\{1, 2, \ldots, K\}$, where $K$ is the number of regimes \cite{so1998stochastic}. The latent state space is therefore
+\begin{equation}
+    \mathcal{X} = \mathbb{R} \times \{1, 2, \ldots, K\},
+\end{equation}
+equipped with the product $\sigma$-algebra $\mathcal{B}(\mathbb{R}) \otimes 2^{\{1, 2, \ldots, K\}}$.
+
+\subsection{Observation, transition and initial densities}
+
+The model consists of an observation equation and a transition equation. The observation distribution is defined with
+\begin{equation}
+    Y_t | H_t=h_t, S_t=s_t \sim \mathcal{N}\left(0, \exp\left(h_t\right)\right),
+\end{equation}
+where $\mathcal{N}(\mu, \sigma^2)$ denotes the normal distribution with mean $\mu$ and variance $\sigma^2$. Such distribution admits a density function which we denote by $q(y_t | h_t, s_t, \theta) = q(y_t | h_t)$, as the observation density does not depend on the regime $s_t$ or any other model parameters $\theta$. 
+
+The transition distribution is defined with
+\begin{align}
+    H_t | H_{t-1}=h_{t-1}, S_t=s_t &\sim \mathcal{N}(\mu_{s_t} + \phi(h_{t-1} - \mu_{s_t}), \eta^2), \\
+    S_t | S_{t-1}=s_{t-1} &\sim \text{Categorical}(P_{s_{t-1},:}),
+\end{align}
+where $\mu_{s_t}$ denotes the regime-specific mean associated with state $s_t$, $\phi$ is the persistence parameter, $\eta$ is the standard deviation of the log-volatility innovation process, and $P$ is the $K \times K$ regime transition matrix defined as
+$$
+P=
+\begin{bmatrix}
+    p_{11} & p_{12} & \cdots & p_{1K} \\
+    p_{21} & p_{22} & \cdots & p_{2K} \\
+    \vdots & \vdots & \ddots & \vdots \\
+    p_{K1} & p_{K2} & \cdots & p_{KK}
+\end{bmatrix},
+$$
+where $p_{ij} = \mathbb{P}(S_t = j | S_{t-1} = i)$ is the probability of transitioning from regime $i$ to regime $j$. Note that the rows of $P$ must sum to 1, i.e., $\sum_{j=1}^{K} p_{ij} = 1$ for all $i$. Observe that the log volatility process is essentially an AR(1) process with regime-specific means \cite{so1998stochastic}.
+Again such transition distributions admit density functions which we denote by $p(x_t | x_{t-1}, \theta) = p(s_t | s_{t-1}, \theta) p(h_t | h_{t-1}, s_t, \theta)$.
+
+The MSSV model is completed by specifying the initial distribution. We define the initial distribution as
+\begin{align}
+    H_0 | S_0=s_0 &\sim \mathcal{N}\left(\mu_{s_0}, \frac{\eta^2}{(1 - \phi^2)}\right), \\
+    S_0 &\sim \text{Categorical}\left(\frac{1}{K}, \frac{1}{K}, \ldots, \frac{1}{K} \right).
+\end{align}
+The initial distribution admits a density function which we denote by $\chi(x_0 | \theta) = \chi(s_0 | \theta) \chi(h_0 | s_0, \theta)$.
+
+The choice of $H_0$ is motivated by the stationary distribution of the corresponding AR(1) component, which has mean $\mu_{s_0}$ and variance $\frac{\eta^2}{(1 - \phi^2)}$. The regime variable $S_0$ is assigned a uniform prior because no prior information about the initial regime is assumed.
+
+\subsection{Assumptions and parameters}
+
+The following assumptions are made:
+\begin{enumerate}
+    \item The persistence $\phi$ lies in the range $(-1, 1)$.
+    \item Each regime should correspond to at least one time point.
+    \item The regime means are ordered such that $\mu_1 < \mu_2 < \ldots < \mu_K$.
+\end{enumerate}
+Assumption 1 ensures that the AR(1) process is stationary. This is needed to ensure that the log volatility does not diverge to infinity. Assumption 2 is necessary to avoid empty regimes, otherwise some $\mu_i$ would be unidentifed.
+Assumption 3 is a common identification constraint in mixture models, which prevents label switching and ensures that the regimes are uniquely defined \cite{so1998stochastic}. 
+
+In this thesis we ensure the regime identifibility using following parameterization:
+\begin{align}
+    \mu_i = \mu_{i-1} + e^{\delta_i}, \quad i = 2, \ldots, K,
+\end{align}
+where $\delta_i \in \mathbb{R}$. Such parameterization is motivated by the fact that the exponential function is strictly positive, which guarantees that $\mu_i > \mu_{i-1}$ and leaves $\delta_i$ unconstrained. 
+
+The parameters of the MSSV model $\theta$ are then given by
+$$
+\theta = \{\mu_1, \delta_2, \ldots, \delta_K, \phi, \eta, P\},
+$$
+Since $P$ is row stochastic, we have $K(K-1)$ free parameters in $P$. Therefore, the total number of free parameters is $K + 2 + K(K-1) = K^2 + 2$.
+
+Note that in case of $K=1$, the MSSV model reduces to the standard stochastic volatility (SV) model, in which only the log volatility $H_t$ is a latent variable and there are no regimes.
+
+\section{Problem description}
+The goal of this thesis is to estimate volatility in financial markets. Let $y_{1:t} = \{y_1, y_2, \ldots, y_t\}$ denote the sequence of observed returns up to time $t \leq T$. Similarly, let $x_{1:t} = \{x_1, x_2, \ldots, x_t\}$ denote the sequence of latent states up to time $t$. 
+The main objective is to estimate
+\begin{equation}
+    p(x_{1:t}, \theta \mid y_{1:t}),
+\end{equation}
+which is the joint posterior distribution of the latent states and model parameters given the observed returns up to time $t$. Integrating out the parameters $\theta$ yields the marginal posterior distribution of the latent states:
+\begin{equation}
+    p(x_{1:t} \mid y_{1:t}) = \int p(x_{1:t}, \theta \mid y_{1:t}) d\theta.
+\end{equation}
+This is known as the \textit{smoothing distribution}. If we are interested only in the current latent state $x_t$, we can compute the marginal posterior distribution of the current state:
+\begin{equation}
+    p(x_t \mid y_{1:t}) = \int p(x_{1:t}, \theta \mid y_{1:t}) dx_{1:t-1} d\theta,
+\end{equation}
+which is known as the \textit{filtering distribution}. The filtering distribution is particularly useful for real-time applications, where we want to estimate the current state based on all available observations up to the present time. Additionally, we will are also interested in estimating the
+\begin{equation}
+    p(x_{t+1} \mid y_{1:t})
+\end{equation} 
+which is known as the \textit{predictive distribution}.
+
+% ----------------------------------------------------------------
+% Chapter 3
+% ----------------------------------------------------------------
+\chapter{Sequential Monte Carlo Methods}
+Here we present the theory of sequential Monte Carlo (SMC) methods, starting with bootstrap particle filter (BPF) and then moving to more advanced methods such as
+the particle Monte Carlo Markov Chain (PMCMC) and SMC$^2$. 
+
+\section{Bootstrap Particle Filter}
+
+\section{PMCMC}
+
+\section{SMC$^2$}
+
+% ----------------------------------------------------------------
+% Chapter 4
+% ----------------------------------------------------------------
+\chapter{Results}
+
+% ----------------------------------------------------------------
+% Chapter 5
+% ----------------------------------------------------------------
+\chapter{Discussion}
+
+% ----------------------------------------------------------------
+% Chapter 6
+% ----------------------------------------------------------------
+\chapter{Conclusion}
+
+% ---------------------------------------------------------------
+% Appendix
+% ---------------------------------------------------------------
+\appendix
+%\addcontentsline{toc}{chapter}{Razširjeni povzetek}
+\chapter{Title of the appendix 1}
+
+Example of the appendix.
+
+%----------------------------------------------------------------
+% SLO: bibliografija
+% ENG: bibliography
+%----------------------------------------------------------------
+\bibliographystyle{elsarticle-num}
+
+%----------------------------------------------------------------
+% SLO: odkomentiraj za uporabo zunanje datoteke .bib (ne pozabi je potem prevesti!)
+% ENG: uncomment to use .bib file (don't forget to compile it!)
+%----------------------------------------------------------------
+\bibliography{bibliography}
+
+%----------------------------------------------------------------
+% SLO: zakomentiraj spodnji del, če uporabljaš zunanjo .bib datoteko
+% ENG: comment the part below if using the .bib file
+%----------------------------------------------------------------
+
+% \begin{thebibliography}{99}
+% \bibitem{Fortnow} L.\ Fortnow, ``Viewpoint: Time for computer science to grow up'',
+% {\it Communications of the ACM}, št.\ 52, zv.\ 8, str.\ 33--35, 2009.
+% \bibitem{Knuth} D.\ E.\ Knuth, P. Bendix. ``Simple word problems in universal algebras'', v zborniku: Computational Problems in Abstract Algebra (ur. J. Leech), 1970, str. 263--297.
+% \bibitem{Lamport} L.\ Lamport. {\it LaTEX: A Document Preparation System}. Addison-Wesley, 1986.
+% \bibitem{ubi} O.\ Patashnik (1998) \BibTeX{}ing.
+% Dostopno na: \url{http://ftp.univie.ac.at/packages/tex/biblio/bibtex/contrib/doc/btxdoc.pdf}
+% \bibitem{licence} licence-cc.pdf. Dostopno na: \url{https://ucilnica.fri.uni-lj.si/course/view.php?id=274}
+% \end{thebibliography}
+
+\end{document}
