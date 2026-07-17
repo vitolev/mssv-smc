@@ -1,6 +1,5 @@
-name: sp500_2   # Name of experiment
+name: bitcoin   # Name of experiment
 
-T: 6663            # Number of last T time steps to use from the SP500 dataset
 K: 2              # Number of regimes
 N_x: 8000           # Number of state particles
 N_theta: 8000       # Number of parameter particles
