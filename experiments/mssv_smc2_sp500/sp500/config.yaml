@@ -4,12 +4,12 @@ N_x: 8000
 R: 10
 T: 6663
 gamma: 0.5
-name: sp500
+name: sp500_2
 prior:
   P_base: 1.5
-  P_diag: 3.5
+  P_diag: 20.0
   diff_mean: 0.0
-  diff_sd: 2.0
+  diff_sd: 5.0
   mu_mean: 0.0
   mu_sd: 5.0
   phi_a: 6

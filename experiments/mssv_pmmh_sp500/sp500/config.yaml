@@ -3,14 +3,14 @@ N: 8000
 T: 6663
 name: sp500
 pmmh:
-  C: 8
+  C: 16
   M: 16000
   burnin: 8000
 prior:
   P_base: 1.5
-  P_diag: 3.5
+  P_diag: 20.0
   diff_mean: 0.0
-  diff_sd: 2.0
+  diff_sd: 5.0
   mu_mean: 0.0
   mu_sd: 5.0
   phi_a: 6

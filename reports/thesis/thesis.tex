@@ -171,7 +171,7 @@ The model consists of an observation equation and a transition equation. The obs
 \begin{equation}
     Y_t | H_t=h_t, S_t=s_t \sim \mathcal{N}\left(0, \exp\left(h_t\right)\right),
 \end{equation}
-where $\mathcal{N}(\mu, \sigma^2)$ denotes the normal distribution with mean $\mu$ and variance $\sigma^2$. Such distribution admits a density function which we denote by $q(y_t | h_t, s_t, \theta) = q(y_t | h_t)$, as the observation density does not depend on the regime $s_t$ or any other model parameters $\theta$. 
+where $\mathcal{N}(\mu, \sigma^2)$ denotes the normal distribution with mean $\mu$ and variance $\sigma^2$. Such distribution admits a density function which we denote by $q(y_t | x_t, \theta) = q(y_t | h_t)$, as the observation density does not depend on the regime $s_t$ or any other model parameters $\theta$. 
 
 The transition distribution is defined with
 \begin{align}
@@ -226,24 +226,53 @@ Since $P$ is row stochastic, we have $K(K-1)$ free parameters in $P$. Therefore,
 Note that in case of $K=1$, the MSSV model reduces to the standard stochastic volatility (SV) model, in which only the log volatility $H_t$ is a latent variable and there are no regimes.
 
 \section{Problem description}
-The goal of this thesis is to estimate volatility in financial markets. Let $y_{1:t} = \{y_1, y_2, \ldots, y_t\}$ denote the sequence of observed returns up to time $t \leq T$. Similarly, let $x_{1:t} = \{x_1, x_2, \ldots, x_t\}$ denote the sequence of latent states up to time $t$. 
+The goal of this thesis is to estimate volatility in financial markets. Let $y_{1:t} = \{y_1, y_2, \ldots, y_t\}$ denote the sequence of observed returns up to time $t \leq T$. Similarly, let $x_{0:t} = \{x_0, x_1, \ldots, x_t\}$ denote the sequence of latent states up to time $t$, where $x_0$ is the initial prior state \footnote{We indexed the latent states from $0$ to $T$, whereas the observed returns are indexed from $1$ to $T$. This way we want to emphasize that the initial state $x_0$ is the prior and we don't associate it with any observed return. One could define the indexing differently (e.g. observations also starting with $t=0$), but we decided to use this convention}.
 The main objective is to estimate
 \begin{equation}
-    p(x_{1:t}, \theta \mid y_{1:t}),
+    p(x_{0:t}, \theta \mid y_{1:t}),
 \end{equation}
 which is the joint posterior distribution of the latent states and model parameters given the observed returns up to time $t$. Integrating out the parameters $\theta$ yields the marginal posterior distribution of the latent states:
 \begin{equation}
-    p(x_{1:t} \mid y_{1:t}) = \int p(x_{1:t}, \theta \mid y_{1:t}) d\theta.
+    p(x_{0:t} \mid y_{1:t}) = \int p(x_{0:t}, \theta \mid y_{1:t}) d\theta.
 \end{equation}
 This is known as the \textit{smoothing distribution}. If we are interested only in the current latent state $x_t$, we can compute the marginal posterior distribution of the current state:
 \begin{equation}
-    p(x_t \mid y_{1:t}) = \int p(x_{1:t}, \theta \mid y_{1:t}) dx_{1:t-1} d\theta,
+    p(x_t \mid y_{1:t}) = \int p(x_{0:t}, \theta \mid y_{1:t}) dx_{0:t-1} d\theta,
 \end{equation}
 which is known as the \textit{filtering distribution}. The filtering distribution is particularly useful for real-time applications, where we want to estimate the current state based on all available observations up to the present time. Additionally, we will are also interested in estimating the
 \begin{equation}
     p(x_{t+1} \mid y_{1:t})
 \end{equation} 
 which is known as the \textit{predictive distribution}.
+
+Another objective is to estimate the model parameters $\theta$ from the observed data. This can be achieved by computing the marginal posterior distribution of the parameters:
+\begin{equation}
+    p(\theta \mid y_{1:t}) = \int p(x_{0:t}, \theta \mid y_{1:t}) dx_{0:t}.
+\end{equation}
+
+Let's expand the joint posterior distribution using Bayes' theorem:
+\begin{align}
+    p(x_{0:t}, \theta \mid y_{1:t}) &= \frac{p(x_{0:t}, y_{1:t} \mid \theta)p(\theta)}{p(y_{1:t})} \\
+    &\propto p(y_{1:t} \mid x_{0:t}, \theta) p(x_{0:t} \mid \theta) p(\theta).
+\end{align}
+We can further expand the likelihood:
+\begin{align}
+    p(y_{1:t} \mid x_{0:t}, \theta) &\propto q(y_t \mid x_{0:t}, y_{1:t-1}, \theta) p(y_{1:t-1} \mid x_{0:t}, \theta) \\
+    &\propto q(y_t \mid x_t, \theta) q(y_{t-1} \mid x_{0:t}, y_{1:t-2}, \theta) p(y_{1:t-2} \mid x_{0:t}, \theta) \\
+    &\propto \prod_{i=1}^{t} q(y_i \mid x_i, \theta), \\
+    &= \prod_{i=1}^{t} q(y_i \mid x_i),
+\end{align}
+where we used the fact that observations $y_i$ depend only on the current latent state $x_i$ (actually only on $h_i$) and not on the entire history of latent states, observations, or parameters.  
+We can also expand the factor:
+\begin{align}
+    p(x_{0:t} \mid \theta) &\propto p(x_t \mid x_{0:t-1}, \theta) p(x_{0:t-1} \mid \theta) \\
+    &\propto p(x_t \mid x_{t-1}, \theta) \ldots p(x_1 \mid x_0, \theta) \chi(x_0 \mid \theta) \\
+    &= \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) \chi(x_0 \mid \theta),
+\end{align}
+where we used the Markov property of the latent state process. The joint posterior distribution can then be expressed as
+\begin{equation}
+    p(x_{0:t}, \theta \mid y_{1:t}) \propto p(\theta) \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) q(y_i \mid x_i).
+\end{equation}
 
 % ----------------------------------------------------------------
 % Chapter 3
