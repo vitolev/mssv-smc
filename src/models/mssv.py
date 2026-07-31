@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import norm, dirichlet, beta, gamma, truncnorm, multivariate_normal
+from scipy.stats import norm, dirichlet, beta, invgamma, truncnorm, multivariate_normal
 from scipy.special import logit, expit
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState, StateSpaceModelPrior, StateSpaceModelProposal
 from typing import List, Tuple
@@ -18,7 +18,7 @@ class MSSVParams(StateSpaceModelParams):
     mu1: float
     delta: np.ndarray
     phi: float
-    sigma_eta: float
+    eta2: float
     P: np.ndarray
 
     def __post_init__(self):
@@ -29,7 +29,7 @@ class MSSVParams(StateSpaceModelParams):
         cls,
         mu: np.ndarray,
         phi: float,
-        sigma_eta: float,
+        eta2: float,
         P: np.ndarray,
     ) -> "MSSVParams":
         """
@@ -54,7 +54,7 @@ class MSSVParams(StateSpaceModelParams):
 
             delta = np.log(diff)
 
-        return cls(mu1, delta, phi, sigma_eta, P)
+        return cls(mu1, delta, phi, eta2, P)
 
     @property
     def mu(self) -> np.ndarray:
@@ -66,8 +66,8 @@ class MSSVParams(StateSpaceModelParams):
         return len(self.delta) + 1
 
     def _validate(self):
-        if self.sigma_eta <= 0:
-            raise ValueError("sigma_eta must be > 0")
+        if self.eta2 <= 0:
+            raise ValueError("eta2 must be > 0")
 
         if not (-1 < self.phi < 1):
             raise ValueError("phi must be in (-1,1)")
@@ -93,7 +93,7 @@ class MSSVParams(StateSpaceModelParams):
             mu1=self.mu1,
             delta=np.array(self.delta, copy=True),
             phi=self.phi,
-            sigma_eta=self.sigma_eta,
+            eta2=self.eta2,
             P=np.array(self.P, copy=True)
         )
 
@@ -105,7 +105,7 @@ class MSSVParams(StateSpaceModelParams):
             - mu1: unconstrained
             - delta: unconstrained
             - phi: unconstrained (arctanh transform)
-            - sigma_eta: unconstrained (log transform)
+            - eta2: unconstrained (log transform)
             - P: unconstrained (logits for each row)
         """
         z = []
@@ -121,7 +121,7 @@ class MSSVParams(StateSpaceModelParams):
             self.mu1,
             *self.delta,
             np.arctanh(self.phi),
-            np.log(self.sigma_eta),
+            np.log(self.eta2),
             *z
         ])
 
@@ -133,7 +133,7 @@ class MSSVParams(StateSpaceModelParams):
             [self.mu1],
             self.delta,
             [self.phi],
-            [self.sigma_eta],
+            [self.eta2],
             self.P.flatten()
         ))
 
@@ -248,8 +248,8 @@ class MSSVPrior(StateSpaceModelPrior):
         diff_sd=2.0,
         phi_a=20.0,
         phi_b=2.0,
-        sigma_eta_a=2.0,
-        sigma_eta_b=5.0,
+        eta2_a=2.001,
+        eta2_b=1.0,
         P_diag=2.5,
         P_base=1.5,
     ):
@@ -259,8 +259,8 @@ class MSSVPrior(StateSpaceModelPrior):
         self.diff_sigma = diff_sd
         self.phi_a = phi_a
         self.phi_b = phi_b
-        self.sigma_eta_a = sigma_eta_a
-        self.sigma_eta_b = sigma_eta_b
+        self.eta2_a = eta2_a
+        self.eta2_b = eta2_b
         self.P_diag = P_diag
         self.P_base = P_base
 
@@ -274,7 +274,8 @@ class MSSVPrior(StateSpaceModelPrior):
         u = rng.beta(self.phi_a, self.phi_b)
         phi = 2 * u - 1
 
-        sigma_eta = rng.gamma(self.sigma_eta_a, scale=1.0 / self.sigma_eta_b)
+        temp = rng.gamma(shape=self.eta2_a, scale=1.0 / self.eta2_b)
+        eta2 = 1.0 / temp   # Inverse-gamma distribution
 
         P = []
         for i in range(K):
@@ -283,7 +284,7 @@ class MSSVPrior(StateSpaceModelPrior):
             P.append(rng.dirichlet(alpha))
         P = np.array(P)
 
-        return MSSVParams.from_mu(mu, phi, sigma_eta, P)
+        return MSSVParams.from_mu(mu, phi, eta2, P)
 
     def logpdf(self, params: MSSVParams) -> float:
         logp = 0.0
@@ -304,10 +305,10 @@ class MSSVPrior(StateSpaceModelPrior):
         u = (params.phi + 1) / 2
         logp += beta.logpdf(u, self.phi_a, self.phi_b) - np.log(2)
 
-        logp += gamma.logpdf(
-            params.sigma_eta,
-            a=self.sigma_eta_a,
-            scale=1.0 / self.sigma_eta_b,
+        logp += invgamma.logpdf(
+            params.eta2,
+            a=self.eta2_a,
+            scale=self.eta2_b,
         )
 
         for i, row in enumerate(params.P):
@@ -339,14 +340,14 @@ class MSSVProposal(StateSpaceModelProposal):
                 "step_mu": 0.1,
                 "step_delta": 0.1,
                 "step_phi": 0.1,
-                "step_sigma": 0.1,
+                "step_eta2": 0.1,
                 "step_P": 20.0,
             },
             "informed": {
                 "step_mu": 0.05,
                 "step_delta": 0.05,
                 "step_phi": 0.02,
-                "step_sigma": 0.02,
+                "step_eta2": 0.02,
                 "step_P": 20.0,
             },
             "independent": {
@@ -377,9 +378,9 @@ class MSSVProposal(StateSpaceModelProposal):
         z_new = z + rng.normal(0, cfg["step_phi"])
         phi = 2 * expit(z_new) - 1
 
-        # sigma (log space)
-        log_sigma = np.log(p.sigma_eta)
-        sigma_eta = np.exp(log_sigma + rng.normal(0, cfg["step_sigma"]))
+        # sigma2 (log space)
+        log_eta2 = np.log(p.eta2)
+        eta2 = np.exp(log_eta2 + rng.normal(0, cfg["step_eta2"]))
 
         # transition matrix
         P = np.empty_like(p.P)
@@ -387,7 +388,7 @@ class MSSVProposal(StateSpaceModelProposal):
             alpha = cfg["step_P"] * np.clip(p.P[k], EPS, None)
             P[k] = rng.dirichlet(alpha)
 
-        return MSSVParams(mu1, delta, phi, sigma_eta, P)
+        return MSSVParams(mu1, delta, phi, eta2, P)
 
     def _logpdf_rw(self, from_p: MSSVParams, to_p: MSSVParams) -> float:
         cfg = self.params["rw"]
@@ -404,10 +405,10 @@ class MSSVProposal(StateSpaceModelProposal):
         logq += norm.logpdf(z_to, z_from, cfg["step_phi"])
         logq += np.log(2) - np.log(1 - to_p.phi**2)
 
-        # sigma
-        log_from = np.log(from_p.sigma_eta)
-        log_to = np.log(to_p.sigma_eta)
-        logq += norm.logpdf(log_to, log_from, cfg["step_sigma"])
+        # eta2
+        log_from = np.log(from_p.eta2)
+        log_to = np.log(to_p.eta2)
+        logq += norm.logpdf(log_to, log_from, cfg["step_eta2"])
         logq -= log_to
 
         # P
@@ -486,7 +487,7 @@ class MSSVProposal(StateSpaceModelProposal):
         z = np.argmax(s, axis=2)  # shape (T, 1)
         z = z.squeeze()  # shape (T,)
 
-        mu_hat, phi_hat, sigma_hat = self._estimate_theta_from_traj_regime(h, z, K)
+        mu_hat, phi_hat, eta2_hat = self._estimate_theta_from_traj_regime(h, z, K)
         P_hat, alpha = self._estimate_P(z, K)
 
         # --- mu ---
@@ -499,16 +500,16 @@ class MSSVProposal(StateSpaceModelProposal):
         z_new = z_phi + rng.normal(0, cfg["step_phi"])
         phi = 2 * expit(z_new) - 1
 
-        # --- sigma ---
-        log_sigma = np.log(sigma_hat)
-        sigma_eta = np.exp(log_sigma + rng.normal(0, cfg["step_sigma"]))
+        # --- eta2 ---
+        log_eta2 = np.log(eta2_hat)
+        eta2 = np.exp(log_eta2 + rng.normal(0, cfg["step_eta2"]))
 
         # --- P ---
         P = np.zeros((K, K))
         for k in range(K):
             P[k] = rng.dirichlet(alpha[k])
 
-        return MSSVParams(mu1, delta, phi, sigma_eta, P)
+        return MSSVParams(mu1, delta, phi, eta2, P)
 
     def _logpdf_informed(self, p: MSSVParams, traj: List[MSSVState]) -> float:
         cfg = self.params["informed"]
@@ -518,7 +519,7 @@ class MSSVProposal(StateSpaceModelProposal):
         K = s.shape[2]
         z = np.argmax(s, axis=2).squeeze()
 
-        mu_hat, phi_hat, sigma_hat = self._estimate_theta_from_traj_regime(h, z, K)
+        mu_hat, phi_hat, eta2_hat = self._estimate_theta_from_traj_regime(h, z, K)
         _, alpha = self._estimate_P(z, K)
 
         logq = 0.0
@@ -537,12 +538,12 @@ class MSSVProposal(StateSpaceModelProposal):
         logq += norm.logpdf(z, z_hat, cfg["step_phi"])
         logq += np.log(2) - np.log(1 - p.phi**2)
 
-        # sigma
-        log_sigma_hat = np.log(sigma_hat)
-        log_sigma = np.log(p.sigma_eta)
+        # eta2
+        log_eta2_hat = np.log(eta2_hat)
+        log_eta2 = np.log(p.eta2)
 
-        logq += norm.logpdf(log_sigma, log_sigma_hat, cfg["step_sigma"])
-        logq -= log_sigma
+        logq += norm.logpdf(log_eta2, log_eta2_hat, cfg["step_eta2"])
+        logq -= log_eta2
 
         # P
         for k in range(K):
@@ -580,8 +581,8 @@ class MSSVProposal(StateSpaceModelProposal):
         phi = np.tanh(phi_unconstrained)
         idx += 1
 
-        log_sigma_eta = z[idx]
-        sigma_eta = np.exp(log_sigma_eta)
+        log_eta2 = z[idx]
+        eta2 = np.exp(log_eta2)
         idx += 1
 
         P = np.zeros((K, K))
@@ -603,7 +604,7 @@ class MSSVProposal(StateSpaceModelProposal):
             mu1=mu1,
             delta=np.asarray(delta),
             phi=phi,
-            sigma_eta=sigma_eta,
+            eta2=eta2,
             P=P,
         )
 
@@ -635,16 +636,16 @@ class MSSVProposal(StateSpaceModelProposal):
         log_jacobian = np.log(1.0 - phi**2)
 
         # -------------------------------------------------
-        # sigma_eta > 0
-        # x = log(sigma)
+        # eta2 > 0
+        # x = log(eta2)
         #
         # Jacobian:
-        #   dsigma/dx = sigma
+        #   deta2/dx = eta2
         # -------------------------------------------------
-        sigma_eta = max(p.sigma_eta, EPS)
-        log_sigma_eta = np.log(sigma_eta)
-        z_parts.append(np.array([log_sigma_eta]))
-        log_jacobian += np.log(sigma_eta)
+        eta2 = max(p.eta2, EPS)
+        log_eta2 = np.log(eta2)
+        z_parts.append(np.array([log_eta2]))
+        log_jacobian += np.log(eta2)
 
         # -------------------------------------------------
         # Transition matrix
@@ -793,7 +794,7 @@ class MSSVModel(StateSpaceModel):
         s0[np.arange(size), regimes] = 1
 
         # Sample initial log-volatilities based on regimes
-        var = theta.sigma_eta ** 2 / (1 - theta.phi ** 2)  # Stationary variance of AR(1) process
+        var = theta.eta2 / (1 - theta.phi ** 2)  # Stationary variance of AR(1) process
         h0 = self.rng.normal(theta.mu[regimes], np.sqrt(var))   # np.random.normal uses stddev as second parameter
 
         return MSSVState(h0, s0)
@@ -828,7 +829,7 @@ class MSSVModel(StateSpaceModel):
         # Volatility transition
         mu = theta.mu[indices]
 
-        h_t = mu + theta.phi * (h_prev - mu) + self.rng.normal(size=N, scale=theta.sigma_eta)
+        h_t = mu + theta.phi * (h_prev - mu) + self.rng.normal(size=N, scale=np.sqrt(theta.eta2))
     
         return MSSVState(h_t, s_t)
     
@@ -940,7 +941,7 @@ class MSSVModel(StateSpaceModel):
         mu = theta.mu[idx_next]
 
         mean_h = mu + theta.phi * (h_prev - mu)       # (N,)
-        p_h = norm.pdf(h_next, loc=mean_h, scale=theta.sigma_eta)
+        p_h = norm.pdf(h_next, loc=mean_h, scale=np.sqrt(theta.eta2))   # (N,)
 
         return p_s * p_h                        # (N,)
     
@@ -975,7 +976,7 @@ class MSSVModel(StateSpaceModel):
         mu = theta.mu[index_next]
 
         mean_h = mu + theta.phi * (h_prev - mu)
-        log_p_h = norm.logpdf(h_next, loc=mean_h, scale=theta.sigma_eta)
+        log_p_h = norm.logpdf(h_next, loc=mean_h, scale=np.sqrt(theta.eta2))
 
         return log_p_s + log_p_h
 
@@ -1005,7 +1006,7 @@ class MSSVModel(StateSpaceModel):
         p_s = 1.0 / theta.K
 
         # Volatility distribution
-        var = theta.sigma_eta ** 2 / (1 - theta.phi ** 2)
+        var = theta.eta2 / (1 - theta.phi ** 2)
         mu = theta.mu[idx]
 
         p_h = norm.pdf(h_0, loc=mu, scale=np.sqrt(var))
@@ -1038,7 +1039,7 @@ class MSSVModel(StateSpaceModel):
         log_p_s = -np.log(theta.K)
 
         # Volatility distribution
-        var = theta.sigma_eta ** 2 / (1 - theta.phi ** 2)
+        var = theta.eta2 / (1 - theta.phi ** 2)
         mu = theta.mu[idx]
 
         log_p_h = norm.logpdf(h_0, loc=mu, scale=np.sqrt(var))

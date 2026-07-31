@@ -13,7 +13,7 @@ from src.models.mssv import MSSVParams, MSSVModel
 from src.data_generation.simulate_data import simulate_data
 from src.utils.utils import ROOT_DIR
 
-def main(name, T, mu, phi, sigma_eta, P):
+def main(name, T, mu, phi, eta2, P):
     # Get location of this script
     script_dir = Path(__file__).resolve().parent
 
@@ -43,14 +43,14 @@ def main(name, T, mu, phi, sigma_eta, P):
     logger.info("Provided parameters are:")
     logger.info(f"- mu: {mu}")
     logger.info(f"- phi: {phi}")
-    logger.info(f"- sigma_eta: {sigma_eta}")
+    logger.info(f"- eta2: {eta2}")
     logger.info(f"- P: {P}")
 
     # True parameters
     true_theta = MSSVParams.from_mu(
         mu=mu,
         phi=phi,
-        sigma_eta=sigma_eta,
+        eta2=eta2,
         P=np.array(P).reshape(len(mu), len(mu))
     )
 
@@ -86,7 +86,7 @@ def main(name, T, mu, phi, sigma_eta, P):
     params_df = pd.DataFrame({
         'mu': true_theta.mu,
         'phi': [true_theta.phi] * len(mu),
-        'sigma_eta': [true_theta.sigma_eta] * len(mu),
+        'eta2': [true_theta.eta2] * len(mu),
         'P': [true_theta.P[i].tolist() for i in range(len(mu))]
     })
     params_file = data_dir / "synthetic" / f'{name}_params.csv'
@@ -102,9 +102,9 @@ if __name__ == "__main__":
     parser.add_argument("--T", type=int, required=True, help="Number of time steps to generate")
     parser.add_argument("--mu", nargs="+", type=float, default=[-1.0, 1.6], help="True mu parameters.")
     parser.add_argument("--phi", type=float, default=0.9, help="True phi parameter. Must be in (-1, 1)")
-    parser.add_argument("--sigma_eta", type=float, default=0.1, help="True sigma_eta parameter. Must be positive")
+    parser.add_argument("--eta2", type=float, default=0.04, help="True eta2 parameter. Must be positive")
     parser.add_argument("--P", nargs="+", type=float, default=[0.95, 0.05, 0.05, 0.95], help="Transition probabilities for the regime-switching model.")
 
     args = parser.parse_args()
 
-    main(args.name, args.T, args.mu, args.phi, args.sigma_eta, args.P)
+    main(args.name, args.T, args.mu, args.phi, args.eta2, args.P)

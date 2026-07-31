@@ -13,8 +13,8 @@ prior:           # prior parameters for the model
   mu_sd: 5.0
   phi_a: 6
   phi_b: 2
-  sigma_eta_a: 2.0
-  sigma_eta_b: 5.0
+  eta2_a: 2.001
+  eta2_b: 1.0
   diff_mean: 0.0
   diff_sd: 2.0
   P_diag: 3.5
