@@ -34,7 +34,7 @@ python experiments/generate_synth_data/generate_synth_data.py \
     --T 2000 \
     --mu -5.0 -2.0 \
     --phi 0.9 \
-    --sigma_eta 0.1 \
+    --eta2 0.1 \
     --P 0.99 0.01 0.015 0.985
 
 python experiments/generate_synth_data/generate_synth_data.py \
@@ -42,7 +42,7 @@ python experiments/generate_synth_data/generate_synth_data.py \
     --T 2000 \
     --mu -5.0 -2.0 \
     --phi 0.7 \
-    --sigma_eta 0.1 \
+    --eta2 0.1 \
     --P 0.99 0.01 0.015 0.985
 
 python experiments/generate_synth_data/generate_synth_data.py \
@@ -50,7 +50,7 @@ python experiments/generate_synth_data/generate_synth_data.py \
     --T 2000 \
     --mu -5.0 -2.0 \
     --phi 0.5 \
-    --sigma_eta 0.1 \
+    --eta2 0.1 \
     --P 0.99 0.01 0.015 0.985
 
 python experiments/generate_synth_data/generate_synth_data.py \
@@ -58,7 +58,7 @@ python experiments/generate_synth_data/generate_synth_data.py \
     --T 2000 \
     --mu -1.0 1.0 \
     --phi 0.9 \
-    --sigma_eta 0.1 \
+    --eta2 0.05 \
     --P 0.99 0.01 0.05 0.95
 
 python experiments/generate_synth_data/generate_synth_data.py \
@@ -66,7 +66,7 @@ python experiments/generate_synth_data/generate_synth_data.py \
     --T 2000 \
     --mu -1.0 1.0 \
     --phi 0.7 \
-    --sigma_eta 0.1 \
+    --eta2 0.05 \
     --P 0.99 0.01 0.05 0.95
 
 python experiments/generate_synth_data/generate_synth_data.py \
@@ -74,7 +74,7 @@ python experiments/generate_synth_data/generate_synth_data.py \
     --T 2000 \
     --mu -1.0 1.0 \
     --phi 0.5 \
-    --sigma_eta 0.1 \
+    --eta2 0.05 \
     --P 0.99 0.01 0.05 0.95
 
 

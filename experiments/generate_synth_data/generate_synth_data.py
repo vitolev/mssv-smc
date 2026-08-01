@@ -23,12 +23,7 @@ def main(name, T, mu, phi, eta2, P):
     logger.info("=" * 60)
 
     logger.info("Project overview:")
-    logs_dir = script_dir / 'logs'
-    results_dir = script_dir / 'results'
-    results_dir.mkdir(parents=True, exist_ok=True)
     data_dir = ROOT_DIR / 'data'
-    logger.info(f"- Logs dir: {logs_dir}")
-    logger.info(f"- Results dir: {results_dir}")
     logger.info(f"- Data dir: {data_dir}")
 
     logger.info("=" * 60)

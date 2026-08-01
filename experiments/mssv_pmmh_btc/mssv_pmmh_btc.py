@@ -36,8 +36,8 @@ def main():
     mu_sd: float = config.prior.mu_sd
     phi_a: float = config.prior.phi_a
     phi_b: float = config.prior.phi_b
-    sigma_eta_a: float = config.prior.sigma_eta_a
-    sigma_eta_b: float = config.prior.sigma_eta_b
+    eta2_a: float = config.prior.eta2_a
+    eta2_b: float = config.prior.eta2_b
     diff_mean: float = config.prior.diff_mean
     diff_sd: float = config.prior.diff_sd
     P_diag: float = config.prior.P_diag
@@ -48,7 +48,7 @@ def main():
     step_mu: float = config.proposal.step_mu
     step_delta: float = config.proposal.step_delta
     step_phi: float = config.proposal.step_phi
-    step_sigma: float = config.proposal.step_sigma
+    step_eta2: float = config.proposal.step_eta2
     step_P: int = config.proposal.step_P
 
     # Create subfolder with name of the experiment
@@ -114,7 +114,7 @@ def main():
         "step_mu": step_mu,
         "step_delta": step_delta,
         "step_phi": step_phi,
-        "step_sigma": step_sigma,
+        "step_eta2": step_eta2,
         "step_P": step_P
     }
 
@@ -127,8 +127,8 @@ def main():
         "mu_sd": mu_sd,
         "phi_a": phi_a,
         "phi_b": phi_b,
-        "sigma_eta_a": sigma_eta_a,
-        "sigma_eta_b": sigma_eta_b,
+        "eta2_a": eta2_a,
+        "eta2_b": eta2_b,
         "diff_mean": diff_mean,
         "diff_sd": diff_sd,
         "P_diag": P_diag,
