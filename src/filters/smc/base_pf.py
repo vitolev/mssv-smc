@@ -65,7 +65,7 @@ class ParticleFilter(ABC):
         """
         pass
 
-    def smoothing_trajectories(self, history, n_traj=None):
+    def smoothing_trajectories(self, history, n_traj=None) -> tuple[List[StateSpaceModelState], int]:
         """
         Reconstruct full trajectories (smoothing samples) from particle filter history.
 

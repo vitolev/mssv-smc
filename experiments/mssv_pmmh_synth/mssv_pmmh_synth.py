@@ -48,7 +48,7 @@ def main():
     step_mu: float = config.proposal.step_mu
     step_delta: float = config.proposal.step_delta
     step_phi: float = config.proposal.step_phi
-    step_sigma: float = config.proposal.step_sigma
+    step_eta2: float = config.proposal.step_eta2
     step_P: int = config.proposal.step_P
 
     # Create subfolder with name of the experiment
@@ -97,7 +97,7 @@ def main():
     true_theta = MSSVParams.from_mu(
         mu=params_df["mu"].values,
         phi=params_df["phi"].iloc[0],
-        sigma_eta=params_df["sigma_eta"].iloc[0],
+        eta2=params_df["eta2"].iloc[0],
         P=P
     )
 
@@ -119,7 +119,7 @@ def main():
         "step_mu": step_mu,
         "step_delta": step_delta,
         "step_phi": step_phi,
-        "step_sigma": step_sigma,
+        "step_eta2": step_eta2,
         "step_P": step_P
     }
 

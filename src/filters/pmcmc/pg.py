@@ -1,8 +1,12 @@
+import h5py
 import numpy as np
 import arviz as az
 from concurrent.futures import ProcessPoolExecutor
-from src.models.base import StateSpaceModel, StateSpaceModelParams
+from typing import List
+
+from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
 from src.filters.smc.base_pf import ParticleFilter
+from src.utils.log import setup_chain_logging
 
 class PGS_Chain:
     """
@@ -32,9 +36,9 @@ class PGS_Chain:
         prior_cls = pf.model.prior_type
         self.prior = prior_cls(**self.kwargs_prior)
         proposal_cls = pf.model.proposal_type
-        self.proposal = proposal_cls(self.proposal_params)
+        self.proposal = proposal_cls(self.proposal_params, self.prior)
 
-    def _run_pf_and_sample(self, y, theta: StateSpaceModelParams, x_current):
+    def _run_pf_and_sample(self, y, theta: StateSpaceModelParams, x_current: List[StateSpaceModelState]):
         """
         Run conditional PF once and sample smoothing trajectory(ies).
         """
@@ -75,47 +79,52 @@ class PGS_Chain:
         # Run conditional PF and sample new trajectory
         trajectory, logmarlik = self._run_pf_and_sample(self.y, self.theta, self.current_trajectory)
 
-        # MH step on theta
-        theta_prop = self.proposal.sample(self.rng, self.theta, trajectory)
-        log_prior_current = self.prior.logpdf(self.theta)
-        log_prior_prop = self.prior.logpdf(theta_prop)
-        log_q_forward = self.proposal.logpdf(theta_prop, self.theta, trajectory)
-        log_q_backward = self.proposal.logpdf(self.theta, theta_prop, trajectory)
-        log_traj_current = self.model.log_initial_state_density(self.theta, trajectory[0])
-        log_traj_prop = self.model.log_initial_state_density(theta_prop, trajectory[0])
-        log_lik_current = 0
-        log_lik_prop = 0
-        for t in range(1, len(trajectory)):
-            log_traj_current += self.model.log_transition_density(self.theta, trajectory[t], trajectory[t-1])
-            log_traj_prop += self.model.log_transition_density(theta_prop, trajectory[t], trajectory[t-1])
-            log_lik_current += self.model.log_likelihood(self.y[t-1], self.theta, trajectory[t])
-            log_lik_prop += self.model.log_likelihood(self.y[t-1], theta_prop, trajectory[t])
-
-        log_accept_ratio = (log_prior_prop + log_lik_prop + log_traj_prop + log_q_backward) - (log_prior_current + log_lik_current + log_traj_current + log_q_forward)
-        if np.log(self.rng.uniform()) < log_accept_ratio:
-            new_theta = theta_prop
-            self.n_accepted += 1
-        else:
-            new_theta = self.theta
+        # Sample new parameters given the new trajectory
+        new_theta = self.proposal.sample(self.rng, self.theta, trajectory)
 
         # Update current state
         self.current_trajectory = trajectory
         self.current_logmarlik = logmarlik
-        self.mh_state = {
-            "log_accept_ratio": log_accept_ratio,
-            "log_prior_current": log_prior_current,
-            "log_prior_prop": log_prior_prop,
-            "log_q_forward": log_q_forward,
-            "log_q_backward": log_q_backward,
-            "log_lik_current": log_lik_current,
-            "log_lik_prop": log_lik_prop,
-            "log_traj_current": log_traj_current,
-            "log_traj_prop": log_traj_prop,
-        }
         self.theta = new_theta
         self.n_steps += 1
 
-    def run(self, y, n_iter: int, burnin=0):
+    def _init_hdf5_chain(self, output_dir, chain_id: int, n_samples: int, theta_dim: int, state_dim: int, T: int):
+        h5_path = output_dir / f"chain_{chain_id}.h5"
+
+        h5f = h5py.File(h5_path, "w")
+
+        h5f.create_dataset(
+            "thetas",
+            shape=(n_samples, theta_dim),
+            dtype="f8",
+            compression="gzip",
+            compression_opts=4,
+        )
+
+        h5f.create_dataset(
+            "trajectories",
+            shape=(n_samples, T, state_dim),
+            dtype="f8",
+            compression="gzip",
+            compression_opts=4,
+        )
+
+        h5f.create_dataset(
+            "logmarliks",
+            shape=(n_samples,),
+            dtype="f8",
+            compression="gzip",
+            compression_opts=4,
+        )
+    
+        return h5f
+
+    def _write_chain_step(self, h5f, idx: int, theta: StateSpaceModelParams, trajectory: List[StateSpaceModelState], logmarlik: float):
+        h5f["thetas"][idx] = theta.to_vector()
+        h5f["trajectories"][idx] = np.array([state.to_numpy() for state in trajectory]).reshape(h5f["trajectories"].shape[1:])  # reshape to (T, state_dim)
+        h5f["logmarliks"][idx] = logmarlik
+
+    def run(self, y, n_iter: int, output_dir, burnin=0, chain_id=0, logger=None):
         """
         Run the Particle Gibbs sampler.
 
@@ -127,18 +136,22 @@ class PGS_Chain:
             Number of PGS iterations.
         burnin : int, optional
             Number of burn-in iterations to discard. Must be less than n_iter. Default is 0.
+        output_dir : str
+            Directory to save the results of each chain.
+        chain_id : int, optional
+            Identifier for the chain. Default is 0.
+        logger : logging.Logger, optional
+            Logger for the chain. If None, no logging is performed. 
 
         Returns
         -------
-        samples : list of arrays, size n_iter
-            Sampled trajectories from each iteration. Element samples[i] is the i-th trajectory with size T+1
-        logmarliks : array, size n_iter
-            Log marginal likelihoods from each iteration.
-        thetas : list of StateSpaceModelParams, size n_iter
-            Sampled parameters from each iteration.
+        None. The results are stored in the HDF5 files in the output_dir.
         """
         if burnin >= n_iter:
             raise ValueError("Burn-in must be less than the total number of iterations.")
+
+        if logger is not None:
+            logger.info(f"Initializing PG chain {chain_id} with {n_iter} iterations and burn-in of {burnin}.")
         
         self.current_trajectory = None
         self.current_logmarlik = None
@@ -149,34 +162,41 @@ class PGS_Chain:
         self.y = y
 
         self._initialize()
+        
+        h5f = self._init_hdf5_chain(output_dir, chain_id, n_iter - burnin, len(self.theta.to_vector()), self.current_trajectory[0].to_numpy().shape[1], len(self.current_trajectory))
 
-        # Run burn-in iterations
+        if logger is not None:
+            logger.info("-" * 60)
+            logger.info(f"PG chain {chain_id} initialized. Starting burn-in...")
+
         for i in range(burnin):
             self._step()
+            if logger is not None:
+                logger.info(f"Chain {chain_id} - Burn-in step {i+1}/{burnin}")
 
-        # Boundary iteration when we first collect samples
-        logmarliks = []
-        thetas = {key: [] for key in self.theta_vars.keys()}
-        mh_states = []
+        if logger is not None:
+            logger.info("-" * 60)
+            logger.info(f"Burn-in completed for chain {chain_id}. Starting sampling...")
 
         self._step()  # First step
+        self._write_chain_step(h5f, 0, self.theta, self.current_trajectory, self.current_logmarlik)
 
-        samples = self.current_trajectory
-        logmarliks.append(self.current_logmarlik)
-        mh_states.append(self.mh_state.copy())
-        for key in self.theta_vars.keys():
-            thetas[key].append(getattr(self.theta, key))
-
-        # Run remaining iterations
-        for i in range(burnin + 1, n_iter):
+        # The second loop to run the remaining iterations and store samples after burn-in
+        for i in range(burnin+1, n_iter):
             self._step()
-            samples = [state.add(element) for state, element in zip(samples, self.current_trajectory)]
-            logmarliks.append(self.current_logmarlik)
-            mh_states.append(self.mh_state.copy())
-            for key in self.theta_vars.keys():
-                thetas[key].append(getattr(self.theta, key))
+            self._write_chain_step(h5f, i - burnin, self.theta, self.current_trajectory, self.current_logmarlik)
+            if logger is not None:
+                logger.info(f"Chain {chain_id} - Sampling step {i-burnin}/{n_iter-burnin}")
 
-        return samples, logmarliks, thetas, mh_states
+        h5f.attrs["acceptance_rate"] = self.n_accepted / self.n_steps if self.n_steps > 0 else 0.0
+        h5f.attrs["initial_parameters"] = self.initial_params.to_vector()
+
+        if logger is not None:
+            logger.info("-" * 60)
+            logger.info(f"PG chain {chain_id} completed. Acceptance rate: {h5f.attrs['acceptance_rate']:.4f}")
+            logger.info(f"Results saved to {output_dir / f'chain_{chain_id}.h5'}")
+
+        h5f.close()
     
 class ParticleGibbsSampler:
     """
@@ -202,7 +222,7 @@ class ParticleGibbsSampler:
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
         self.proposal_params = proposal_params if proposal_params is not None else {}
 
-    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, kwargs_prior, proposal_params, n_iter, burnin, chain_id):
+    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, kwargs_prior, proposal_params, n_iter, burnin, chain_id, output_dir, logs_dir=None):
         """
         Run a single PGS chain with a given random seed.
         """
@@ -222,14 +242,15 @@ class ParticleGibbsSampler:
 
         chain = PGS_Chain(pf_chain, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model, proposal_params=proposal_params)
 
-        result = chain.run(y, n_iter, burnin)
-        acceptance_rate = chain.n_accepted / chain.n_steps if chain.n_steps > 0 else 0.0
-        initial_parameters = chain.initial_params
+        if logs_dir is not None:
+            logger = setup_chain_logging(logs_dir, "PG", chain_id)
+        else:
+            logger = None
 
-        return result, acceptance_rate, initial_parameters, chain_id
+        chain.run(y, n_iter=n_iter, burnin=burnin, output_dir=output_dir, chain_id=chain_id, logger=logger)
 
     
-    def run(self, y, n_iter: int, n_chain: int, burnin: int=0):
+    def run(self, y, n_iter: int, n_chain: int, output_dir, burnin: int=0, logs_dir=None):
         """
         Run multiple PGS chains in parallel and return their results.
 
@@ -243,16 +264,19 @@ class ParticleGibbsSampler:
             Number of parallel PGS chains to run.
         burnin : int, optional
             Number of burn-in iterations to discard. Must be less than n_iter. Default is 0.
+        output_dir : str
+            Directory to save the results of each chain. If None, returns error, as output_dir is required to save results.
+        logs_dir : str, optional
+            Directory to save logs. If None, no logs are saved.
             
         Returns
         -------
-        all_results : list
-            List of results from each chain, where each result is a tuple (samples, logmarliks, thetas).
+        None. The results are stored in the HDF5 files in the output_dir. 
         """
 
         if n_chain == 1:
             # Run single chain without multiprocessing
-            result, acceptance_rate, initial_parameters, _ = self._run_single_chain(
+            self._run_single_chain(
                 seed=self.rng.integers(0, 1_000_000),
                 y=y, 
                 pf=self.pf, 
@@ -261,9 +285,11 @@ class ParticleGibbsSampler:
                 proposal_params=self.proposal_params,
                 n_iter=n_iter, 
                 burnin=burnin,
-                chain_id=0
+                chain_id=0,
+                output_dir=output_dir,
+                logs_dir=logs_dir
             )
-            return [result], [acceptance_rate], [initial_parameters]
+            return None
         
         seeds = self.rng.integers(0, 1_000_000, size=n_chain)
 
@@ -279,44 +305,10 @@ class ParticleGibbsSampler:
                     [self.proposal_params] * n_chain,
                     [n_iter] * n_chain,
                     [burnin] * n_chain,
-                    list(range(n_chain))
+                    list(range(n_chain)),
+                    [output_dir] * n_chain,
+                    [logs_dir] * n_chain
                 )
             )
 
-        all_results = [r[0] for r in results]          # PGS samples etc.
-        acceptance_rates = [r[1] for r in results]    # acceptance rates
-        initial_parameters = [r[2] for r in results]  # initial parameters
-        chain_ids = [r[3] for r in results]          # chain IDs
-
-        return all_results, acceptance_rates, initial_parameters
-
-    
-    def to_inference_data(self, results):
-        """
-        Convert results from multiple chains into an ArviZ InferenceData object for analysis.
-
-        Parameters
-        ----------
-        results : list
-            List of results from each chain, where each result is a tuple (samples, logmarliks, thetas).
-
-        Returns
-        -------
-        inference_data : arviz.InferenceData
-            ArviZ InferenceData object containing the parameters and log marginal likelihoods from all chains.
-        """
-        data = {}
-        for chain_result in results:
-            if "logmarliks" not in data:
-                data["logmarliks"] = []
-            _, logmarliks, thetas = chain_result
-            data["logmarliks"].append(logmarliks)
-            for param_name, param_values in thetas.items():
-                if param_name not in data:
-                    data[param_name] = []
-                data[param_name].append(param_values)
-
-        for key in data:
-            data[key] = np.array(data[key])
-
-        return az.from_dict(data)
+        return None

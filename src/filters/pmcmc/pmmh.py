@@ -289,7 +289,7 @@ class ParticleMarginalMetropolisHastings:
         burnin : int, optional
             Number of initial iterations to discard as burn-in. Default is 0.
         output_dir : str
-            Directory to save intermediate results or logs. If None, returns error, as output_dir is required to save results.
+            Directory to save results of each chain. If None, returns error, as output_dir is required to save results.
         logs_dir : str, optional
             Directory to save logs. If None, no logs are saved.
             

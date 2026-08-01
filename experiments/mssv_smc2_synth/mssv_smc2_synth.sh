@@ -4,11 +4,11 @@
 #SBATCH --account=fri-users
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=64G
 #SBATCH --nodelist=wn[021-061]
 #SBATCH --output=mssv_smc2_synth_%j.out
-#SBATCH --time=10:00:00
+#SBATCH --time=08:00:00
 
 echo "Job started on $(hostname)"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"

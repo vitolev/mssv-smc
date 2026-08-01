@@ -96,7 +96,7 @@ def main():
     true_theta = MSSVParams.from_mu(
         mu=params_df["mu"].values,
         phi=params_df["phi"].iloc[0],
-        sigma_eta=params_df["sigma_eta"].iloc[0],
+        eta2=params_df["eta2"].iloc[0],
         P=P
     )
 

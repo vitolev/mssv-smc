@@ -266,9 +266,9 @@ class MSSVPrior(StateSpaceModelPrior):
 
     def sample(self, rng: np.random.Generator, K: int) -> MSSVParams:
         mu1 = rng.normal(self.mu_mean, self.mu_sd)
-        a = (0 - self.diff_mean) / self.diff_sigma   # lower bound
-        b = np.inf             # upper bound
-        diff = truncnorm.rvs(a, b, loc=self.diff_mean, scale=self.diff_sigma, random_state=rng, size=K - 1)
+        lo = (0 - self.diff_mean) / self.diff_sigma
+        hi = np.inf     # no need to transform as it is inf
+        diff = truncnorm.rvs(lo, hi, loc=self.diff_mean, scale=self.diff_sigma, random_state=rng, size=K - 1)
         mu = np.concatenate(([mu1], mu1 + np.cumsum(diff)))
 
         u = rng.beta(self.phi_a, self.phi_b)
@@ -329,10 +329,11 @@ class MSSVProposal(StateSpaceModelProposal):
     """
     def __init__(
         self,
-        params
+        params,
+        prior: MSSVPrior = None
     ):
-        self.mode = params["mode"]  # "rw", "informed" or "independent"
-        if self.mode not in ["rw", "informed", "independent"]:
+        self.mode = params["mode"]  # "rw", "conditional" or "independent"
+        if self.mode not in ["rw", "conditional", "independent"]:
             raise ValueError(f"Unknown proposal mode: {self.mode}")
         
         default_params = {
@@ -343,12 +344,8 @@ class MSSVProposal(StateSpaceModelProposal):
                 "step_eta2": 0.1,
                 "step_P": 20.0,
             },
-            "informed": {
-                "step_mu": 0.05,
-                "step_delta": 0.05,
-                "step_phi": 0.02,
-                "step_eta2": 0.02,
-                "step_P": 20.0,
+            "conditional": {
+                "K": 2,
             },
             "independent": {
                 "mean": 1.0,
@@ -362,6 +359,7 @@ class MSSVProposal(StateSpaceModelProposal):
                 default_params[self.mode][k] = params[k]
 
         self.params = default_params
+        self.prior = prior  # Optional prior distribution used for conditional proposals
 
     def update_params(self, new_params):
         for k in new_params:
@@ -422,137 +420,101 @@ class MSSVProposal(StateSpaceModelProposal):
 
         return logq
        
-    def _estimate_P(self, z, K):
-        counts = np.zeros((K, K))
+    def _sample_conditional(self, rng: np.random.Generator, p: MSSVParams, traj: List[MSSVState]) -> MSSVParams:
+        cfg = self.params["conditional"]
 
-        for t in range(1, len(z)):
-            counts[z[t-1], z[t]] += 1
+        T_plus_1 = len(traj)
+        K = len(traj[0].s_t[0])
 
-        # smoothing to avoid zeros
-        alpha = counts + 1.0
+        counts = np.zeros((K, K))               # Count matrix for transitions between regimes
+        regime_sets = [[] for _ in range(K)]    # List of lists to store time indices for each regime
+        for t in range(1, T_plus_1):
+            s_prev = traj[t-1].s_t[0]
+            s_curr = traj[t].s_t[0]
 
-        P_hat = alpha / alpha.sum(axis=1, keepdims=True)
-        return P_hat, alpha
+            prev_idx = np.argmax(s_prev)
+            curr_idx = np.argmax(s_curr)
 
-    def _estimate_theta_from_traj_regime(self, h, z, K):
-        T = h.shape[0]
+            counts[prev_idx, curr_idx] += 1
+            regime_sets[curr_idx].append(t)
 
-        mu_hat = np.zeros(K)
+        # -----------------------
+        # Conditional on P
+        # -----------------------
+        P = []
+        for i in range(K):
+            alpha = self.prior.P_base * np.ones(K)
+            alpha[i] += self.prior.P_diag
+            alpha += counts[i]
+            P.append(rng.dirichlet(alpha))
+        P = np.array(P)
 
-        # --- estimate mu_k ---
-        for k in range(K):
-            idx = (z == k)
-            if np.sum(idx) < 5:
-                # If we have too few points in this regime, just use the overall mean as a fallback to avoid extreme estimates
-                mu_hat[k] = np.mean(h)
-            else:
-                mu_hat[k] = np.mean(h[idx])
+        # -----------------------
+        # Conditional on eta2
+        # -----------------------
+        e_list = [traj[t].h_t[0] - p.mu[traj[t].s_t[0].argmax()] - p.phi * (traj[t-1].h_t[0] - p.mu[traj[t].s_t[0].argmax()]) for t in range(1, T_plus_1)]
+        Q = np.sum(np.square(e_list)) + (traj[0].h_t[0] - p.mu[traj[0].s_t[0].argmax()])**2 * (1 - p.phi**2)
+        temp = rng.gamma(shape=self.prior.eta2_a + T_plus_1 / 2, scale=1.0 / (self.prior.eta2_b + Q / 2))
+        eta2 = 1.0 / temp
 
-        # Sort mu_hat to ensure identifiability (enforce ordering)
-        mu_hat = np.sort(mu_hat)
-        eps = 1e-4
+        # -----------------------
+        # Conditional on mu1
+        # -----------------------
+        y_list = [traj[t].h_t[0] - p.phi * traj[t-1].h_t[0] for t in range(1, T_plus_1)]
+        if traj[0].s_t[0].argmax() == 0:
+            # Initial state is in regime 0
+            V = 1 / (1 / self.prior.mu_sd**2 + (1 - p.phi)**2 * len(regime_sets[0]) / eta2 + (1-p.phi**2) / eta2)
+            m = V * (self.prior.mu_mean / self.prior.mu_sd**2 + (1 - p.phi) * np.sum([y_list[t-1] for t in regime_sets[0]]) / eta2 + (1 - p.phi**2) * traj[0].h_t[0] / eta2)
+        else:
+            V = 1 / (1 / self.prior.mu_sd**2 + (1 - p.phi)**2 * len(regime_sets[0]) / eta2)
+            m = V * (self.prior.mu_mean / self.prior.mu_sd**2 + (1 - p.phi) * np.sum([y_list[t-1] for t in regime_sets[0]]) / eta2)
+        mu1 = rng.normal(m, np.sqrt(V))
+
+        # -----------------------
+        # Conditional on diff
+        # ----------------------
+        diff = []
         for k in range(1, K):
-            if mu_hat[k] <= mu_hat[k-1]:
-                mu_hat[k] = mu_hat[k-1] + eps
+            # Sample from conditional posterior
+            if traj[0].s_t[0].argmax() == k:
+                V_k = 1 / (1 / self.prior.diff_sigma**2 + (1 - p.phi)**2 * len(regime_sets[k]) / eta2 + (1-p.phi**2) / eta2)
+                m_k = V_k * (self.prior.diff_mean / self.prior.diff_sigma**2 + (1 - p.phi) * np.sum([y_list[t-1] for t in regime_sets[k]]) / eta2 + (1 - p.phi**2) * (traj[0].h_t[0] - p.mu[k-1]) / eta2)
+            else:
+                V_k = 1 / (1 / self.prior.diff_sigma**2 + (1 - p.phi)**2 * len(regime_sets[k]) / eta2)
+                m_k = V_k * (self.prior.diff_mean / self.prior.diff_sigma**2 + (1 - p.phi) * np.sum([y_list[t-1] for t in regime_sets[k]]) / eta2)
+            diff_k = truncnorm.rvs(0, np.inf, loc=m_k, scale=np.sqrt(V_k), random_state=rng)
+            diff.append(diff_k)
 
-        # --- estimate phi ---
-        x = []
-        y = []
+        # ----------------------
+        # Conditional on phi        (closed form does not exist, we use MH step)
+        # ----------------------
+        y_list = [traj[t].h_t[0] - p.mu[traj[t].s_t[0].argmax()] for t in range(1, T_plus_1)]
+        x_list = [traj[t-1].h_t[0] - p.mu[traj[t].s_t[0].argmax()] for t in range(1, T_plus_1)]
+        A = np.sum(np.square(x_list)) - (traj[0].h_t[0] - p.mu[traj[0].s_t[0].argmax()])**2
+        B = np.sum(np.multiply(y_list, x_list))
+        mu = B / A
+        sd = np.sqrt(p.eta2 / A)
 
-        for t in range(1, T):
-            k = z[t]
-            x.append(h[t-1] - mu_hat[k])
-            y.append(h[t] - mu_hat[k])
+        # truncated normal bounds
+        lo = (-1 - mu) / sd
+        hi = (1 - mu) / sd
+        phi_current = p.phi
 
-        x = np.array(x)
-        y = np.array(y)
+        for i in range(10):  # Run MH step for 10 iterations
+            phi_star = truncnorm.rvs(lo, hi, loc=mu, scale=sd)
 
-        # Simple OLS regression to estimate phi
-        num = np.sum(x * y)
-        den = np.sum(x * x) + 1e-8
-        phi_hat = num / den
+            log_alpha = (self.prior.phi_a - 0.5)*(np.log(1-phi_star) - np.log(1-p.phi))+(phi_current - 0.5)* (np.log(1+phi_star) - np.log(1+phi_current))
 
-        # --- estimate shared sigma ---
-        resid = y - phi_hat * x
-        sigma_hat = np.sqrt(np.mean(resid**2) + 1e-8)
+            if np.log(np.random.rand()) < min(0, log_alpha):
+                phi_current = phi_star
+            
+        return MSSVParams(mu1, np.array(diff), phi_current, eta2, P)
 
-        return mu_hat, phi_hat, sigma_hat
+    def _logpdf_conditional(self, p: MSSVParams, traj: List[MSSVState]) -> float:
+        cfg = self.params["conditional"]
 
-    def _sample_informed(self, rng: np.random.Generator, traj: List[MSSVState]) -> MSSVParams:
-        cfg = self.params["informed"]
-        h = np.array([state.h_t for state in traj])  # shape (T, 1)
-        h = h.squeeze()  # shape (T,)
-        s = np.array([state.s_t for state in traj])  # shape (T, 1, K)
-        K = s.shape[2]
-        z = np.argmax(s, axis=2)  # shape (T, 1)
-        z = z.squeeze()  # shape (T,)
+        raise NotImplementedError("Conditional proposal logpdf is not implemented yet.")
 
-        mu_hat, phi_hat, eta2_hat = self._estimate_theta_from_traj_regime(h, z, K)
-        P_hat, alpha = self._estimate_P(z, K)
-
-        # --- mu ---
-        mu1 = mu_hat[0] + rng.normal(0, cfg["step_mu"])
-        delta_hat = np.log(np.diff(mu_hat))  
-        delta = delta_hat + rng.normal(0, cfg["step_delta"], size=len(delta_hat))
-
-        # --- phi ---
-        z_phi = logit((phi_hat + 1) / 2)
-        z_new = z_phi + rng.normal(0, cfg["step_phi"])
-        phi = 2 * expit(z_new) - 1
-
-        # --- eta2 ---
-        log_eta2 = np.log(eta2_hat)
-        eta2 = np.exp(log_eta2 + rng.normal(0, cfg["step_eta2"]))
-
-        # --- P ---
-        P = np.zeros((K, K))
-        for k in range(K):
-            P[k] = rng.dirichlet(alpha[k])
-
-        return MSSVParams(mu1, delta, phi, eta2, P)
-
-    def _logpdf_informed(self, p: MSSVParams, traj: List[MSSVState]) -> float:
-        cfg = self.params["informed"]
-
-        h = np.array([state.h_t for state in traj]).squeeze()
-        s = np.array([state.s_t for state in traj])
-        K = s.shape[2]
-        z = np.argmax(s, axis=2).squeeze()
-
-        mu_hat, phi_hat, eta2_hat = self._estimate_theta_from_traj_regime(h, z, K)
-        _, alpha = self._estimate_P(z, K)
-
-        logq = 0.0
-
-        # mu1
-        logq += norm.logpdf(p.mu1, mu_hat[0], cfg["step_mu"])
-
-        # delta 
-        delta_hat = np.log(np.diff(mu_hat))
-        logq += np.sum(norm.logpdf(p.delta, delta_hat, cfg["step_delta"]))
-
-        # phi
-        z_hat = logit((phi_hat + 1) / 2)
-        z = logit((p.phi + 1) / 2)
-
-        logq += norm.logpdf(z, z_hat, cfg["step_phi"])
-        logq += np.log(2) - np.log(1 - p.phi**2)
-
-        # eta2
-        log_eta2_hat = np.log(eta2_hat)
-        log_eta2 = np.log(p.eta2)
-
-        logq += norm.logpdf(log_eta2, log_eta2_hat, cfg["step_eta2"])
-        logq -= log_eta2
-
-        # P
-        for k in range(K):
-            row = np.clip(p.P[k], EPS, 1.0)
-            row = row / row.sum()
-            logq += dirichlet.logpdf(row, alpha[k])
-
-        return logq
-    
     def _sample_independent(self, rng: np.random.Generator) -> MSSVParams:
         cfg = self.params["independent"]
 
@@ -694,10 +656,10 @@ class MSSVProposal(StateSpaceModelProposal):
             if from_p is None:
                 raise ValueError("from_p must be provided for random walk proposal")
             return self._sample_rw(rng, from_p)
-        elif self.mode == "informed":
+        elif self.mode == "conditional":
             if traj is None:
-                raise ValueError("traj must be provided for informed proposal")
-            return self._sample_informed(rng, traj)
+                raise ValueError("traj must be provided for conditional proposal")
+            return self._sample_conditional(rng, from_p, traj)
         elif self.mode == "independent":
             return self._sample_independent(rng)
         else:
@@ -708,10 +670,10 @@ class MSSVProposal(StateSpaceModelProposal):
             if from_p is None:
                 raise ValueError("from_p must be provided for random walk proposal")
             return self._logpdf_rw(from_p, to_p)
-        elif self.mode == "informed":
+        elif self.mode == "conditional":
             if traj is None:
-                raise ValueError("traj must be provided for informed proposal")
-            return self._logpdf_informed(to_p, traj)
+                raise ValueError("traj must be provided for conditional proposal")
+            return self._logpdf_conditional(to_p, traj)
         elif self.mode == "independent":
             return self._logpdf_independent(to_p)
         else:

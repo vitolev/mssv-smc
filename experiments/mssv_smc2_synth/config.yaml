@@ -1,4 +1,4 @@
-name: dataset_1   # Name of experiment and dataset to use for the experiment
+name: dataset_6   # Name of experiment and dataset to use for the experiment
 
 T: 2000            # Number of time steps to use from the synthetic dataset
 K: 2              # Number of regimes
@@ -14,9 +14,9 @@ prior:           # prior parameters for the model
   phi_a: 6
   phi_b: 2
   eta2_a: 2.001
-  eta2_b: 1.0
+  eta2_b: 0.1
   diff_mean: 0.0
-  diff_sd: 2.0
+  diff_sd: 5.0
   P_diag: 3.5
   P_base: 1.5
 
