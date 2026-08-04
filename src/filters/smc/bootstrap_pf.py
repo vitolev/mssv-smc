@@ -1,6 +1,7 @@
 import numpy as np
-from src.models.base import StateSpaceModel, StateSpaceModelParams
+from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
 from src.filters.smc.base_pf import ParticleFilter
+from typing import List
 
 class BootstrapParticleFilter(ParticleFilter):
     """
@@ -70,7 +71,7 @@ class BootstrapParticleFilter(ParticleFilter):
         else:
             return history
 
-    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref: list, only_last_step=False):
+    def run_conditional(self, y, theta: StateSpaceModelParams, x_ref: List[StateSpaceModelState], only_last_step=False):
         """
         Run conditional bootstrap particle filter given reference trajectory x_ref.
 
