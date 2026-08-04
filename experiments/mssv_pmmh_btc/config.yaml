@@ -5,7 +5,7 @@ N: 8000           # Number of particles for the BPF
 
 pmmh:
   M: 16000        # Number of PMMH iterations
-  C: 16            # Number of parallel chains  
+  C: 32            # Number of parallel chains  
   burnin: 8000    # Number of burn-in iterations to discard from the PMMH output
 
 prior:           # prior parameters for the model

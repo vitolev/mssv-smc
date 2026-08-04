@@ -4,7 +4,7 @@
 #SBATCH --account=fri-users
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=32
 #SBATCH --mem=128G
 #SBATCH --nodelist=wn[021-061]
 #SBATCH --output=mssv_pmmh_sp500_%j.out

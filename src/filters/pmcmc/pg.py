@@ -52,7 +52,6 @@ class PGS_Chain:
             history,
             n_traj=1,
         )
-
         return trajectory, logmarlik
 
     def _initialize(self):
@@ -156,7 +155,6 @@ class PGS_Chain:
         self.current_trajectory = None
         self.current_logmarlik = None
 
-        self.n_accepted = 0
         self.n_steps = 0
 
         self.y = y
@@ -188,12 +186,11 @@ class PGS_Chain:
             if logger is not None:
                 logger.info(f"Chain {chain_id} - Sampling step {i-burnin}/{n_iter-burnin}")
 
-        h5f.attrs["acceptance_rate"] = self.n_accepted / self.n_steps if self.n_steps > 0 else 0.0
         h5f.attrs["initial_parameters"] = self.initial_params.to_vector()
 
         if logger is not None:
             logger.info("-" * 60)
-            logger.info(f"PG chain {chain_id} completed. Acceptance rate: {h5f.attrs['acceptance_rate']:.4f}")
+            logger.info(f"PG chain {chain_id} completed.")
             logger.info(f"Results saved to {output_dir / f'chain_{chain_id}.h5'}")
 
         h5f.close()

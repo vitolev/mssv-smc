@@ -1,13 +1,14 @@
 K: 2
-N: 2000
-name: dataset_1
+N: 8000
+T: 6663
+name: bitcoin
 pgs:
-  C: 16
-  M: 10000
-  burnin: 5000
+  C: 32
+  M: 16000
+  burnin: 8000
 prior:
   P_base: 1.5
-  P_diag: 3.5
+  P_diag: 20.0
   diff_mean: 0.0
   diff_sd: 5.0
   eta2_a: 2.001

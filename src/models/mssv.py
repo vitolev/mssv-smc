@@ -453,6 +453,7 @@ class MSSVProposal(StateSpaceModelProposal):
         # Conditional on eta2
         # -----------------------
         e_list = [traj[t].h_t[0] - p.mu[traj[t].s_t[0].argmax()] - p.phi * (traj[t-1].h_t[0] - p.mu[traj[t].s_t[0].argmax()]) for t in range(1, T_plus_1)]
+        e_list = np.array(e_list)
         Q = np.sum(np.square(e_list)) + (traj[0].h_t[0] - p.mu[traj[0].s_t[0].argmax()])**2 * (1 - p.phi**2)
         temp = rng.gamma(shape=self.prior.eta2_a + T_plus_1 / 2, scale=1.0 / (self.prior.eta2_b + Q / 2))
         eta2 = 1.0 / temp
@@ -461,6 +462,7 @@ class MSSVProposal(StateSpaceModelProposal):
         # Conditional on mu1
         # -----------------------
         y_list = [traj[t].h_t[0] - p.phi * traj[t-1].h_t[0] for t in range(1, T_plus_1)]
+        y_list = np.array(y_list)
         if traj[0].s_t[0].argmax() == 0:
             # Initial state is in regime 0
             V = 1 / (1 / self.prior.mu_sd**2 + (1 - p.phi)**2 * len(regime_sets[0]) / eta2 + (1-p.phi**2) / eta2)
@@ -478,11 +480,13 @@ class MSSVProposal(StateSpaceModelProposal):
             # Sample from conditional posterior
             if traj[0].s_t[0].argmax() == k:
                 V_k = 1 / (1 / self.prior.diff_sigma**2 + (1 - p.phi)**2 * len(regime_sets[k]) / eta2 + (1-p.phi**2) / eta2)
-                m_k = V_k * (self.prior.diff_mean / self.prior.diff_sigma**2 + (1 - p.phi) * np.sum([y_list[t-1] for t in regime_sets[k]]) / eta2 + (1 - p.phi**2) * (traj[0].h_t[0] - p.mu[k-1]) / eta2)
+                m_k = V_k * (self.prior.diff_mean / self.prior.diff_sigma**2 + (1 - p.phi) * np.sum([y_list[t-1] - (1-p.phi)*p.mu[k-1] for t in regime_sets[k]]) / eta2 + (1 - p.phi**2) * (traj[0].h_t[0] - p.mu[k-1]) / eta2)
             else:
                 V_k = 1 / (1 / self.prior.diff_sigma**2 + (1 - p.phi)**2 * len(regime_sets[k]) / eta2)
-                m_k = V_k * (self.prior.diff_mean / self.prior.diff_sigma**2 + (1 - p.phi) * np.sum([y_list[t-1] for t in regime_sets[k]]) / eta2)
-            diff_k = truncnorm.rvs(0, np.inf, loc=m_k, scale=np.sqrt(V_k), random_state=rng)
+                m_k = V_k * (self.prior.diff_mean / self.prior.diff_sigma**2 + (1 - p.phi) * np.sum([y_list[t-1] - (1-p.phi)*p.mu[k-1] for t in regime_sets[k]]) / eta2)
+            lo = (0 - m_k) / np.sqrt(V_k)
+            hi = np.inf
+            diff_k = truncnorm.rvs(lo, hi, loc=m_k, scale=np.sqrt(V_k), random_state=rng)
             diff.append(diff_k)
 
         # ----------------------
@@ -502,13 +506,13 @@ class MSSVProposal(StateSpaceModelProposal):
 
         for i in range(10):  # Run MH step for 10 iterations
             phi_star = truncnorm.rvs(lo, hi, loc=mu, scale=sd)
+            log_alpha = (self.prior.phi_a - 0.5)*(np.log(1-phi_star) - np.log(1-phi_current))+(self.prior.phi_b - 0.5)* (np.log(1+phi_star) - np.log(1+phi_current))
 
-            log_alpha = (self.prior.phi_a - 0.5)*(np.log(1-phi_star) - np.log(1-p.phi))+(phi_current - 0.5)* (np.log(1+phi_star) - np.log(1+phi_current))
-
-            if np.log(np.random.rand()) < min(0, log_alpha):
+            if np.log(rng.uniform()) < min(0, log_alpha):
                 phi_current = phi_star
-            
-        return MSSVParams(mu1, np.array(diff), phi_current, eta2, P)
+
+        mu = np.concatenate(([mu1], mu1 + np.cumsum(diff)))
+        return MSSVParams.from_mu(mu, phi_current, eta2, P)
 
     def _logpdf_conditional(self, p: MSSVParams, traj: List[MSSVState]) -> float:
         cfg = self.params["conditional"]

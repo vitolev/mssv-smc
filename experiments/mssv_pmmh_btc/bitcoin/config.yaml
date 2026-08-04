@@ -2,7 +2,7 @@ K: 2
 N: 8000
 name: bitcoin
 pmmh:
-  C: 16
+  C: 32
   M: 16000
   burnin: 8000
 prior:

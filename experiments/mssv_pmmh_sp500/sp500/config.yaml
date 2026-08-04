@@ -3,7 +3,7 @@ N: 8000
 T: 6663
 name: sp500
 pmmh:
-  C: 16
+  C: 32
   M: 16000
   burnin: 8000
 prior:
