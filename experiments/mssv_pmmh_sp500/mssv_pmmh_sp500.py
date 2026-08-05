@@ -46,11 +46,7 @@ def main():
 
     # Proposal params
     mode = config.proposal.mode
-    step_mu: float = config.proposal.step_mu
-    step_delta: float = config.proposal.step_delta
-    step_phi: float = config.proposal.step_phi
-    step_eta2: float = config.proposal.step_eta2
-    step_P: int = config.proposal.step_P
+    covariance = config.proposal.covariance
 
     # Create subfolder with name of the experiment
     script_dir = script_dir / name
@@ -104,11 +100,7 @@ def main():
 
     proposal_params = {
         "mode": mode,
-        "step_mu": step_mu,
-        "step_delta": step_delta,
-        "step_phi": step_phi,
-        "step_eta2": step_eta2,
-        "step_P": step_P
+        "covariance": np.array(covariance)
     }
 
     kwargs_model = {

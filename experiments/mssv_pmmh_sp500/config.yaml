@@ -21,11 +21,13 @@ prior:           # prior parameters for the model
   P_diag: 20.0
   P_base: 1.5
 
-proposal:         # step sizes for the random walk proposal in PMMH
-  mode: "rw"      # "rw" for random walk, "informed" for informed proposal
-  step_mu: 0.2
-  step_phi: 0.1
-  step_eta2: 0.1
-  step_P: 500
-  step_delta: 0.1
+proposal:        
+  mode: "rw"     
+  covariance: [[ 0.0154, -0.005, -0.0026, 0.0035, 0.0024, 0.0013],
+            [-0.005, 0.0032, 0.0014, -0.004, -0.0041, 0.0047],
+            [-0.0026, 0.0014, 0.006, -0.0079, 0.0039, -0.004 ],
+            [ 0.0035, -0.004, -0.0079, 0.0483, 0.0195, -0.0142],
+            [ 0.0024, -0.0041, 0.0039, 0.0195, 0.1276, -0.06],
+            [ 0.0013, 0.0047, -0.004, -0.0142, -0.06, 0.1522]]
+
   

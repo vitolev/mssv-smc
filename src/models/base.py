@@ -26,6 +26,12 @@ class StateSpaceModelParams(ABC):
         """Convert parameters to an unconstrained vector representation."""
         pass
 
+    @classmethod
+    @abstractmethod
+    def from_unconstrained(cls: Type["StateSpaceModelParams"], z: np.ndarray) -> "StateSpaceModelParams":
+        """Create parameters from an unconstrained vector representation."""
+        pass
+
     @abstractmethod
     def to_vector(self) -> np.ndarray:
         """Convert parameters to a vector representation."""
@@ -90,6 +96,12 @@ class StateSpaceModelProposal(ABC):
     """
     Base class for state space model proposal distribution (for MCMC).
     """
+    def __init__(self, params: dict):
+        """
+        Initialize the proposal distribution with given parameters.
+        """
+        pass
+
     @abstractmethod
     def sample(self, rng: np.random.Generator, 
                p: StateSpaceModelParams=None, 

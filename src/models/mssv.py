@@ -13,7 +13,12 @@ EPS = 1e-10
 @dataclass(frozen=True)
 class MSSVParams(StateSpaceModelParams):
     """
-    Parameters for the MSSV model.
+    Parameters for the MSSV model. The parameters are:
+    - mu1: First regime mean
+    - delta: Log differences between consecutive regime means (log(mu_{k+1} - mu_k))
+    - phi: AR(1) coefficient for the log-volatility process
+    - eta2: Variance of the log-volatility innovations
+    - P: Transition matrix for the Markov chain governing the regimes
     """
     mu1: float
     delta: np.ndarray
@@ -58,11 +63,17 @@ class MSSVParams(StateSpaceModelParams):
 
     @property
     def mu(self) -> np.ndarray:
+        """
+        Vector of regime means mu, reconstructed from mu1 and delta. 
+        """
         increments = np.exp(self.delta)
         return np.concatenate(([self.mu1], self.mu1 + np.cumsum(increments)))
 
     @property
     def K(self) -> int:
+        """
+        Number of regimes, inferred from the length of delta.
+        """
         return len(self.delta) + 1
 
     def _validate(self):
@@ -102,11 +113,16 @@ class MSSVParams(StateSpaceModelParams):
         Convert the constrained parameters to an unconstrained vector representation for MCMC proposals.
 
         The transformation is as follows:
-            - mu1: unconstrained
-            - delta: unconstrained
-            - phi: unconstrained (arctanh transform)
-            - eta2: unconstrained (log transform)
-            - P: unconstrained (logits for each row)
+            - mu1: already unconstrained
+            - delta: already unconstrained
+            - phi: arctanh transform
+            - eta2: log transform
+            - P: logits for each row
+
+        Returns
+        -------
+            z: np.ndarray
+                Unconstrained parameter vector
         """
         z = []
         for i in range(self.K):
@@ -124,6 +140,43 @@ class MSSVParams(StateSpaceModelParams):
             np.log(self.eta2),
             *z
         ])
+
+    @classmethod
+    def from_unconstrained(cls, z: np.ndarray) -> "MSSVParams":
+        """
+        Convert an unconstrained parameter vector back to a MSSVParams instance.
+
+        Parameters
+        ----------
+            z: np.ndarray
+                Unconstrained parameter vector
+        Returns
+        -------
+            params: MSSVParams
+        """
+        K = int(round(np.sqrt(len(z) - 2)))
+        if K < 1:
+            raise ValueError("Invalid parameter vector length; cannot determine K")
+
+        mu1 = z[0]
+        delta = z[1:K]
+        phi = np.tanh(z[K])
+        eta2 = np.exp(z[K + 1])
+        P_logits = z[K + 2:]
+
+        # Reconstruct P from logits
+        P = np.zeros((K, K))
+
+        for i in range(K):
+            row_logits = P_logits[i * (K - 1):(i + 1) * (K - 1)]
+
+            exp_logits = np.exp(row_logits)
+            denom = 1.0 + exp_logits.sum()
+
+            P[i, :-1] = exp_logits / denom
+            P[i, -1] = 1.0 / denom
+
+        return cls(mu1, delta, phi, eta2, P)
 
     def to_vector(self) -> np.ndarray:
         """
@@ -243,10 +296,10 @@ class MSSVPrior(StateSpaceModelPrior):
     def __init__(
         self,
         mu_mean=0.0,
-        mu_sd=1.0,
+        mu_sd=10.0,
         diff_mean=0.0,
-        diff_sd=2.0,
-        phi_a=20.0,
+        diff_sd=10.0,
+        phi_a=6.0,
         phi_b=2.0,
         eta2_a=2.001,
         eta2_b=1.0,
@@ -330,7 +383,7 @@ class MSSVProposal(StateSpaceModelProposal):
     def __init__(
         self,
         params,
-        prior: MSSVPrior = None
+
     ):
         self.mode = params["mode"]  # "rw", "conditional" or "independent"
         if self.mode not in ["rw", "conditional", "independent"]:
@@ -338,28 +391,22 @@ class MSSVProposal(StateSpaceModelProposal):
         
         default_params = {
             "rw": {
-                "step_mu": 0.1,
-                "step_delta": 0.1,
-                "step_phi": 0.1,
-                "step_eta2": 0.1,
-                "step_P": 20.0,
+                "covariance": None
             },
             "conditional": {
-                "K": 2,
+                "prior": None
             },
             "independent": {
-                "mean": 1.0,
-                "covariance": 1.0
+                "mean": None,
+                "covariance": None
             }
         }
 
-        # allow user overrides
         for k in params:
             if k in default_params[self.mode]:
                 default_params[self.mode][k] = params[k]
 
         self.params = default_params
-        self.prior = prior  # Optional prior distribution used for conditional proposals
 
     def update_params(self, new_params):
         for k in new_params:
@@ -368,60 +415,103 @@ class MSSVProposal(StateSpaceModelProposal):
 
     def _sample_rw(self, rng: np.random.Generator, p: MSSVParams) -> MSSVParams:
         cfg = self.params["rw"]
-        mu1 = p.mu1 + rng.normal(0, cfg["step_mu"])
-        delta = p.delta + rng.normal(0, cfg["step_delta"], size=len(p.delta))
 
-        # phi (logit transform)
-        z = logit((p.phi + 1) / 2)
-        z_new = z + rng.normal(0, cfg["step_phi"])
-        phi = 2 * expit(z_new) - 1
+        cov = cfg["covariance"]
+        mean = np.zeros(cov.shape[0])
 
-        # sigma2 (log space)
-        log_eta2 = np.log(p.eta2)
-        eta2 = np.exp(log_eta2 + rng.normal(0, cfg["step_eta2"]))
+        z = rng.multivariate_normal(mean=mean, cov=cov)
 
-        # transition matrix
-        P = np.empty_like(p.P)
-        for k in range(p.K):
-            alpha = cfg["step_P"] * np.clip(p.P[k], EPS, None)
-            P[k] = rng.dirichlet(alpha)
+        p_unconstrained = p.to_unconstrained()
+        p_new_unconstrained = p_unconstrained + z
+        p_new = MSSVParams.from_unconstrained(p_new_unconstrained)
+        return p_new
+    
+        # mu1 = p.mu1 + rng.normal(0, cfg["step_mu"])
+        # delta = p.delta + rng.normal(0, cfg["step_delta"], size=len(p.delta))
 
-        return MSSVParams(mu1, delta, phi, eta2, P)
+        # # phi (logit transform)
+        # z = logit((p.phi + 1) / 2)
+        # z_new = z + rng.normal(0, cfg["step_phi"])
+        # phi = 2 * expit(z_new) - 1
+
+        # # sigma2 (log space)
+        # log_eta2 = np.log(p.eta2)
+        # eta2 = np.exp(log_eta2 + rng.normal(0, cfg["step_eta2"]))
+
+        # # transition matrix
+        # P = np.empty_like(p.P)
+        # for k in range(p.K):
+        #     alpha = cfg["step_P"] * np.clip(p.P[k], EPS, None)
+        #     P[k] = rng.dirichlet(alpha)
+
+        # return MSSVParams(mu1, delta, phi, eta2, P)
 
     def _logpdf_rw(self, from_p: MSSVParams, to_p: MSSVParams) -> float:
         cfg = self.params["rw"]
-        logq = 0.0
 
-        logq += norm.logpdf(to_p.mu1, from_p.mu1, cfg["step_mu"])
-        logq += np.sum(
-            norm.logpdf(to_p.delta, from_p.delta, cfg["step_delta"])
+        cov = cfg["covariance"]
+
+        z_from = from_p.to_unconstrained()
+        z_to = to_p.to_unconstrained()
+
+        diff = z_to - z_from
+
+        log_q_z = multivariate_normal.logpdf(
+            diff,
+            mean=np.zeros_like(diff),
+            cov=cov,
+            allow_singular=False,
         )
 
-        # phi
-        z_from = logit((from_p.phi + 1) / 2)
-        z_to = logit((to_p.phi + 1) / 2)
-        logq += norm.logpdf(z_to, z_from, cfg["step_phi"])
-        logq += np.log(2) - np.log(1 - to_p.phi**2)
+        log_jacobian = 0.0
 
-        # eta2
-        log_from = np.log(from_p.eta2)
-        log_to = np.log(to_p.eta2)
-        logq += norm.logpdf(log_to, log_from, cfg["step_eta2"])
-        logq -= log_to
+        phi = np.clip(to_p.phi, -1 + EPS, 1 - EPS)
+        log_jacobian += np.log(1.0 - phi**2)
 
-        # P
-        for k in range(from_p.K):
-            alpha = cfg["step_P"] * np.clip(from_p.P[k], EPS, None)
+        eta2 = max(to_p.eta2, EPS)
+        log_jacobian += np.log(eta2)
 
-            row = np.clip(to_p.P[k], EPS, 1.0)
+        for i in range(to_p.K):
+            row = np.clip(to_p.P[i], EPS, 1.0)
             row = row / row.sum()
+            log_jacobian += np.sum(np.log(row))
 
-            logq += dirichlet.logpdf(row, alpha)
+        return log_q_z - log_jacobian
 
-        return logq
+
+        # logq = 0.0
+
+        # logq += norm.logpdf(to_p.mu1, from_p.mu1, cfg["step_mu"])
+        # logq += np.sum(
+        #     norm.logpdf(to_p.delta, from_p.delta, cfg["step_delta"])
+        # )
+
+        # # phi
+        # z_from = logit((from_p.phi + 1) / 2)
+        # z_to = logit((to_p.phi + 1) / 2)
+        # logq += norm.logpdf(z_to, z_from, cfg["step_phi"])
+        # logq += np.log(2) - np.log(1 - to_p.phi**2)
+
+        # # eta2
+        # log_from = np.log(from_p.eta2)
+        # log_to = np.log(to_p.eta2)
+        # logq += norm.logpdf(log_to, log_from, cfg["step_eta2"])
+        # logq -= log_to
+
+        # # P
+        # for k in range(from_p.K):
+        #     alpha = cfg["step_P"] * np.clip(from_p.P[k], EPS, None)
+
+        #     row = np.clip(to_p.P[k], EPS, 1.0)
+        #     row = row / row.sum()
+
+        #     logq += dirichlet.logpdf(row, alpha)
+
+        # return logq
        
     def _sample_conditional(self, rng: np.random.Generator, p: MSSVParams, traj: List[MSSVState]) -> MSSVParams:
         cfg = self.params["conditional"]
+        prior: MSSVPrior = cfg["prior"]  # Prior distribution for the parameters
 
         T_plus_1 = len(traj)
         K = len(traj[0].s_t[0])
@@ -443,8 +533,8 @@ class MSSVProposal(StateSpaceModelProposal):
         # -----------------------
         P = []
         for i in range(K):
-            alpha = self.prior.P_base * np.ones(K)
-            alpha[i] += self.prior.P_diag
+            alpha = prior.P_base * np.ones(K)
+            alpha[i] += prior.P_diag
             alpha += counts[i]
             P.append(rng.dirichlet(alpha))
         P = np.array(P)
@@ -455,7 +545,7 @@ class MSSVProposal(StateSpaceModelProposal):
         e_list = [traj[t].h_t[0] - p.mu[traj[t].s_t[0].argmax()] - p.phi * (traj[t-1].h_t[0] - p.mu[traj[t].s_t[0].argmax()]) for t in range(1, T_plus_1)]
         e_list = np.array(e_list)
         Q = np.sum(np.square(e_list)) + (traj[0].h_t[0] - p.mu[traj[0].s_t[0].argmax()])**2 * (1 - p.phi**2)
-        temp = rng.gamma(shape=self.prior.eta2_a + T_plus_1 / 2, scale=1.0 / (self.prior.eta2_b + Q / 2))
+        temp = rng.gamma(shape=prior.eta2_a + T_plus_1 / 2, scale=1.0 / (prior.eta2_b + Q / 2))
         eta2 = 1.0 / temp
 
         # -----------------------
@@ -465,11 +555,11 @@ class MSSVProposal(StateSpaceModelProposal):
         y_list = np.array(y_list)
         if traj[0].s_t[0].argmax() == 0:
             # Initial state is in regime 0
-            V = 1 / (1 / self.prior.mu_sd**2 + (1 - p.phi)**2 * len(regime_sets[0]) / eta2 + (1-p.phi**2) / eta2)
-            m = V * (self.prior.mu_mean / self.prior.mu_sd**2 + (1 - p.phi) * np.sum([y_list[t-1] for t in regime_sets[0]]) / eta2 + (1 - p.phi**2) * traj[0].h_t[0] / eta2)
+            V = 1 / (1 / prior.mu_sd**2 + (1 - p.phi)**2 * len(regime_sets[0]) / eta2 + (1-p.phi**2) / eta2)
+            m = V * (prior.mu_mean / prior.mu_sd**2 + (1 - p.phi) * np.sum([y_list[t-1] for t in regime_sets[0]]) / eta2 + (1 - p.phi**2) * traj[0].h_t[0] / eta2)
         else:
-            V = 1 / (1 / self.prior.mu_sd**2 + (1 - p.phi)**2 * len(regime_sets[0]) / eta2)
-            m = V * (self.prior.mu_mean / self.prior.mu_sd**2 + (1 - p.phi) * np.sum([y_list[t-1] for t in regime_sets[0]]) / eta2)
+            V = 1 / (1 / prior.mu_sd**2 + (1 - p.phi)**2 * len(regime_sets[0]) / eta2)
+            m = V * (prior.mu_mean / prior.mu_sd**2 + (1 - p.phi) * np.sum([y_list[t-1] for t in regime_sets[0]]) / eta2)
         mu1 = rng.normal(m, np.sqrt(V))
 
         # -----------------------
@@ -479,11 +569,11 @@ class MSSVProposal(StateSpaceModelProposal):
         for k in range(1, K):
             # Sample from conditional posterior
             if traj[0].s_t[0].argmax() == k:
-                V_k = 1 / (1 / self.prior.diff_sigma**2 + (1 - p.phi)**2 * len(regime_sets[k]) / eta2 + (1-p.phi**2) / eta2)
-                m_k = V_k * (self.prior.diff_mean / self.prior.diff_sigma**2 + (1 - p.phi) * np.sum([y_list[t-1] - (1-p.phi)*p.mu[k-1] for t in regime_sets[k]]) / eta2 + (1 - p.phi**2) * (traj[0].h_t[0] - p.mu[k-1]) / eta2)
+                V_k = 1 / (1 / prior.diff_sigma**2 + (1 - p.phi)**2 * len(regime_sets[k]) / eta2 + (1-p.phi**2) / eta2)
+                m_k = V_k * (prior.diff_mean / prior.diff_sigma**2 + (1 - p.phi) * np.sum([y_list[t-1] - (1-p.phi)*p.mu[k-1] for t in regime_sets[k]]) / eta2 + (1 - p.phi**2) * (traj[0].h_t[0] - p.mu[k-1]) / eta2)
             else:
-                V_k = 1 / (1 / self.prior.diff_sigma**2 + (1 - p.phi)**2 * len(regime_sets[k]) / eta2)
-                m_k = V_k * (self.prior.diff_mean / self.prior.diff_sigma**2 + (1 - p.phi) * np.sum([y_list[t-1] - (1-p.phi)*p.mu[k-1] for t in regime_sets[k]]) / eta2)
+                V_k = 1 / (1 / prior.diff_sigma**2 + (1 - p.phi)**2 * len(regime_sets[k]) / eta2)
+                m_k = V_k * (prior.diff_mean / prior.diff_sigma**2 + (1 - p.phi) * np.sum([y_list[t-1] - (1-p.phi)*p.mu[k-1] for t in regime_sets[k]]) / eta2)
             lo = (0 - m_k) / np.sqrt(V_k)
             hi = np.inf
             diff_k = truncnorm.rvs(lo, hi, loc=m_k, scale=np.sqrt(V_k), random_state=rng)
@@ -506,7 +596,7 @@ class MSSVProposal(StateSpaceModelProposal):
 
         for i in range(10):  # Run MH step for 10 iterations
             phi_star = truncnorm.rvs(lo, hi, loc=mu, scale=sd)
-            log_alpha = (self.prior.phi_a - 0.5)*(np.log(1-phi_star) - np.log(1-phi_current))+(self.prior.phi_b - 0.5)* (np.log(1+phi_star) - np.log(1+phi_current))
+            log_alpha = (prior.phi_a - 0.5)*(np.log(1-phi_star) - np.log(1-phi_current))+(prior.phi_b - 0.5)* (np.log(1+phi_star) - np.log(1+phi_current))
 
             if np.log(rng.uniform()) < min(0, log_alpha):
                 phi_current = phi_star

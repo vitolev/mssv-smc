@@ -186,7 +186,7 @@ From joint posterior distribution of the latent states and model parameters give
     \end{equation}
 \end{itemize}
 
-A special case of state space models are the hidden Markov models. Although there is some discrepancy in the literature, the term hidden Markov model is often used to refer to a state space model in which the latent state is discrete and takes values in a finite set $\{1, 2, \ldots, K\}$, where $K$ is the number of states \cite{chopin2020smc}. 
+A special case of state space models are the hidden Markov models (HMM). Although there is some discrepancy in the literature, the term hidden Markov model is often used to refer to a state space model in which the latent state is discrete and takes values in a finite set $\{1, 2, \ldots, K\}$, where $K$ is the number of states \cite{chopin2020smc}. 
 
 \subsection{Linear Gaussian state space model}
 \label{subsec:linear_gaussian_ssm}
@@ -213,54 +213,64 @@ Using the algorithm known as the Kalman filter, we can compute the parameters of
 
 \section[Markov switching stochastic volatility model]{Markov switching stochastic volatility\\ model}
 The Markov switching stochastic volatility (MSSV) model is the main model of interest in this thesis. 
-It is a state space model in which the hidden state is the tuple $X_t = (H_t, S_t)$. The log volatility $H_t$ is continuous, while the regime indicator $S_t$ is discrete and takes values in $\{1, 2, \ldots, K\}$, where $K$ is the number of regimes \cite{so1998stochastic}. The latent state space is therefore
+It is a state space model in which the hidden state is the tuple $X_t = (H_t, S_t)$. The log volatility $H_t$ is continuous, while the regime indicator $S_t$ is discrete and takes values in $\{1, 2, \ldots, K\}$, where $K$ is the number of regimes \cite{so1998stochastic}. 
+The latent state space is therefore
 \begin{equation}
     \mathcal{X} = \mathbb{R} \times \{1, 2, \ldots, K\},
 \end{equation}
 equipped with the product $\sigma$-algebra $\mathcal{B}(\mathbb{R}) \otimes 2^{\{1, 2, \ldots, K\}}$.
 
-\subsection{Observation, transition and initial densities}
+\begin{itemize}
+    \item \textbf{Observation equation:} 
+    
+    The observation distribution is defined with
+    \begin{equation}
+    Y_t | X_t=(h_t, s_t) \sim \mathcal{N}\left(0, \exp\left(h_t\right)\right),
+    \end{equation}
+    where $\mathcal{N}$ denotes the normal distribution with mean and variance \cite{so1998stochastic, carvalho2007simulation}. Such distribution admits a density function which we denote by $q(y_t | x_t, \theta) = q(y_t | h_t)$, as the observation density does not depend on the regime $s_t$ or any other model parameters $\theta$. 
 
-The model consists of an observation equation and a transition equation. The observation distribution is defined with
-\begin{equation}
-    Y_t | H_t=h_t, S_t=s_t \sim \mathcal{N}\left(0, \exp\left(h_t\right)\right),
-\end{equation}
-where $\mathcal{N}(\mu, \sigma^2)$ denotes the normal distribution with mean $\mu$ and variance $\sigma^2$. Such distribution admits a density function which we denote by $q(y_t | x_t, \theta) = q(y_t | h_t)$, as the observation density does not depend on the regime $s_t$ or any other model parameters $\theta$. 
+    Note that mathematically speaking the latent state $H_t$ is the log variance of the return $Y_t$, but it is often referred to as the log volatility in the literature \cite{carvalho2007simulation, dahlin2019getting, bao2018particle}. We will also follow this convention and refer to $H_t$ as the log volatility.
+    \item \textbf{Transition equation:}
+    
+    The transition distribution is defined with
+    \begin{align}
+        H_t | H_{t-1}=h_{t-1}, S_t=s_t &\sim \mathcal{N}(\mu_{s_t} + \phi(h_{t-1} - \mu_{s_t}), \eta^2), \\
+        S_t | S_{t-1}=s_{t-1} &\sim \text{Categorical}([p_{s_{t-1},1}, \ldots, p_{s_{t-1},K}]),
+    \end{align}
+    where $\mu_{s_t}$ denotes the regime-specific mean associated with state $s_t$, $\phi$ is the persistence parameter, $\eta$ is the standard deviation of the log-volatility innovation process \cite{so1998stochastic}.
+    The values $p_{ij} = \mathbb{P}(S_t = j | S_{t-1} = i)$ are the probabilities of transitioning from regime $i$ to regime $j$, and they are collected in the $K \times K$ regime transition matrix
+    $$
+    P=
+    \begin{bmatrix}
+        p_{11} & p_{12} & \cdots & p_{1K} \\
+        p_{21} & p_{22} & \cdots & p_{2K} \\
+        \vdots & \vdots & \ddots & \vdots \\
+        p_{K1} & p_{K2} & \cdots & p_{KK}
+    \end{bmatrix}.
+    $$
+    Note that the rows of $P$ must sum to 1, i.e., $\sum_{j=1}^{K} p_{ij} = 1$ for all $i$. Observe that the log volatility process is essentially an AR(1) process with regime-specific means.
+    
+    At first it seems that such conditional definition breaks the Markov property of the latent state process, as $H_t$ depends on $S_t$. However, the latent state process is still Markovian, as the transition distribution of the joint state $(H_t, S_t)$ only depends on the previous joint state $(H_{t-1}, S_{t-1})$.
+    This can be seen by factoring the transition distribution as
+    \begin{align}
+        p(x_t \mid x_{t-1}, \theta) &= p((h_t, s_t) \mid (h_{t-1}, s_{t-1}), \theta) \\
+        &= p(s_t \mid h_{t-1}, s_{t-1}, \theta) p(h_t \mid h_{t-1}, s_{t-1}, s_t, \theta) \\
+        &= p(s_t \mid s_{t-1}, \theta) p(h_t \mid h_{t-1}, s_t, \theta),
+    \end{align}
 
-The transition distribution is defined with
-\begin{align}
-    H_t | H_{t-1}=h_{t-1}, S_t=s_t &\sim \mathcal{N}(\mu_{s_t} + \phi(h_{t-1} - \mu_{s_t}), \eta^2), \\
-    S_t | S_{t-1}=s_{t-1} &\sim \text{Categorical}(P_{s_{t-1},:}),
-\end{align}
-where $\mu_{s_t}$ denotes the regime-specific mean associated with state $s_t$, $\phi$ is the persistence parameter, $\eta$ is the standard deviation of the log-volatility innovation process, and $P$ is the $K \times K$ regime transition matrix defined as
-$$
-P=
-\begin{bmatrix}
-    p_{11} & p_{12} & \cdots & p_{1K} \\
-    p_{21} & p_{22} & \cdots & p_{2K} \\
-    \vdots & \vdots & \ddots & \vdots \\
-    p_{K1} & p_{K2} & \cdots & p_{KK}
-\end{bmatrix},
-$$
-where $p_{ij} = \mathbb{P}(S_t = j | S_{t-1} = i)$ is the probability of transitioning from regime $i$ to regime $j$. Note that the rows of $P$ must sum to 1, i.e., $\sum_{j=1}^{K} p_{ij} = 1$ for all $i$. Observe that the log volatility process is essentially an AR(1) process with regime-specific means \cite{so1998stochastic}.
-Again such transition distribution admits a density function which we can write as
-\begin{align}
-    p(x_t \mid x_{t-1}, \theta) &= p((h_t, s_t) \mid (h_{t-1}, s_{t-1}), \theta) \\
-    &= p(s_t \mid s_{t-1}, \theta) p(h_t \mid h_{t-1}, s_t, \theta).
-\end{align}
+    \item \textbf{Initial distribution:}
+    
+    The MSSV model is completed by specifying the initial distribution as
+    \begin{align}
+        H_0 | S_0=s_0 &\sim \mathcal{N}\left(\mu_{s_0}, \frac{\eta^2}{(1 - \phi^2)}\right), \\
+        S_0 &\sim \text{Categorical}\left(\frac{1}{K}, \frac{1}{K}, \ldots, \frac{1}{K} \right),
+    \end{align}
+    according to the stationary distribution of the corresponding AR(1) component, with mean $\mu_{s_0}$ and variance $\frac{\eta^2}{(1 - \phi^2)}$, and a uniform prior over the regimes, respectively \cite{so1998stochastic}.
+    
+    The initial distribution admits a density function which we can write out as $\chi(x_0 \mid \theta) = \chi(s_0 \mid \theta) \chi(h_0 \mid s_0, \theta)$.
+\end{itemize}
 
-The MSSV model is completed by specifying the initial distribution. We define the initial distribution as
-\begin{align}
-    H_0 | S_0=s_0 &\sim \mathcal{N}\left(\mu_{s_0}, \frac{\eta^2}{(1 - \phi^2)}\right), \\
-    S_0 &\sim \text{Categorical}\left(\frac{1}{K}, \frac{1}{K}, \ldots, \frac{1}{K} \right).
-\end{align}
-The initial distribution admits a density function which we can write out as $\chi(x_0 \mid \theta) = \chi(s_0 \mid \theta) \chi(h_0 \mid s_0, \theta)$.
-
-The choice of $H_0$ is motivated by the stationary distribution of the corresponding AR(1) component, which has mean $\mu_{s_0}$ and variance $\frac{\eta^2}{(1 - \phi^2)}$. The regime variable $S_0$ is assigned a uniform prior because no prior information about the initial regime is assumed.
-
-\subsection{Assumptions and parameters}
-
-The following assumptions are made:
+In order for the MSSV model to be well-defined, the following assumptions are made:
 \begin{enumerate}
     \item The persistence $\phi$ lies in the range $(-1, 1)$.
     \item Each regime should correspond to at least one time point.
@@ -345,23 +355,28 @@ In general we can distinguish between two types of our problem
 
 From both Equations \eqref{eq:joint_posterior_known_parameters} and \eqref{eq:joint_posterior_unknown_parameters}, we can see the sequential nature of the problem. If we somehow initialy sample the prior latent state $x_0$ (and model parameters $\theta$ if they are unknown), we can sequentially propagate the latent states through transition density and update them with the new observations through the observation density. This is the main idea behind sequential Monte Carlo methods, which we will present in the next chapter.
 
-\subsection{Prior distributions}
-In the case of unknown parameters, we first need to specify prior distributions for the model parameters $\theta$, which requires additional considerations. 
-
-We assume that the prior distributions of the parameters are independent, so that the joint prior distribution can be factorized as
+\subsection{Prior distributions of the parameters}
+In the case of unknown model parameters $\theta$, we need to specify their prior distributions. 
+We assume that the priors of the parameters are independent, so that the joint prior distribution can be factorized as
 \begin{equation}
     p(\theta) = p(\mu_1) \prod_{i=2}^{K} p(\delta_i) p(\phi) p(\eta) p(P).
 \end{equation}
+
+Even though we defined our model with parameters $\delta_i$ and $\phi$, we will define the priors in terms of $\Delta_i = \mu_i - \mu_{i-1} = e^{\delta_i}$ and $\varphi = \frac{\phi + 1}{2}$. The reason for such reparameterization of $\phi$ to $\varphi$ is that now $\varphi$ lies in the range $(0, 1)$, which allows us to use a Beta distribution as a prior. The reason for reparameterization of $\delta_i$ to $\Delta_i$ is that now we can use a truncated normal distribution as a prior, which will be more convenient for conditional sampling later on.  
+
 We choose the following prior distributions for the parameters:
 \begin{align}
     \mu_1 &\sim \mathcal{N}(0, 5^2), \\
-    \mu_i &\sim \mathcal{TN}_{(0, \infty)}(0, 5^2), \quad i = 2, \ldots, K, \\
-    2\phi - 1 &\sim \text{Beta}(6, 2), \\
-    \eta &\sim \text{Gamma}(2, 5), \\
-    P_{i,:} &\sim \text{Dirichlet}(\alpha_1, \ldots, \alpha_K), \quad i = 1, \ldots, K.
+    \Delta_i &\sim \mathcal{N}_{(0, \infty)}(0, 5^2), \quad i = 2, \ldots, K, \\
+    \varphi &\sim \mathcal{B}(6, 2), \\
+    \eta &\sim \mathcal{IG}(2.001, 0.1), \\
+    P_{i,:} &\sim \text{Dirichlet}(\alpha_{i,1}, \ldots, \alpha_{i,K}), \quad i = 1, \ldots, K,
 \end{align}
+where $\mathcal{N}$ denotes the normal distribution, $\mathcal{N}_{(0, \infty)}$ denotes the truncated normal distribution on the positive half-line, $\mathcal{B}$ denotes the Beta distribution, $\mathcal{IG}$ denotes the inverse gamma distribution and $\text{Dirichlet}$ denotes the Dirichlet distribution.
 
-
+The hyperparameters of the prior distributions are chosen to be slightly informative. For $\mu_1$ and $\Delta_i$, the hyperparameters are such that cover quite a wide range of log volatilities, which translates to even bigger range after transformation to volatilities. For the prior of $\varphi$, the hyperparameters are such that the persistence parameter $\phi$ is likely to be positive, which is a common assumption in financial econometrics. For the prior of $\eta$, we follow the combination of hyperparameters used in \cite{carvalho2007simulation, pan2013testing}. 
+The hyperparameters $\alpha_{i,j}$ of the Dirichlet prior are set to different values depending on the dataset.
+For synthetic datasets, we set $\alpha_{i,j} = 1.5$ for $i\neq j$ and $\alpha_{i,i} = 5$, which encourages the model to stay in the same regime, but still allows for regime switching. For real datasets, we set $\alpha_{i,j} = 1.5$ for $i\neq j$ and $\alpha_{i,i} = 21.5$.
 
 % ----------------------------------------------------------------
 % Chapter 3

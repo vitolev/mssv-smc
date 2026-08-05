@@ -36,7 +36,8 @@ class PGS_Chain:
         prior_cls = pf.model.prior_type
         self.prior = prior_cls(**self.kwargs_prior)
         proposal_cls = pf.model.proposal_type
-        self.proposal = proposal_cls(self.proposal_params, self.prior)
+        self.proposal_params["prior"] = self.prior  # Pass the prior to the proposal
+        self.proposal = proposal_cls(self.proposal_params)
 
     def _run_pf_and_sample(self, y, theta: StateSpaceModelParams, x_current: List[StateSpaceModelState]):
         """
