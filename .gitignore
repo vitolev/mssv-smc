@@ -1,3 +1,6 @@
+# Image files (for now, so that we don't have to download and upload after every experiment)
+*.png
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
