@@ -20,9 +20,13 @@ def test_lgm_state():
     assert state.x_t.shape == (2,)
 
 def test_lgm_proposal():
-    proposal = LGModelProposal()
-    rng = np.random.default_rng(42)
     theta = LGModelParams(a=0.9, b=1.0, sigma_x=0.5, sigma_y=0.2)
+    covariance = np.eye(len(theta.to_unconstrained())) * 0.1
+    
+    params = {"mode": "rw", "covariance": covariance}
+    proposal = LGModelProposal(params=params)
+    rng = np.random.default_rng(42)
+
     new_theta = proposal.sample(rng, theta)
     assert isinstance(new_theta, LGModelParams)
     log_prob = proposal.logpdf(theta, new_theta)

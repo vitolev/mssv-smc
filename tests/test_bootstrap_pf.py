@@ -60,7 +60,7 @@ def test_bootstrap_particle_filter_mssv():
     theta = MSSVParams.from_mu(
         mu=[0.0, 1.0],
         phi=0.9,
-        sigma_eta=0.1,
+        eta2=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -96,7 +96,7 @@ def test_bootstrap_particle_filter_mssv():
         particles, weights, indices, loglik = history[t]
         assert isinstance(particles, MSSVState)
         assert particles.h_t.shape == (n_particles,)
-        assert particles.s_t.shape == (n_particles, len(theta.mu))
+        assert particles.s_t.shape == (n_particles,)
         assert weights.shape == (n_particles,)
         assert np.isclose(weights.sum(), 1.0)
         assert indices.shape == (n_particles,) or indices.shape == (0,)  # At t=0, indices is an empty list
@@ -155,7 +155,7 @@ def test_conditional_bootstrap_particle_filter_mssv():
     theta = MSSVParams.from_mu(
         mu=[0.0, 1.0],
         phi=0.9,
-        sigma_eta=0.1,
+        eta2=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -188,7 +188,7 @@ def test_conditional_bootstrap_particle_filter_mssv():
         particles, weights, indices, loglik = history[t]
         assert isinstance(particles, MSSVState)
         assert particles.h_t.shape == (n_particles,)
-        assert particles.s_t.shape == (n_particles, len(theta.mu))
+        assert particles.s_t.shape == (n_particles,)
         assert weights.shape == (n_particles,)
         assert np.isclose(weights.sum(), 1.0)
         assert indices.shape == (n_particles,) or indices.shape == (0,)  # At t=0, indices is an empty list

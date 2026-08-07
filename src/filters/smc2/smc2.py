@@ -35,10 +35,27 @@ class SMC2:
         N_theta: int,
         gamma: float = 1.0,
         R: int = 1,
-        kwargs_model=None,
         proposal_params=None,
         kwargs_prior=None,
     ):
+        """
+        The SMC^2 algorithm for joint state and parameter estimation in state-space models.
+
+        Parameters
+        ----------
+        pf : ParticleFilter
+            An instance of a particle filter.
+        N_theta : int
+            Number of parameter particles.
+        gamma : float, optional
+            Fraction of effective sample size (ESS) below which resampling is triggered. Default is 1.0 (resample when ESS < gamma * N_theta).
+        R : int, optional
+            Number of times to resample each parameter particle in rejuvenation step. Default is 1.
+        proposal_params : dict, optional
+            Keyword arguments for the proposal distribution.
+        kwargs_prior : dict, optional
+            Keyword arguments for the prior distribution.
+        """
         self.pf = pf
         self.model = pf.model
         self.rng = pf.model.rng
@@ -48,7 +65,6 @@ class SMC2:
         self.gamma = gamma
         self.R = R
 
-        self.kwargs_model = kwargs_model if kwargs_model is not None else {}
         self.proposal_params = proposal_params if proposal_params is not None else {}
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
 
@@ -58,14 +74,15 @@ class SMC2:
         proposal_cls = self.model.proposal_type
         self.proposal = proposal_cls(self.proposal_params)
 
-        self.n_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
+        # Set number of workers for parallel processing. If running on SLURM, use the number of CPUs allocated to the job. Otherwise, use number of available CPUs.
+        self.n_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count()))
 
     def _initialize_theta_particles(self) -> List[ThetaParticle]:
         theta_particles = []
         x_particles_pred = []
 
         for _ in range(self.N_theta):
-            theta = self.prior.sample(self.rng, **self.kwargs_model)
+            theta = self.prior.sample(self.rng)
             x_particles = self.model.sample_initial_state(theta, size=self.N_x)
             x_particles_pred.append(self.model.sample_next_state(theta, x_particles))
 
@@ -122,56 +139,29 @@ class SMC2:
 
         return theta_particles, diagnostics
 
-    def _compute_proposal_moments(
-        self,
-        theta_particles: List[ThetaParticle]
-    ):
+    def _compute_proposal_moments(self,theta_particles: List[ThetaParticle]):
         """
-        Compute weighted empirical mean/covariance
-        in unconstrained parameter space.
+        Compute weighted empirical mean/covariance in unconstrained parameter space. Used for updating proposal distribution.
         """
-
-        # -----------------------------------------
-        # normalized weights
-        # -----------------------------------------
         w = self._normalize_weights(theta_particles)
 
-        # -----------------------------------------
-        # unconstrained particles
-        # shape: (N_theta, d)
-        # -----------------------------------------
         Z = np.array([
             p.theta.to_unconstrained()
             for p in theta_particles
         ])
 
-        # -----------------------------------------
-        # weighted mean
-        # -----------------------------------------
-        mu = np.sum(w[:, None] * Z, axis=0)
+        mu = np.sum(w[:, None] * Z, axis=0)     # Weighted mean
 
-        # -----------------------------------------
-        # weighted covariance
-        # -----------------------------------------
         centered = Z - mu
-        Sigma = centered.T @ (w[:, None] * centered)
+        Sigma = centered.T @ (w[:, None] * centered)    # Weighted covariance
 
-        # -----------------------------------------
-        # regularization for numerical stability
-        # -----------------------------------------
-        Sigma += 1e-8 * np.eye(Sigma.shape[0])
+        Sigma += 1e-8 * np.eye(Sigma.shape[0])  # Add a small diagonal term for numerical stability
 
         return mu, Sigma
 
-    def _vector_dim(self, theta_particles: List[ThetaParticle]):
-        # Get dimension of vector representation of parameters
-        theta_example = theta_particles[0].theta
-        vec = theta_example.to_vector()
-        return len(vec)
-
     def _init_theta_hdf5_history(self, output_dir, theta_particles: List[ThetaParticle], T):
         h5_path = output_dir / "theta_history.h5"
-        theta_dim = self._vector_dim(theta_particles)
+        theta_dim = len(theta_particles[0].theta.to_vector())
 
         h5f = h5py.File(h5_path, "w")
         h5f.create_dataset(
@@ -361,9 +351,6 @@ class SMC2:
                         "covariance": Sigma
                     }
                     self.proposal.update_params(new_params)
-                    if logger is not None:
-                        logger.debug(f"Mean vector: {mu}")
-                        logger.debug(f"Covariance matrix: {Sigma}")
 
                     resampled_times.append(t+1)
                     self._append_resampled_time(h5f_theta, t+1)

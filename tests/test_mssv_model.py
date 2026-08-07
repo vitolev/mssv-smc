@@ -8,7 +8,7 @@ def test_mssv_params():
     params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
         phi=0.9,
-        sigma_eta=0.1,
+        eta2=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -18,55 +18,68 @@ def test_mssv_params():
 
 def test_mssv_state():
     h_t = np.array([0.5, -1.0])
-    s_t = np.array([[1, 0], [0, 1]])  # One-hot for 2 regimes
+    s_t = np.array([0, 1])
 
     state = MSSVState(h_t, s_t)
 
     assert state.h_t.shape == (2,)
-    assert state.s_t.shape == (2, 2)
+    assert state.s_t.shape == (2,)
 
     assert state[0].h_t.shape == (1,)
-    assert state[0].s_t.shape == (1, 2)
+    assert state[0].s_t.shape == (1,)
 
     assert state[0].h_t == 0.5
-    assert np.array_equal(state[1].s_t, [[0, 1]])
+    assert np.array_equal(state[1].s_t, [1])
     assert np.array_equal(state[0:2].h_t, h_t)
 
-    state[0] = MSSVState(np.array([0.3]), np.array([[0, 1]]))
+    state[0] = MSSVState(np.array([0.3]), np.array([0]))
     assert state[0].h_t == 0.3
+    state[0:2] = MSSVState(np.array([0.3, -0.8]), np.array([1, 1]))
+    assert np.array_equal(state.h_t, np.array([0.3, -0.8]))
+    assert np.array_equal(state.s_t, np.array([1, 1]))
 
     with pytest.raises(ValueError):
-        state = MSSVState(np.array([0.5]), np.array([[1, 0], [0, 1]]))
+        state = MSSVState(np.array([0.5]), np.array([0, 1]))  # Mismatched shapes
+    with pytest.raises(ValueError):
+        state[1] = MSSVState(np.array([0.3, 0.4]), np.array([0, 0]))  # Mismatched shapes
 
-    state1 = MSSVState(np.array([0.5]), np.array([[1, 0]]))
-    state2 = MSSVState(np.array([0.9]), np.array([[0, 1]]))
-    joined_state = state1.add(state2)
-    assert len(joined_state) == 2
-    assert joined_state.h_t.shape == (2,)
-    assert joined_state.s_t.shape == (2, 2)
+    state1 = MSSVState(np.array([0.5]), np.array([0]))
+    state2 = MSSVState(np.array([0.9, -1.2]), np.array([1, 2]))
+    state = state.add(state1)
+    state = state.add(state2)
+    assert len(state) == 5
+    assert state.h_t.shape == (5,)
+    assert state.s_t.shape == (5,)
+
+    idx = np.array([0, 2])
+    state[idx] = MSSVState(np.array([0.1, 0.2]), np.array([1, 0]))
+    assert state.h_t[0] == 0.1
+    assert state.h_t[2] == 0.2
 
 def test_mssv_proposal():
-    params = {"mode": "rw"}
-    rng = np.random.default_rng(42)
-    proposal = MSSVProposal(params)
-    assert proposal.mode == "rw"
     theta = MSSVParams.from_mu(
         mu=[0.0, 1.0],
         phi=0.9,
-        sigma_eta=0.1,
+        eta2=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
+    covariance = np.eye(len(theta.to_unconstrained())) * 0.1
+
+    params = {"mode": "rw", "covariance": covariance}
+    rng = np.random.default_rng(42)
+    proposal = MSSVProposal(params)
+    assert proposal.mode == "rw"
     new_theta = proposal.sample(rng, theta)
     assert isinstance(new_theta, MSSVParams)
     assert new_theta.K == theta.K
     log_prob = proposal.logpdf(theta, new_theta)
     assert isinstance(log_prob, float)
 
-    params = {"mode": "informed"}
+    params = {"mode": "conditional"}
     proposal = MSSVProposal(params)
-    assert proposal.mode == "informed"
+    assert proposal.mode == "conditional"
     with pytest.raises(ValueError):
-        proposal.sample(rng, theta) # For informed, sample need trajectory
+        proposal.sample(rng, theta) # For conditional, sample need trajectory
 
 def test_mssv_model():
     rng = np.random.default_rng(42)
@@ -74,7 +87,7 @@ def test_mssv_model():
     params = MSSVParams.from_mu(
         mu=[0.0, 1.0],
         phi=0.9,
-        sigma_eta=0.1,
+        eta2=0.1,
         P=[[0.9, 0.1], [0.2, 0.8]]
     )
 
@@ -82,19 +95,19 @@ def test_mssv_model():
     h0, s0 = state.h_t, state.s_t
     # Assert correct shapes
     assert h0.shape == (1,)
-    assert s0.shape == (1, 2)
+    assert s0.shape == (1,)
 
     state = model.sample_initial_state(params, size=5)
     h0, s0 = state.h_t, state.s_t
     # Assert correct shapes
     assert h0.shape == (5,)
-    assert s0.shape == (5, 2)
+    assert s0.shape == (5,)
     
     # Assert different values in h0 (due to randomness)
     assert not np.all(h0 == h0[0])
 
     h_t = np.array([0.5])
-    s_t = np.array([[1, 0]])  # One-hot for regime 0
+    s_t = np.array([0])
     y_t = model.sample_observation(params, MSSVState(h_t, s_t))
     
     # Assert correct shape and type
@@ -102,50 +115,50 @@ def test_mssv_model():
     assert isinstance(y_t[0], np.floating)
 
     h_t = np.array([0.5, 1.0, -0.5])
-    s_t = np.array([[1, 0], [0, 1], [1, 0]])  # One-hot for regimes
+    s_t = np.array([0, 1, 0])
     y_t_samples = model.sample_observation(params, MSSVState(h_t, s_t))
 
     # Assert correct number of samples
     assert y_t_samples.shape == (3,)
 
     h_prev = np.array([0.5])
-    s_prev = np.array([[1, 0]])  # One-hot for regime 0
+    s_prev = np.array([0]) 
     next_state = model.sample_next_state(params, MSSVState(h_prev, s_prev))
     h_next, s_next = next_state.h_t, next_state.s_t
 
     # Assert correct shapes
     assert h_next.shape == (1,)
-    assert s_next.shape == (1, 2)
+    assert s_next.shape == (1,)
 
     h_prev = np.array([0.5, 1.0, -0.5])
-    s_prev = np.array([[1, 0], [0, 1], [1, 0]])  # One-hot for regimes
+    s_prev = np.array([0, 1, 0])
     next_state = model.sample_next_state(params, MSSVState(h_prev, s_prev))
     h_next, s_next = next_state.h_t, next_state.s_t
 
     # Assert correct shapes
     assert h_next.shape == (3,)
-    assert s_next.shape == (3, 2)
+    assert s_next.shape == (3,)
 
     h_prev = np.array([0.5])
-    s_prev = np.array([[1, 0]])  # One-hot for regime 0
+    s_prev = np.array([0])
     expected_state = model.expected_next_state(params, MSSVState(h_prev, s_prev))
     h_exp, s_exp = expected_state.h_t, expected_state.s_t
 
     # Assert correct shapes
     assert h_exp.shape == (1,)
-    assert s_exp.shape == (1, 2)
+    assert s_exp.shape == (1,)
 
     h_prev = np.array([0.5, 1.0, -0.5])
-    s_prev = np.array([[1, 0], [0, 1], [1, 0]])  # One-hot for regimes
+    s_prev = np.array([0, 1, 0])
     expected_state = model.expected_next_state(params, MSSVState(h_prev, s_prev))
     h_exp, s_exp = expected_state.h_t, expected_state.s_t
 
     # Assert correct shapes
     assert h_exp.shape == (3,)
-    assert s_exp.shape == (3, 2)
+    assert s_exp.shape == (3,)
 
     h_t = np.array([0.5])
-    s_t = np.array([[1, 0]])  # One-hot for regime 0
+    s_t = np.array([0])  # One-hot for regime 0
     y_t = 0.7
     likelihood = model.likelihood(y_t, params, MSSVState(h_t, s_t))
     log_likelihood = model.log_likelihood(y_t, params, MSSVState(h_t, s_t))
@@ -157,10 +170,9 @@ def test_mssv_model():
     assert log_likelihood.shape == (1,)
 
     h_t = np.array([0.5, 1.0, -0.5])
-    s_t = np.array([[1, 0], [0, 1], [1, 0]])  # One-hot for regimes
-    y_t_values = [0.7, -1.2, 0.3]
-    likelihoods = model.likelihood(y_t_values, params, MSSVState(h_t, s_t))
-    log_likelihoods = model.log_likelihood(y_t_values, params, MSSVState(h_t, s_t))
+    s_t = np.array([0, 1, 0])
+    likelihoods = model.likelihood(y_t, params, MSSVState(h_t, s_t))
+    log_likelihoods = model.log_likelihood(y_t, params, MSSVState(h_t, s_t))
     
     # Assert likelihoods are positive numbers and shape matches
     assert likelihoods.shape == (3,)
@@ -169,9 +181,9 @@ def test_mssv_model():
     assert log_likelihoods.shape == (3,)
 
     h_prev = np.array([0.5])
-    s_prev = np.array([[1, 0]])  # One-hot for regime 0
+    s_prev = np.array([0])
     h_next = np.array([0.6])
-    s_next = np.array([[1, 0]])  # One-hot for regime 0
+    s_next = np.array([0])
     prob = model.transition_density(
         params,
         MSSVState(h_prev, s_prev),
@@ -190,9 +202,9 @@ def test_mssv_model():
     assert isinstance(log_prob[0], np.floating)
 
     h_prev = np.array([0.5, 1.0])
-    s_prev = np.array([[1, 0], [0, 1]])  # One-hot for regimes
+    s_prev = np.array([0, 1]) 
     h_next = np.array([0.6, 1.2])
-    s_next = np.array([[1, 0], [1, 0]])  # One-hot for regimes
+    s_next = np.array([0, 0]) 
     probs = model.transition_density(
         params,
         MSSVState(h_prev, s_prev),

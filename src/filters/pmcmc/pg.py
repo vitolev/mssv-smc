@@ -13,30 +13,27 @@ class PGS_Chain:
     A single PGS chain.
     """
 
-    def __init__(self, pf: ParticleFilter, kwargs_prior=None, kwargs_model=None, proposal_params=None):
+    def __init__(self, pf: ParticleFilter, kwargs_prior=None):
         """
         Parameters
         ----------
         pf: ParticleFilter
             Particle filter class to use for the conditional SMC step. Must have a .run_conditional() method implemented.
-        kwargs_model: dict, optional
-            Additional keyword arguments to pass to the initialization of the model. For example, for MSSV model, num_regimes is needed to initialize the model.
         kwargs_prior: dict, optional
             Additional keyword arguments to pass to the initialization of the prior distribution for parameters.
-        proposal_params: dict, optional
-            Additional keyword arguments to pass to the proposal distribution.
         """
         self.pf = pf
         self.model = pf.model
         self.rng = pf.rng
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
-        self.kwargs_model = kwargs_model if kwargs_model is not None else {}
-        self.proposal_params = proposal_params if proposal_params is not None else {}
 
         prior_cls = pf.model.prior_type
         self.prior = prior_cls(**self.kwargs_prior)
+
         proposal_cls = pf.model.proposal_type
-        self.proposal_params["prior"] = self.prior  # Pass the prior to the proposal
+        self.proposal_params = dict()
+        self.proposal_params["mode"] = "conditional"        # Gibbs sampler needs to use conditional proposal
+        self.proposal_params["prior"] = self.prior          # Pass the prior to the proposal
         self.proposal = proposal_cls(self.proposal_params)
 
     def _run_pf_and_sample(self, y, theta: StateSpaceModelParams, x_current: List[StateSpaceModelState]):
@@ -59,7 +56,7 @@ class PGS_Chain:
         """
         Initialize the chain with a conditional PF run.
         """
-        self.theta = self.prior.sample(self.rng, **self.kwargs_model)
+        self.theta = self.prior.sample(self.rng)
         self.initial_params = self.theta.copy()
         self.theta_vars = vars(self.theta)
 
@@ -201,26 +198,20 @@ class ParticleGibbsSampler:
     Particle Gibbs Sampler for state-space models.
     """
 
-    def __init__(self, pf: ParticleFilter, kwargs_model=None, kwargs_prior=None, proposal_params=None):
+    def __init__(self, pf: ParticleFilter, kwargs_model=None, kwargs_prior=None):
         """
         Parameters
         ----------
         pf: ParticleFilter
             Particle filter class to use for the conditional SMC step. Must have a .run_conditional() method implemented.
-        kwargs_model: dict, optional
-            Additional keyword arguments to pass to the initialization of the model. 
         kwargs_prior: dict, optional
             Additional keyword arguments to pass to the initialization of the prior distribution for parameters.
-        proposal_params: dict, optional
-            Additional keyword arguments to pass to the proposal distribution.
         """
         self.pf = pf
         self.rng = pf.model.rng
-        self.kwargs_model = kwargs_model if kwargs_model is not None else {}
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
-        self.proposal_params = proposal_params if proposal_params is not None else {}
 
-    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, kwargs_prior, proposal_params, n_iter, burnin, chain_id, output_dir, logs_dir=None):
+    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_prior, n_iter, burnin, chain_id, output_dir, logs_dir=None):
         """
         Run a single PGS chain with a given random seed.
         """
@@ -238,7 +229,7 @@ class ParticleGibbsSampler:
             resampler=pf.resampler
         )
 
-        chain = PGS_Chain(pf_chain, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model, proposal_params=proposal_params)
+        chain = PGS_Chain(pf_chain, kwargs_prior=kwargs_prior)
 
         if logs_dir is not None:
             logger = setup_chain_logging(logs_dir, "PG", chain_id)
@@ -278,9 +269,7 @@ class ParticleGibbsSampler:
                 seed=self.rng.integers(0, 1_000_000),
                 y=y, 
                 pf=self.pf, 
-                kwargs_model=self.kwargs_model,
                 kwargs_prior=self.kwargs_prior,
-                proposal_params=self.proposal_params,
                 n_iter=n_iter, 
                 burnin=burnin,
                 chain_id=0,
@@ -298,9 +287,7 @@ class ParticleGibbsSampler:
                     seeds,
                     [y] * n_chain,
                     [self.pf] * n_chain,
-                    [self.kwargs_model] * n_chain,
                     [self.kwargs_prior] * n_chain,
-                    [self.proposal_params] * n_chain,
                     [n_iter] * n_chain,
                     [burnin] * n_chain,
                     list(range(n_chain)),

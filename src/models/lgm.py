@@ -1,8 +1,10 @@
 import numpy as np
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState, StateSpaceModelPrior, StateSpaceModelProposal
-from scipy.stats import norm, uniform, expon, beta
+from scipy.stats import norm, uniform, expon, beta, multivariate_normal
 from scipy.special import logsumexp
 from dataclasses import dataclass
+
+EPS = 1e-10
 
 # =========================
 # PARAMETER CONTAINER
@@ -24,14 +26,77 @@ class LGModelParams(StateSpaceModelParams):
             raise ValueError(f"sigma_y must be positive, got {self.sigma_y}")
         if self.a < -1.0 or self.a > 1.0:
             raise ValueError(f"a must be in the range [-1, 1] for stationarity, got {self.a}")
+
+    def __repr__(self):
+        return (f"LGModelParams(a={self.a}, b={self.b}, sigma_x={self.sigma_x}, sigma_y={self.sigma_y})")
+
+    def to_unconstrained(self) -> np.ndarray:
+        """
+        Transform parameters to an unconstrained space for optimization or sampling.
+
+        Transformations:
+        - a: arctanh transform
+        - b: already unconstrained
+        - sigma_x: log transform
+        - sigma_y: log transform
+
+        Returns
+        -------
+            z: np.ndarray
+                Unconstrained parameter vector
+        """
+        z_a = np.arctanh(self.a)  # maps [-1, 1] to (-inf, inf)
+        z_b = self.b              # already unconstrained
+        z_sigma_x = np.log(self.sigma_x)  # maps (0, inf) to (-inf, inf)
+        z_sigma_y = np.log(self.sigma_y)  # maps (0, inf) to (-inf, inf)
+        return np.array([z_a, z_b, z_sigma_x, z_sigma_y])
+
+    def from_unconstrained(z: np.ndarray) -> "LGModelParams":
+        """
+        Transform unconstrained parameters back to the constrained space.
+
+        Inverse transformations:
+        - a: tanh transform
+        - b: already unconstrained
+        - sigma_x: exp transform
+        - sigma_y: exp transform
+
+        Parameters
+        ----------
+            z: np.ndarray
+                Unconstrained parameter vector
+
+        Returns
+        -------
+            params: LGModelParams
+                Constrained parameter instance
+        """
+        a = np.tanh(z[0])  # maps (-inf, inf) to (-1, 1)
+        b = z[1]           # already unconstrained
+        sigma_x = np.exp(z[2])  # maps (-inf, inf) to (0, inf)
+        sigma_y = np.exp(z[3])  # maps (-inf, inf) to (0, inf)
+        return LGModelParams(a=a, b=b, sigma_x=sigma_x, sigma_y=sigma_y)
+
+    def to_vector(self) -> np.ndarray:
+        """
+        Convert parameters to a vector representation. Used for storing samples in a consistent format. 
+        """
+        return np.array([self.a, self.b, self.sigma_x, self.sigma_y])
         
-    def copy(self):
+    def copy(self) -> "LGModelParams":
         return LGModelParams(a=self.a, b=self.b, sigma_x=self.sigma_x, sigma_y=self.sigma_y)
 
 # =========================
 # PRIOR
 # =========================
 class LGModelPrior(StateSpaceModelPrior):
+    """
+    Prior distribution for the LGSSM parameters. The prior is defined as follows:
+    - a ~ Beta(a_a, a_b) transformed to [-1, 1]
+    - b ~ Normal(b_mean, b_sd)
+    - sigma_x ~ Exponential(sigma_x_scale)
+    - sigma_y ~ Exponential(sigma_y_scale)
+    """
     def __init__(self,
                  a_a=1,
                  a_b=1,
@@ -69,54 +134,123 @@ class LGModelPrior(StateSpaceModelPrior):
 # PROPOSAL
 # =========================
 class LGModelProposal(StateSpaceModelProposal):
-    def __init__(self, step_a=0.1, step_b=0.1, step_sigma_x=0.1, step_sigma_y=0.1):
-        self.step_a = step_a
-        self.step_b = step_b
-        self.step_sigma_x = step_sigma_x
-        self.step_sigma_y = step_sigma_y
+    """
+    Proposal distribution for the LGSSM parameters. 
 
-    def sample(self, rng: np.random.Generator, p: LGModelParams) -> LGModelParams:
-        L = -1.0
-        U = 1.0
-        width = U - L  # 2.0
-        a_prop = p.a + rng.normal(0.0, self.step_a)
-        # Infinite reflection via modulo folding
-        a_prop = (a_prop - L) % (2.0 * width)
-        if a_prop > width:
-            a_prop = 2.0 * width - a_prop
-        a_new = a_prop + L
+    The proposal can operate in following modes:
+        - "rw": Random walk proposal. Parameters:
+            - "covariance": Covariance matrix for the multivariate normal proposal in the unconstrained space.
+        - "independent": Independent proposal. Parameters:
+            - "mean": Mean vector for the multivariate normal proposal in the unconstrained space.
+            - "covariance": Covariance matrix for the multivariate normal proposal in the unconstrained space.
+    """
+    def __init__(self, params: dict):
+        self.mode = params["mode"]  
+        if self.mode not in ["rw", "independent"]:
+            raise ValueError(f"Unknown proposal mode: {self.mode}")
 
-        b_new = p.b + rng.normal(0.0, self.step_b)
-        sigma_x_new = p.sigma_x * np.exp(rng.normal(0.0, self.step_sigma_x))  # Log-normal proposal
-        sigma_y_new = p.sigma_y * np.exp(rng.normal(0.0, self.step_sigma_y))  # Log-normal proposal
-        return LGModelParams(a=a_new, b=b_new, sigma_x=sigma_x_new, sigma_y=sigma_y_new)
+        default_params = {
+            "rw": {
+                "covariance": None
+            },
+            "independent": {
+                "mean": None,
+                "covariance": None
+            }
+        }
 
-    def logpdf(self, p_from: LGModelParams, p_to: LGModelParams) -> float:
-        # ---- a : Reflected Gaussian RW (finite image sum) ----
-        period = 4.0  # 2 * width where width = 2 for [-1,1]
-        K = 2  # number of image terms on each side
+        for k in params:
+            if k in default_params[self.mode]:
+                default_params[self.mode][k] = params[k]
 
-        diffs = []
-        for k in range(-K, K + 1):
-            shift = period * k
-            diffs.append(
-                norm.logpdf(
-                    p_to.a,
-                    loc=p_from.a - shift,
-                    scale=self.step_a,
-                )
-            )
+        self.params = default_params
 
-        log_q_a = logsumexp(diffs)
+    def update_params(self, new_params: dict):
+        for k in new_params:
+            if k in self.params[self.mode]:
+                self.params[self.mode][k] = new_params[k]
 
-        # ---- b (regular Gaussian RW) ----
-        log_q_b = norm.logpdf(p_to.b, loc=p_from.b, scale=self.step_b)
+    def _sample_rw(self, rng: np.random.Generator, p: LGModelParams) -> LGModelParams:
+        cfg = self.params["rw"]
 
-        # ---- sigma_x, sigma_y (log-normal RW) ----
-        log_q_sigma_x = norm.logpdf(np.log(p_to.sigma_x / p_from.sigma_x), loc=0.0, scale=self.step_sigma_x) - np.log(p_to.sigma_x)
-        log_q_sigma_y = norm.logpdf(np.log(p_to.sigma_y / p_from.sigma_y), loc=0.0, scale=self.step_sigma_y) - np.log(p_to.sigma_y)
+        cov = cfg["covariance"]
+        mean = np.zeros(cov.shape[0])
 
-        return log_q_a + log_q_b + log_q_sigma_x + log_q_sigma_y
+        z = rng.multivariate_normal(mean=mean, cov=cov)
+
+        p_unconstrained = p.to_unconstrained()
+        p_unconstrained_new = p_unconstrained + z
+        p_new = LGModelParams.from_unconstrained(p_unconstrained_new)
+        return p_new
+
+    def _logpdf_rw(self, p_from: LGModelParams, p_to: LGModelParams) -> float:
+        cfg = self.params["rw"]
+
+        cov = cfg["covariance"]
+        mean = np.zeros(cov.shape[0])
+
+        p_from_unconstrained = p_from.to_unconstrained()
+        p_to_unconstrained = p_to.to_unconstrained()
+
+        diff = p_to_unconstrained - p_from_unconstrained
+        log_prob = multivariate_normal.logpdf(diff, mean=mean, cov=cov)
+
+        log_jacobian = 0.0
+
+        a = np.clip(p_to.a, -1 + EPS, 1 - EPS)
+        log_jacobian += np.log(1.0 - a**2)
+
+        sigma_x = max(p_to.sigma_x, EPS)
+        sigma_y = max(p_to.sigma_y, EPS)
+
+        log_jacobian += np.log(sigma_x)
+        log_jacobian += np.log(sigma_y)
+
+        return log_prob - log_jacobian
+
+    def _sample_independent(self, rng: np.random.Generator) -> LGModelParams:
+        cfg = self.params["independent"]
+
+        mean = cfg["mean"]
+        cov = cfg["covariance"]
+
+        z = rng.multivariate_normal(mean=mean, cov=cov)
+        p_new = LGModelParams.from_unconstrained(z)
+        return p_new
+
+    def _logpdf_independent(self, p: LGModelParams) -> float:
+        cfg = self.params["independent"]
+
+        mean = cfg["mean"]
+        cov = cfg["covariance"]
+
+        z = p.to_unconstrained()
+        log_prob = multivariate_normal.logpdf(z, mean=mean, cov=cov)
+
+        log_jacobian = 0.0
+
+        a = np.clip(p.a, -1 + EPS, 1 - EPS)
+        log_jacobian += np.log(1.0 - a**2)
+
+        sigma_x = max(p.sigma_x, EPS)
+        sigma_y = max(p.sigma_y, EPS)
+
+        log_jacobian += np.log(sigma_x)
+        log_jacobian += np.log(sigma_y)
+
+        return log_prob - log_jacobian
+
+    def sample(self, rng: np.random.Generator, from_p: LGModelParams = None) -> LGModelParams:
+        if self.mode == "rw":
+            return self._sample_rw(rng, from_p)
+        else: # "independent"
+            return self._sample_independent(rng)
+        
+    def logpdf(self, to_p: LGModelParams, from_p: LGModelParams = None) -> float:
+        if self.mode == "rw":
+            return self._logpdf_rw(from_p, to_p)
+        else: # "independent"
+            return self._logpdf_independent(to_p)
 
 # =========================
 # MODEL
@@ -165,7 +299,7 @@ class LGModelState(StateSpaceModelState):
     
     def add(self, other: "LGModelState") -> "LGModelState":
         """
-        Extend the current state by adding another state. This is useful for accumulating trajectories in PMMH.
+        Extend the current state by adding another state.
 
         Parameters
         ----------
@@ -182,6 +316,12 @@ class LGModelState(StateSpaceModelState):
         
         new_x_t = np.hstack((self.x_t, other.x_t))
         return LGModelState(x_t=new_x_t)
+
+    def to_numpy(self) -> np.ndarray:
+        """
+        Convert the state to a numpy array of shape (N, 1).
+        """
+        return self.x_t.reshape(-1, 1)
 
     def copy(self) -> "LGModelState":
         """

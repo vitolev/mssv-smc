@@ -2,7 +2,7 @@ import h5py
 import numpy as np
 import arviz as az
 from concurrent.futures import ProcessPoolExecutor
-from typing import List
+from typing import List, Tuple
 
 from src.filters.smc.base_pf import ParticleFilter
 from src.models.base import StateSpaceModel, StateSpaceModelParams, StateSpaceModelState
@@ -15,7 +15,6 @@ class PMMH_Chain:
     def __init__(
         self,
         pf: ParticleFilter,
-        kwargs_model=None,
         kwargs_prior=None,
         proposal_param=None,
     ):
@@ -24,8 +23,6 @@ class PMMH_Chain:
         ----------
         pf : ParticleFilter
             A ParticleFilter instance to use for proposing trajectories and computing marginal likelihoods.
-        kwargs_model : dict, optional
-            Additional keyword arguments to pass about the model.
         proposal_param : dict, optional
             Additional keyword arguments to pass when proposing new parameters.
             For example, for MSSV model, step_mu, step_phi, step_sigma, step_P are needed to sample new parameters.
@@ -34,16 +31,16 @@ class PMMH_Chain:
         """
         self.pf = pf
         self.rng = pf.model.rng
-        self.kwargs_model = kwargs_model if kwargs_model is not None else {}
         self.proposal_param = proposal_param if proposal_param is not None else {}
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
 
         prior_cls = pf.model.prior_type
         self.prior = prior_cls(**self.kwargs_prior)
+
         proposal_cls = pf.model.proposal_type
         self.proposal = proposal_cls(self.proposal_param)
 
-    def _run_pf_and_sample(self, y, theta: StateSpaceModelParams):
+    def _run_pf_and_sample(self, y, theta: StateSpaceModelParams) -> Tuple[List[StateSpaceModelState], float]:
         """
         Run PF once and sample smoothing trajectory(ies).
         """
@@ -64,15 +61,15 @@ class PMMH_Chain:
         """
         Initialize the chain with a PF run by first sampling parameters from the prior and then running the PF to get an initial trajectory and marginal likelihood.
         """
-        self.theta = self.prior.sample(self.rng, **self.kwargs_model)  # Sample initial parameters from the prior
+        self.theta = self.prior.sample(self.rng)  # Sample initial parameters from the prior
         self.initial_params = self.theta.copy()                        # Store the initial parameters for later reference
         self.theta_vars = vars(self.theta)
 
-        traj, logmarlik = self._run_pf_and_sample(self.y, self.theta)
+        traj, logmarlik = self._run_pf_and_sample(self.y, self.theta)  # Run PF with initial parameters
         self.current_trajectory = traj
         self.current_logmarlik = logmarlik
 
-    def _step(self):
+    def _step(self) -> float:
         """
         Perform one PMMH iteration by proposing new parameters, running the PF to get a new trajectory and marginal likelihood, and then accepting or rejecting the proposal based on the MH acceptance probability.
         """
@@ -89,9 +86,10 @@ class PMMH_Chain:
             self.n_accepted += 1
 
         self.n_steps += 1
+
         return log_alpha
     
-    def _init_hdf5_chain(self, output_dir, chain_id: int, n_samples: int, theta_dim: int, state_dim: int, T: int):
+    def _init_hdf5_chain(self, output_dir, chain_id: int, n_samples: int, theta_dim: int, state_dim: int, T: int) -> h5py.File:
         h5_path = output_dir / f"chain_{chain_id}.h5"
 
         h5f = h5py.File(h5_path, "w")
@@ -218,7 +216,6 @@ class ParticleMarginalMetropolisHastings:
     def __init__(
         self,
         pf: ParticleFilter,
-        kwargs_model=None,
         proposal_param=None,
         kwargs_prior=None,
     ):
@@ -227,9 +224,6 @@ class ParticleMarginalMetropolisHastings:
         ----------
         pf : ParticleFilter
             A ParticleFilter instance to use for proposing trajectories and computing marginal likelihoods.
-        kwargs_model : dict, optional
-            Additional keyword arguments to pass to the initialization of model parameters.
-            For example, for MSSV model, num_regimes is needed to initialize the parameters.
         proposal_param : dict, optional
             Additional keyword arguments to pass when proposing new parameters.
             For example, for MSSV model, step_mu, step_phi, step_sigma, step_P are needed to sample new parameters.
@@ -238,11 +232,10 @@ class ParticleMarginalMetropolisHastings:
         """
         self.pf = pf
         self.rng = pf.model.rng
-        self.kwargs_model = kwargs_model if kwargs_model is not None else {}
         self.proposal_param = proposal_param if proposal_param is not None else {}
         self.kwargs_prior = kwargs_prior if kwargs_prior is not None else {}
 
-    def _run_single_chain(self, seed, y, pf: ParticleFilter, kwargs_model, proposal_param, kwargs_prior, n_iter, burnin, chain_id, output_dir, logs_dir=None):
+    def _run_single_chain(self, seed, y, pf: ParticleFilter, proposal_param, kwargs_prior, n_iter, burnin, chain_id, output_dir, logs_dir=None):
         """
         Worker function for a single PMMH chain.
         """
@@ -262,7 +255,6 @@ class ParticleMarginalMetropolisHastings:
 
         chain = PMMH_Chain(
             pf_chain,
-            kwargs_model=kwargs_model,
             proposal_param=proposal_param,
             kwargs_prior=kwargs_prior
         )
@@ -304,7 +296,6 @@ class ParticleMarginalMetropolisHastings:
                 seed=self.rng.integers(0, 1_000_000),
                 y=y,
                 pf=self.pf,
-                kwargs_model=self.kwargs_model,
                 proposal_param=self.proposal_param,
                 kwargs_prior=self.kwargs_prior,
                 n_iter=n_iter,
@@ -324,7 +315,6 @@ class ParticleMarginalMetropolisHastings:
                     seeds,
                     [y] * n_chain,
                     [self.pf] * n_chain,
-                    [self.kwargs_model] * n_chain,
                     [self.proposal_param] * n_chain,
                     [self.kwargs_prior] * n_chain,
                     [n_iter] * n_chain,
