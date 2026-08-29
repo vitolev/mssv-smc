@@ -8,7 +8,7 @@
 #SBATCH --mem=64G
 #SBATCH --nodelist=wn[021-061]
 #SBATCH --output=mssv_smc2_synth_%j.out
-#SBATCH --time=08:00:00
+#SBATCH --time=05:00:00
 
 echo "Job started on $(hostname)"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"

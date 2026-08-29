@@ -115,11 +115,8 @@ def main():
         "covariance": np.array(covariance)
     }
 
-    kwargs_model = {
-        "K": K,
-    }
-
     kwargs_prior = {
+        "K": K,
         "mu_mean": mu_mean,
         "mu_sd": mu_sd,
         "phi_a": phi_a,
@@ -132,14 +129,9 @@ def main():
         "P_base": P_base
     }
 
-    pmmh = ParticleMarginalMetropolisHastings(bpf, proposal_param=proposal_params, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
+    pmmh = ParticleMarginalMetropolisHastings(bpf, proposal_param=proposal_params, kwargs_prior=kwargs_prior)
 
     logger.info(f"Initialized PMMH sampler")
-    logger.info("-" * 60)
-    logger.info("Model parameters:")
-    for k, v in kwargs_model.items():
-       logger.info("- %s: %s", k, v)
-
     logger.info("-" * 60)
 
     logger.info("Proposal parameters:")

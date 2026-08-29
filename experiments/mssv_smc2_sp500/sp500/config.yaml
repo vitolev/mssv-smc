@@ -7,12 +7,12 @@ gamma: 0.5
 name: sp500
 prior:
   P_base: 1.5
-  P_diag: 20.0
+  P_diag: 38.5
   diff_mean: 0.0
   diff_sd: 5.0
   eta2_a: 2.001
   eta2_b: 0.1
-  mu_mean: 0.0
+  mu_mean: -8.87
   mu_sd: 5.0
   phi_a: 6
   phi_b: 2

@@ -45,9 +45,6 @@ def main():
     P_diag: float = config.prior.P_diag
     P_base: float = config.prior.P_base
 
-    # Proposal parameters
-    mode = config.proposal.mode
-
     # Create subfolder with name of the experiment
     script_dir = script_dir / name
     script_dir.mkdir(parents=True)
@@ -98,15 +95,8 @@ def main():
 
     logger.info("-" * 60)
 
-    proposal_params = {
-        "mode": mode,
-    }
-
-    kwargs_model = {
-        "K": K,
-    }
-
     kwargs_prior = {
+        "K": K,
         "mu_mean": mu_mean,
         "mu_sd": mu_sd,
         "phi_a": phi_a,
@@ -119,20 +109,9 @@ def main():
         "P_base": P_base
     }
 
-    pgs = ParticleGibbsSampler(bpf, proposal_params=proposal_params, kwargs_prior=kwargs_prior, kwargs_model=kwargs_model)
+    pgs = ParticleGibbsSampler(bpf, kwargs_prior=kwargs_prior)
 
     logger.info(f"Initialized PG sampler")
-    logger.info("-" * 60)
-    logger.info("Model parameters:")
-    for k, v in kwargs_model.items():
-       logger.info("- %s: %s", k, v)
-
-    logger.info("-" * 60)
-
-    logger.info("Proposal parameters:")
-    for k, v in proposal_params.items():
-        logger.info("- %s: %s", k, v)
-
     logger.info("-" * 60)
 
     logger.info("Prior parameters:")

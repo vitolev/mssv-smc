@@ -8,7 +8,7 @@ R: 10              # Number of MCMC rejuvenation steps after resampling
 x_save_factor: 5         # Save factor for state particles in the output history
 
 prior:           # prior parameters for the model
-  mu_mean: 0.0
+  mu_mean: -4.73
   mu_sd: 5.0
   phi_a: 6
   phi_b: 2
@@ -16,7 +16,7 @@ prior:           # prior parameters for the model
   eta2_b: 0.1
   diff_mean: 0.0
   diff_sd: 5.0
-  P_diag: 20.0
+  P_diag: 38.5
   P_base: 1.5
 
 proposal:

@@ -8,7 +8,7 @@
 #SBATCH --mem=128G
 #SBATCH --nodelist=wn[021-061]
 #SBATCH --output=mssv_pmmh_btc_%j.out
-#SBATCH --time=1-18:00:00
+#SBATCH --time=1-22:00:00
 
 echo "Job started on $(hostname)"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"
