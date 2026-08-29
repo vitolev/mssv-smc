@@ -1,0 +1,316 @@
+\chapter{Stochastic Volatility}
+\label{chap:stochastic_volatility}
+Volatility is a fundamental concept in financial econometrics and is commonly used as a measure of the variability or uncertainty of asset returns. In its most basic form, volatility refers to the standard deviation of returns over a given time horizon, and therefore quantifies the magnitude of fluctuations around the expected return.
+
+Many models assume that volatility is constant. In practice, however, financial markets exhibit periods of high volatility, for example, during financial crises, and periods of low volatility, usually during stable economic conditions. Stochastic volatility models capture this behavior by allowing volatility to vary over time according to a stochastic process.
+
+This chapter begins by introducing volatility and then develops the state space formulation used throughout the thesis, with particular emphasis on the Markov switching stochastic volatility (MSSV) model.
+
+\section{Volatility}
+\label{sec:volatility}
+Let $P_t$ denote the price of an asset (stock, index, commodity, etc.) at time $t$. The log return of the asset between two consecutive time points is defined as
+\begin{equation}
+    Y_t = \log(P_t) - \log(P_{t-1}) = \log\left(\frac{P_t}{P_{t-1}}\right).
+\end{equation}
+The advantage of using log returns rather than simple returns lies in their additive structure over time and their natural treatment of compounding effects \cite{fan2017elements}. Thus, throughout this thesis, the term return refers to a log return.
+
+While returns are directly observable, volatility is a characteristic of the underlying return distribution and is not directly observable from a single realization. At each time point $t$, only one return is observed, whereas volatility is defined through the variability of the entire return-generating distribution. Consequently, time-varying volatility must be inferred from data rather than measured directly.
+
+To formalize this idea, we define the conditional mean and variance of the return as
+\begin{align}
+    \mu_t &= \mathbb{E}[Y_t | \mathcal{F}_{t-1}], \\
+    \sigma_t^2 &= \text{Var}(Y_t | \mathcal{F}_{t-1}) = \mathbb{E}[(Y_t - \mu_t)^2 | \mathcal{F}_{t-1}],
+\end{align}
+where $\mathcal{F}_{t-1}$ denotes the information set containing all relevant information available up to time $t-1$ \cite{andersen2006volatility}.
+The quantity $\sigma_t$ is referred to as the conditional volatility. In many financial applications, the conditional mean is assumed to be negligible relative to the variability of returns, so that the focus is primarily on modelling the conditional volatility process.
+
+Until now, we never specified the time scale of the returns. For example $Y_t$ could represent daily, weekly, or monthly returns and $t$ could therefore index days, weeks, or months.
+In this thesis, we focus on daily returns, specifically close-to-close daily returns, meaning that $P_t$ is the closing price of the asset on day $t$\footnote{One could also consider open-to-open returns, where $P_t$ is the opening price of the asset on day $t$.}.
+The goal is then to estimate the daily conditional volatilities $\sigma_t$. 
+
+When high-frequency intraday data are available, the latent conditional variance can be approximated using realized variance. Consider a day $t$, divided into $m$ equally spaced intraday intervals. Let $Y_{t,i}^{(m)}$ denote the return over the $i$-th intraday interval, $i = 1, \ldots, m$, so that the corresponding daily return can be written as \begin{equation} Y_t = \sum_{i=1}^{m} Y_{t,i}^{(m)}. \end{equation}
+It is often reasonable to assume that 
+\begin{align}
+    \mathbb{E}\left[Y_{t,i}^{(m)} \mid \mathcal{F}_{t-1}\right] &\approx 0, \\
+    \operatorname{Cov}\left(Y_{t,i}^{(m)}, Y_{t,j}^{(m)} \mid \mathcal{F}_{t-1}\right) &\approx 0, \qquad \text{for} \; i \neq j.
+\end{align}
+Under these assumptions, we have
+\begin{align}
+    \sigma_t^2 = \operatorname{Var}(Y_t \mid \mathcal{F}_{t-1}) &= \operatorname{Var}\left(\sum_{i=1}^{m} Y_{t,i}^{(m)} \middle| \mathcal{F}_{t-1}\right) \\
+    &\approx \sum_{i=1}^{m} \operatorname{Var}\left(Y_{t,i}^{(m)} \mid \mathcal{F}_{t-1}\right) \\
+    &\approx \sum_{i=1}^{m} \mathbb{E}\left[\left(Y_{t,i}^{(m)}\right)^2 \mid \mathcal{F}_{t-1}\right] \\
+    &= \mathbb{E}\left[\sum_{i=1}^{m} \left(Y_{t,i}^{(m)}\right)^2 \mid \mathcal{F}_{t-1}\right] \\
+    &= \mathbb{E}\left[RV_t^{(m)} \mid \mathcal{F}_{t-1}\right],
+\end{align}
+where we defined the realized variance at sampling frequency $m$ as
+\begin{equation}
+    RV_t^{(m)} = \sum_{i=1}^{m} \left(Y_{t,i}^{(m)}\right)^2.
+\end{equation}
+Thus, under these assumptions, realized variance provides an approximately unbiased estimator of the conditional variance. 
+Moreover, as the sampling frequency increases, the realized variance generally becomes a more precise measure of the underlying volatility, since the estimation error decreases with $m$.
+In practice, however, $m$ must not be too large, to avoid that intraday returns become correlated due to market microstructure effects \cite{hansen2005forecast}.
+
+Many assets are not traded continuously, as markets are closed overnight, over weekends, and on holidays. We therefore decompose the daily return into overnight (close-to-open) and intraday (open-to-close) components,
+\begin{equation}
+    Y_t = \log\left(\frac{P_t^{close}}{P_{t-1}^{close}}\right) = \log\left(\frac{P_t^{open}}{P_{t-1}^{close}}\right) + \log\left(\frac{P_t^{close}}{P_t^{open}}\right) = Y_t^{CO} + Y_t^{OC}
+\end{equation}
+where $Y_t^{CO}$ is the overnight (close-to-open) return and $Y_t^{OC}$ is the intraday (open-to-close) return. Here we see the usefulness of the additive structure of log returns.
+From this it naturally follows that the daily variance can be decomposed into an overnight and an intraday component, if we assume that the two components are uncorrelated:
+\begin{align}
+    \sigma_t^2 = \operatorname{Var}(Y_t \mid \mathcal{F}_{t-1}) &= \operatorname{Var}(Y_t^{CO} + Y_t^{OC} \mid \mathcal{F}_{t-1}) \\
+    &= \operatorname{Var}(Y_t^{CO} \mid \mathcal{F}_{t-1}) + \operatorname{Var}(Y_t^{OC} \mid \mathcal{F}_{t-1}).
+\end{align}
+
+While the intraday variance can be estimated from high-frequency data using realized variance $RV_t^{(m)}$, the overnight variance is difficult to estimate reliably from a single observation\footnote{In case when high-frequency overnight trading data is available, the overnight variance can be approximated in the same way using intranight squared returns, just like the intraday variance \cite{martens2002measuring}.}.
+One solution is to simply add the squared overnight return to $RV_t^{(m)}$. The variance estimator is then given by
+\begin{equation}
+    \hat{\sigma}_t^2 = RV_t^{(m)} + (Y_t^{CO})^2.
+\end{equation}
+This approach is problematic, as the squared overnight return is a very noisy estimator for the overnight variance \cite{martens2002measuring}. 
+
+Better approach is to scale the intraday realized variance and obtain an estimator:
+\begin{equation}
+\hat{\sigma}_t^2 = c RV_t^{(m)}, \quad c = \frac{\frac{1}{T}\sum_{t=1}^T \left(Y_t - \hat{\mu}_t\right)^2}{\frac{1}{T}\sum_{t=1}^T RV_t^{(m)}},
+\end{equation}
+where $\hat{\mu}_t$ is the sample mean of the daily returns and $T$ is the total number of days in the sample.
+Here, $c$ measures the historical ratio of total close-to-close variance to intraday variance. Equivalently, if $\kappa$ denotes the historical ratio of overnight to intraday variance, then $c=1+\kappa$.
+Thus, the missing overnight variance is estimated as a proportion $\kappa$ of intraday realized variance rather than estimated from the noisy overnight return of each individual day. Such approach is valid under the assumption that intraday and overnight returns are uncorrelated.
+Weekends and holidays are naturally treated as extended overnight periods \cite{hansen2005forecast,martens2002measuring}.
+
+Overall, when high-frequency intraday observations are available they provide a direct, increasingly precise proxy for the underlying daily variance. In empirical applications, realized variance can therefore be used in place of the unobserved conditional variance, giving us a way to evaluate the performance of volatility models. 
+
+\section{State space models}
+\label{sec:state_space_models}
+A state space model describes a dynamical system in which an unobserved (latent) stochastic process drives the evolution of an observed process. The central idea is that the system evolves through hidden states, while only noisy measurements of those states are available.
+
+Let $\{X_t\}_{t \geq 0}$ denote the sequence of random variables representing the latent state process, let $\{Y_t\}_{t \geq 1}$ denote the sequence of random variables representing the observed process and let $T$ denote the time horizon, hence $t \in \{0, 1, \ldots, T\}$\footnote{We indexed the latent states from $0$ to $T$, whereas the observed returns are indexed from $1$ to $T$. This way we want to emphasize that the initial state $X_0$ is the prior and we don't associate it with any observation. One could define the indexing differently (e.g. observations also starting with $t=0$), but we decided to use this convention.}. 
+$X_t$ takes values in a measurable state space $(\mathcal{X}, \mathcal{B}(\mathcal{X}))$ and $Y_t$ takes values in $(\mathcal{Y}, \mathcal{B}(\mathcal{Y}))$. Together, $\{(X_t, Y_t)\}_{t \geq 1}$ forms a stochastic process on the joint space $(\mathcal{X} \times \mathcal{Y}, \mathcal{B}(\mathcal{X}) \otimes \mathcal{B}(\mathcal{Y}))$ \cite{chopin2020smc}.
+
+The latent process $\{X_t\}_{t \geq 0}$ is modelled as a Markov process, while the observations $\{Y_t\}_{t \geq 1}$ are conditionally independent given the state process. The model is specified by the following densities:
+\begin{align}
+    X_0 &\sim \chi(x_0 | \theta), \\
+    X_t | X_{t-1}=x_{t-1} &\sim p(x_t | x_{t-1}, \theta), \\
+    Y_t | X_t=x_t &\sim q(y_t | x_t, \theta),
+\end{align}
+where $\chi$ is the \textit{initial density}, $p$ is the \textit{transition density}, and $q$ is the \textit{observation} or \textit{emission density}. The vector $\theta \in \Theta$ denotes the collection of model parameters \cite{chopin2020smc, doucet2001sequential,tingstrom2015smc2sv}. 
+
+A potential problem with this definition is that conditional distribution of $X_t \mid X_{t-1}$ may not always admit a density. A proper way would be to define the state space model in a more measure focussed way using probability kernels \cite{chopin2020smc}.
+However, we will not deal with this more general definition in this thesis, as our models will admit nice densities.
+
+Sometimes, the state space model is defined in even more general terms, where the latent process and observation process are also dependent on the control input $U_t$, which constitutes another sequence of random variables \cite{murphy2012machine}. Such definition is more used in control theory and engineering. The control inputs can be though of as external factors that influence the system dynamics and observations. 
+In this thesis, we will not consider control inputs, as we are primarily interested in modelling the latent volatility process and its relationship with observed returns.
+
+The main goal of state space models is to estimate the latent states based on the observed data. With $X_{i:j} = \{X_i, X_{i+1}, \ldots, X_j\}$ we denote the sequence of random variables from time $i$ to $j$, and with $x_{i:j} = \{x_i, x_{i+1}, \ldots, x_j\}$ we denote their realizations.
+From joint posterior distribution of the latent states and model parameters given the observed data $p(x_{0:t}, \theta \mid y_{1:t})$, we can compute the following marginal distributions of interest:
+\begin{itemize}
+    \item the \textit{smoothing distribution}
+    \begin{equation}
+        p(x_{0:t} \mid y_{1:t}) = \int p(x_{0:t}, \theta \mid y_{1:t}) d\theta,
+    \end{equation}
+    \item the \textit{filtering distribution}
+    \begin{equation}
+        p(x_t \mid y_{1:t}) = \int p(x_{0:t}, \theta \mid y_{1:t}) dx_{0:t-1} d\theta,
+    \end{equation}
+    \item the \textit{prediction distribution}
+    \begin{equation}
+        p(x_{t+1} \mid y_{1:t}) = \int p(x_{t+1} \mid x_t, \theta) p(x_{0:t}, \theta \mid y_{1:t}) dx_{0:t} d\theta,
+    \end{equation}
+    \item the \textit{posterior distribution of the parameters}
+    \begin{equation}
+        p(\theta \mid y_{1:t}) = \int p(x_{0:t}, \theta \mid y_{1:t}) dx_{0:t}.
+    \end{equation}
+\end{itemize}
+
+A special case of state space models are the hidden Markov models (HMM). Although there is some discrepancy in the literature, the term hidden Markov model is often used to refer to a state space model in which the latent state is discrete and takes values in a finite set $\{1, 2, \ldots, K\}$, where $K$ is the number of states \cite{chopin2020smc}. 
+
+\subsection{Linear Gaussian state space model}
+\label{subsec:linear_gaussian_ssm}
+An important class of state space models is the linear Gaussian state space model (LG-SSM), in which both the transition and observation equations are linear and Gaussian. Mathematically, the model is defined as
+\begin{align}
+    X_t &= A_t X_{t-1} + \epsilon_t, \quad \epsilon_t \sim \mathcal{N}(0, Q_t), \\
+    Y_t &= C_t X_t + \delta_t, \quad \delta_t \sim \mathcal{N}(0, R_t),
+\end{align}
+where $A_t, C_t$ are matrices that define the dynamics, and $Q_t$ and $R_t$ are covariance matrices of the process and observation noise, respectively. Note that if matrices $A_t, C_t$ are time independent, the model is said to be stationary. 
+In literature we often find the LG-SSM defined in a more general form with control inputs, by adding $B_t U_t$ to the transition equation and $D_t U_t$ to the observation equation, where $U_t$ is a control input \cite{murphy2012machine}. However, as mentioned in Section \ref{sec:state_space_models}, we will not consider control inputs in this thesis.
+
+We can write the model in a more density focused notation:
+\begin{align}
+    X_t | X_{t-1}=x_{t-1} &\sim \mathcal{N}(A_t x_{t-1}, Q_t), \\
+    Y_t | X_t=x_t &\sim \mathcal{N}(C_t x_t, R_t).
+\end{align}
+Let $\theta$ denote the collection of model parameters.
+If at time $t=0$, the initial state is Gaussian as well:
+\begin{equation}
+    X_0 \sim \mathcal{N}(\mu_0, Q_0),
+\end{equation}
+then all subsequent filtering distributions $p(x_t \mid y_{1:t}, \theta)$ are also Gaussian.
+Using the algorithm known as the Kalman filter, we can compute the parameters of these Gaussian filtering distributions in a closed form \cite{murphy2012machine}. 
+
+\section[Markov switching stochastic volatility model]{Markov switching stochastic volatility\\ model}
+The Markov switching stochastic volatility (MSSV) model is the main model of interest in this thesis. 
+It is a state space model in which the hidden state is the tuple $X_t = (H_t, S_t)$. The log volatility $H_t$ is continuous, while the regime indicator $S_t$ is discrete and takes values in $\{1, 2, \ldots, K\}$, where $K$ is the number of regimes \cite{so1998stochastic}. 
+The latent state space is therefore
+\begin{equation}
+    \mathcal{X} = \mathbb{R} \times \{1, 2, \ldots, K\},
+\end{equation}
+equipped with the product $\sigma$-algebra $\mathcal{B}(\mathbb{R}) \otimes 2^{\{1, 2, \ldots, K\}}$.
+
+\begin{itemize}
+    \item \textbf{Observation equation:} 
+    
+    The observation distribution is defined with
+    \begin{equation}
+    Y_t | X_t=(h_t, s_t) \sim \mathcal{N}\left(0, \exp\left(h_t\right)\right),
+    \end{equation}
+    where $\mathcal{N}$ denotes the normal distribution with mean and variance \cite{so1998stochastic, carvalho2007simulation}. Such distribution admits a density function which we denote by $q(y_t | x_t, \theta) = q(y_t | h_t)$, as the observation density does not depend on the regime $s_t$ or any other model parameters $\theta$. 
+
+    Note that mathematically speaking the latent state $H_t$ is the log variance of the return $Y_t$, but it is often referred to as the log volatility in the literature \cite{carvalho2007simulation, dahlin2019getting, bao2018particle}. We will also follow this convention and refer to $H_t$ as the log volatility.
+    \item \textbf{Transition equation:}
+    
+    The transition distribution is defined with
+    \begin{align}
+        H_t | H_{t-1}=h_{t-1}, S_t=s_t &\sim \mathcal{N}(\mu_{s_t} + \phi(h_{t-1} - \mu_{s_t}), \eta^2), \\
+        S_t | S_{t-1}=s_{t-1} &\sim \text{Categorical}([p_{s_{t-1},1}, \ldots, p_{s_{t-1},K}]),
+    \end{align}
+    where $\mu_{s_t}$ denotes the regime-specific mean associated with state $s_t$, $\phi$ is the persistence parameter, $\eta^2$ is the variance of the log-volatility innovation process \cite{so1998stochastic}.
+    The values $p_{ij} = \mathbb{P}(S_t = j | S_{t-1} = i)$ are the probabilities of transitioning from regime $i$ to regime $j$, and they are collected in the $K \times K$ regime transition matrix:
+    $$
+    P=
+    \begin{bmatrix}
+        p_{11} & p_{12} & \cdots & p_{1K} \\
+        p_{21} & p_{22} & \cdots & p_{2K} \\
+        \vdots & \vdots & \ddots & \vdots \\
+        p_{K1} & p_{K2} & \cdots & p_{KK}
+    \end{bmatrix},
+    $$
+    with the rows of $P$ summing to 1, i.e., $\sum_{j=1}^{K} p_{ij} = 1$ for all $i$. Observe that the log volatility process is essentially an AR(1) process with regime-specific means.
+    
+    At first it seems that such conditional definition breaks the Markov property of the latent state process, as $H_t$ depends on $S_t$. However, the latent state process is still Markovian, as the transition distribution of the joint state $(H_t, S_t)$ only depends on the previous joint state $(H_{t-1}, S_{t-1})$.
+    This can be seen by factoring the transition distribution as
+    \begin{align}
+        p(x_t \mid x_{t-1}, \theta) &= p((h_t, s_t) \mid (h_{t-1}, s_{t-1}), \theta) \\
+        &= p(s_t \mid h_{t-1}, s_{t-1}, \theta) p(h_t \mid h_{t-1}, s_{t-1}, s_t, \theta) \\
+        &= p(s_t \mid s_{t-1}, \theta) p(h_t \mid h_{t-1}, s_t, \theta).
+    \end{align}
+
+    \item \textbf{Initial distribution:}
+    
+    The MSSV model is completed by specifying the initial distribution as
+    \begin{align}
+        H_0 | S_0=s_0 &\sim \mathcal{N}\left(\mu_{s_0}, \frac{\eta^2}{(1 - \phi^2)}\right), \\
+        S_0 &\sim \text{Categorical}\left(\frac{1}{K}, \frac{1}{K}, \ldots, \frac{1}{K} \right),
+    \end{align}
+    according to the stationary distribution of the corresponding AR(1) component, with mean $\mu_{s_0}$ and variance $\frac{\eta^2}{(1 - \phi^2)}$, and a uniform prior over the regimes, respectively \cite{so1998stochastic}.
+    
+    The initial distribution admits a density function which we can write out as $\chi(x_0 \mid \theta) = \chi(s_0 \mid \theta) \chi(h_0 \mid s_0, \theta)$.
+\end{itemize}
+
+In order for the MSSV model to be well-defined, the following assumptions are made:
+\begin{enumerate}
+    \item The persistence $\phi$ lies in the range $(-1, 1)$.
+    \item Each regime should correspond to at least one time point.
+    \item The regime means are ordered such that $\mu_1 < \mu_2 < \ldots < \mu_K$.
+\end{enumerate}
+Assumption 1 ensures that the AR(1) process is stationary. This is needed to ensure that the log volatility does not diverge to infinity. Assumption 2 is necessary to avoid empty regimes, otherwise some $\mu_i$ would be unidentifed.
+Assumption 3 is a common identification constraint in mixture models, which prevents label switching and ensures that the regimes are uniquely defined \cite{so1998stochastic}. 
+
+In this thesis we ensure the regime identifibility using following parameterization:
+\begin{align}
+    \mu_i = \mu_{i-1} + e^{\delta_i}, \quad i = 2, \ldots, K,
+\end{align}
+where $\delta_i \in \mathbb{R}$. Such parameterization is motivated by the fact that the exponential function is strictly positive, which guarantees that $\mu_i > \mu_{i-1}$ and leaves $\delta_i$ unconstrained. 
+
+The parameters of the MSSV model are then given by vector
+$$
+\theta = \{\mu_1, \delta_2, \ldots, \delta_K, \phi, \eta^2, P\}.
+$$
+Since $P$ is row stochastic, we have $K(K-1)$ free parameters in $P$. Therefore, the total number of free parameters is $K + 2 + K(K-1) = K^2 + 2$.
+
+Note that in case of $K=1$, the MSSV model reduces to the standard stochastic volatility (SV) model, in which only the log volatility $H_t$ is a latent variable and there are no regimes.
+
+\section{Problem formulation}
+The goal of this thesis is to estimate volatility in financial markets, using the MSSV model with parameters $\theta$. 
+Let $y_{1:t} = \{y_1, y_2, \ldots, y_t\}$ denote the sequence of observed returns up to time $t \leq T$. Similarly, let $x_{0:t} = \{x_0, x_1, \ldots, x_t\}$ denote the sequence of latent states up to time $t$, where $x_0$ is the initial prior state.
+In general we can distinguish between two types of our problem.
+
+\begin{enumerate}
+    \item \textbf{With known parameters}
+    
+    If we assume that the model parameters $\theta$ are known, then the main objective is to estimate
+    \begin{equation}
+        p(x_{0:t} \mid y_{1:t}, \theta),
+    \end{equation}
+    which we can expand using the Bayes' theorem:
+    \begin{equation}
+        p(x_{0:t} \mid y_{1:t}, \theta) \propto p(y_{1:t} \mid x_{0:t}, \theta) p(x_{0:t} \mid \theta).
+    \end{equation}
+    We can further expand the likelihood:
+    \begin{align}
+        p(y_{1:t} \mid x_{0:t}, \theta) &\propto q(y_t \mid x_{0:t}, y_{1:t-1}, \theta) p(y_{1:t-1} \mid x_{0:t}, \theta) \\
+        &\propto q(y_t \mid x_t, \theta) q(y_{t-1} \mid x_{0:t}, y_{1:t-2}, \theta) p(y_{1:t-2} \mid x_{0:t}, \theta) \\
+        &\propto \prod_{i=1}^{t} q(y_i \mid x_i, \theta), \\
+        &= \prod_{i=1}^{t} q(y_i \mid x_i),
+    \end{align}
+    where we used the fact that observations $y_i$ depend only on the current latent state $x_i$ (actually only on $h_i$) and not on the entire history of latent states, observations, or parameters.  
+    We can also expand:
+    \begin{align}
+        p(x_{0:t} \mid \theta) &\propto p(x_t \mid x_{0:t-1}, \theta) p(x_{0:t-1} \mid \theta) \\
+        &\propto p(x_t \mid x_{t-1}, \theta) \ldots p(x_1 \mid x_0, \theta) \chi(x_0 \mid \theta) \\
+        &= \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) \chi(x_0 \mid \theta),
+    \end{align}
+    where we used the Markov property of the latent state process.
+
+    The final expression is thus
+    \begin{equation}
+        \label{eq:joint_posterior_known_parameters}
+        p(x_{0:t} \mid y_{1:t}, \theta) \propto \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) q(y_i \mid x_i).
+    \end{equation}
+
+    \item \textbf{With unknown parameters}
+
+    In reality we do not know the parameters $\theta$ of our MSSV model, so we would also like to estimate them.
+    The main objective is then the joint posterior distribution of the latent states and model parameters given the observed data:
+    \begin{equation}
+        p(x_{0:t}, \theta \mid y_{1:t}),
+    \end{equation}
+    from which we can compute the smoothing, filtering and prediction distributions of latent states and the posterior distribution of the parameters as described in Section \ref{sec:state_space_models}.
+
+    Let's expand the joint posterior distribution using the Bayes' theorem:
+    \begin{align}
+        p(x_{0:t}, \theta \mid y_{1:t}) &= \frac{p(x_{0:t}, y_{1:t} \mid \theta)p(\theta)}{p(y_{1:t})} \\
+        &\propto p(y_{1:t} \mid x_{0:t}, \theta) p(x_{0:t} \mid \theta) p(\theta).
+    \end{align}
+    Reusing the previously derived expressions, the joint posterior distribution can then be expressed as
+    \begin{equation}
+        \label{eq:joint_posterior_unknown_parameters}
+        p(x_{0:t}, \theta \mid y_{1:t}) \propto p(\theta) \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) q(y_i \mid x_i).
+    \end{equation}
+
+\end{enumerate}
+
+From both Equations \eqref{eq:joint_posterior_known_parameters} and \eqref{eq:joint_posterior_unknown_parameters}, we can see the sequential nature of the problem. If we somehow initialy sample the prior latent state $x_0$ (and model parameters $\theta$ if they are unknown), we can sequentially propagate the latent states through transition density and update them with the new observations through the observation density. This is the main idea behind sequential Monte Carlo methods, which we will present in the next chapter.
+
+\subsection{Prior distributions of the parameters}
+In the case of unknown model parameters $\theta$, we need to specify their prior distributions. 
+We assume that the priors of the parameters are independent, so that the joint prior distribution can be factorized as
+\begin{equation}
+    p(\theta) = p(\mu_1) \prod_{i=2}^{K} p(\delta_i) p(\phi) p(\eta^2) p(P).
+\end{equation}
+
+Even though we defined our model with parameters $\delta_i$ and $\phi$, we will define the priors in terms of $\Delta_i = \mu_i - \mu_{i-1} = e^{\delta_i}$ and $\varphi = \frac{\phi + 1}{2}$. 
+The reason for this reparameterization of $\phi$ to $\varphi$ is that now $\varphi$ lies in the $(0, 1)$ range, which allows us to use the Beta distribution as a prior. 
+The reason for reparameterization of $\delta_i$ to $\Delta_i$ is that we can now use a truncated normal distribution as a prior, which will be more convenient for conditional sampling later on.  
+
+We choose the following prior distributions for the model parameters:
+\begin{align}
+\mu_1 &\sim \mathcal{N}(a_0,5^2),\\
+\Delta_i &\sim \mathcal{TN}{(0,\infty)}(0,5^2), \quad i=2,\ldots,K,\\
+\varphi &\sim \mathcal{B}(6,2),\\
+\eta^2 &\sim \mathcal{IG}(2.001,0.1),\\
+P{i,:} &\sim \mathcal{D}(\alpha_{i,1},\ldots,\alpha_{i,K}), \quad i=1,\ldots,K,
+\end{align}
+where $\alpha_{i,j}=1.5$ for $i\neq j$ and $\alpha_{i,i}=40$. Here $\mathcal{TN}{(0,\infty)}$ denotes the truncated normal distribution with support $(0,\infty)$, $\mathcal{B}$ denotes the Beta distribution, $\mathcal{IG}$ denotes the inverse gamma distribution and $\mathcal{D}$ denotes the Dirichlet distribution.
+
+The priors are chosen to be informative while allowing sufficient flexibility. For $\mu_1$, $a_0$ is determined through prior elicitation, while the variance $5^2$ allows for substantial uncertainty. The prior for $\Delta_i$ allows for a wide range of possible values, but still encourages the regime means to be not be too far apart. The $\mathcal{B}(6,2)$ prior for $\varphi$ favors positive persistence, as is common in financial econometrics. Additionally, previous results from \cite{pan2013testing} suggest that the choice of prior for this parameter has little effect on posterior values, therefore we chose a value that is somewhere in between the values they considered.
+For $\eta^2$, we use $\mathcal{IG}(2.001,0.1)$, following combination of values considered in \cite{carvalho2007simulation,pan2013testing}. This prior still has a large variance, allowing for a wide range of values.
+For the transition matrix $P$, we depart from the commonly used symmetric Dirichlet prior with hyperparameters $0.5$ \cite{so1998stochastic,carvalho2007simulation,pan2013testing}. Such a prior places substantial mass near $0$ and $1$, which may encourage regimes to either disappear or become excessively persistent. Instead, motivated by \cite{shibata2005bayesian}, we use $\alpha_{i,i}=40$ and $\alpha_{i,j}=1.5$ for $i\neq j$. In the two-regime case, this corresponds to a $\mathcal{B}(40,1.5)$ prior for the diagonal transition probabilities, with mean $0.964$, implying an expected regime duration of approximately 28 days. We find this expected duration reasonable for financial data.
