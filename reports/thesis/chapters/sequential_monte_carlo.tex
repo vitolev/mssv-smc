@@ -1,9 +1,298 @@
 \chapter{Sequential Monte Carlo Methods}
-Here we present the theory of sequential Monte Carlo (SMC) methods, starting with bootstrap particle filter (BPF) and then moving to more advanced methods such as
-the particle Monte Carlo Markov Chain (PMCMC) and SMC$^2$. 
 
-\section{Bootstrap Particle Filter}
+Sequential Monte Carlo (SMC) methods provide a flexible framework for approximating probability distributions that evolve sequentially over time. 
+They are particularly useful for inference in state-space models, where the latent states are typically not directly observed and their posterior distributions are analytically intractable. 
+SMC methods approximate these distributions using a set of weighted samples, commonly referred to as particles, and update this approximation as new observations become available.
+
+This chapter first introduces the foundations of SMC, beginning with Monte Carlo methods and sequential importance sampling. 
+The problem of weight degeneracy is then addressed through resampling, leading to sequential importance sampling with resampling and particle filtering methods. 
+The bootstrap particle filter and auxiliary particle filter are then presented in more detail.
+
+The chapter then considers particle based methods for Bayesian parameter inference. 
+Particle marginal Metropolis-Hastings and Particle Gibbs are introduced as particle Markov chain Monte Carlo methods. 
+Finally, SMC$^2$ is presented as an extension that combines particle filtering with sequential inference for static parameters and latent states.
+
+\section{Monte Carlo method}
+Monte Carlo methods approximate quantities involving a probability distribution by using a finite collection of random samples. The basic idea is simple: rather than evaluating an integral directly, we replace it by an average over samples drawn from the distribution of interest.
+
+Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} p(x)$,
+where $p(x)$ is a probability density function. Suppose that we are interested in the expectation of a function $g$ under $p$:
+\begin{equation}
+    I = E_p[g(X)] = \int_{-\infty}^{\infty} g(x)p(x)\,\mathrm{d}x.
+\end{equation}
+
+If we have samples from $p$, a natural approximation is obtained by replacing the expectation with the sample average:
+\begin{equation}
+    \hat{I}_N = \frac{1}{N}\sum_{i=1}^{N} g(X_i).
+    \label{eq:monte_carlo_estimator}
+\end{equation}
+This is the standard Monte Carlo estimator.
+
+\subsection{Properties of the Monte Carlo estimator}
+The estimator in~\ref{eq:monte_carlo_estimator} is unbiased, since
+\begin{align}
+    E_p[\hat{I}_N] &= E_p\left[\frac{1}{N}\sum_{i=1}^{N} g(X_i)\right] \\
+    &= \frac{1}{N}\sum_{i=1}^N E_p[g(X_i)] \\
+    &= \frac{1}{N}\sum_{i=1}^N I = I.
+\end{align}
+
+Furthermore, assuming finite expectation, the strong law of large numbers gives
+\begin{equation}
+    \hat{I}_N \xrightarrow[N\to\infty]{a.s.} I,
+\end{equation}
+so the estimator is consistent.
+
+If $g(X)$ has finite variance, then the central limit theorem gives
+\begin{equation}
+    \sqrt{N}\left(\hat{I}_N-I\right)
+    \xrightarrow[N\to\infty]{D}
+    \mathcal{N}(0,\sigma^2).
+\end{equation}
+Thus, the standard deviation of the Monte Carlo error decreases at the rate $1/\sqrt{N}$. This rate is independent of the dimension of $X$, which is one of the main attractions of Monte Carlo methods.
+
+\subsection{Empirical distribution}
+\label{sec:empirical_distribution}
+The Monte Carlo estimator has a useful interpretation in terms of the empirical distribution of the samples. Given $X_1,\ldots,X_N$, the empirical distribution is defined as
+\begin{equation}
+    \hat{p}_N(x)
+    = \frac{1}{N}\sum_{i=1}^{N} \delta(x-X_i),
+    \label{eq:empirical_distribution}
+\end{equation}
+where $\delta$ denotes the Dirac delta function.
+
+The empirical distribution places mass $1/N$ at each sample. It is therefore a discrete approximation to the original distribution $p(x)$. Since it consists of Dirac delta functions, it should be interpreted through integration rather than as an ordinary density function.
+For any suitable function $g$,
+\begin{align}
+    \int g(x)\hat{p}_N(x)\,\mathrm{d}x &= \int g(x) \frac{1}{N}\sum_{i=1}^N \delta(x-X_i)\,\mathrm{d}x \\
+    &= \frac{1}{N}\sum_{i=1}^N \int g(x)\delta(x-X_i)\,\mathrm{d}x \\
+    &= \frac{1}{N}\sum_{i=1}^N g(X_i) = \hat{I}_N.
+\end{align}
+Hence, the Monte Carlo estimator can be written as
+\begin{equation}
+    \hat{I}_N = \int g(x)\hat{p}_N(x)\,\mathrm{d}x.
+\end{equation}
+
+As $N$ increases, the empirical distribution is better approximation to the true distribution. Importantly, when $p$ is continuous, $\hat{p}_N$ is not a pointwise approximation of the density $p(x)$, as $\hat{p}_N$ is discrete for every finite $N$. What converges are integrals, probabilities of suitable sets, and expectations of suitable functions.
+
+
+\section{Importance sampling}
+\label{sec:importance_sampling}
+The standard Monte Carlo method requires samples from the target distribution $p(x)$. In many problems, however, sampling directly from $p$ is difficult or even impossible.
+
+Importance sampling addresses this problem by introducing a second distribution from which sampling is easier.
+Let $q(x)$ be a proposal distribution such that $q(x)>0$ whenever $p(x)>0$. 
+The expectation of $g$ under $p$ can then be rewritten as
+\begin{align}
+    I = E_p[g(X)] &= \int g(x)p(x)\,\mathrm{d}x \\
+    &= \int g(x)\frac{p(x)}{q(x)}q(x)\,\mathrm{d}x \\
+    &= E_q\left[g(X)\frac{p(X)}{q(X)}\right].
+\end{align}
+The ratio
+\begin{equation}
+    w(x)=\frac{p(x)}{q(x)}
+    \label{eq:importance_weight}
+\end{equation}
+is called the \emph{importance weight}. It compensates for the fact that the samples are drawn from $q$ rather than $p$.
+
+We can therefore draw $X_1,\ldots,X_N\overset{\mathrm{iid}}{\sim}q(x)$ and estimate $I$ using the importance sampling estimator
+\begin{equation}
+    \hat{I}_N^{\mathrm{IS}} = \frac{1}{N}\sum_{i=1}^{N} g(X_i)w(X_i).
+    \label{eq:importance_sampling_estimator}
+\end{equation}
+
+\subsection{Properties of importance sampling}
+The importance sampling estimator is unbiased:
+\begin{align}
+    E_q[\hat{I}_N^{\mathrm{IS}}] &= \frac{1}{N}\sum_{i=1}^N E_q[g(X_i)w(X_i)] \\
+    &= E_q\left[g(X)\frac{p(X)}{q(X)}\right] \\
+    &= \int g(x)\frac{p(x)}{q(x)}q(x)\,\mathrm{d}x = I.
+\end{align}
+
+Thus, changing the sampling distribution from $p$ to $q$ does not introduce bias, provided the importance weights are defined and the relevant expectations exist.
+
+The estimator is also consistent. The strong law of large numbers gives
+\begin{equation}
+    \hat{I}_N^{\mathrm{IS}} \xrightarrow[N\to\infty]{a.s.} I.
+\end{equation}
+
+The choice of $q$, however, has a major effect on the variance. 
+
+\subsection{Importance sampling as a weighted empirical distribution}
+
+There are two equivalent ways to interpret the importance sampling estimator. The first is to regard importance sampling simply as Monte Carlo integration under the proposal distribution $q$. Since $p(x) = w(x)q(x)$, we have
+\begin{equation}
+    I = \int g(x)p(x)\,\mathrm{d}x = \int g(x)w(x)q(x)\,\mathrm{d}x.
+\end{equation}
+Thus, when $X_1,\ldots,X_N\sim q$, the importance sampling estimator
+\begin{equation}
+    \hat{I}_N^{\mathrm{IS}} = \frac{1}{N}\sum_{i=1}^N g(X_i)w(X_i)
+\end{equation}
+is simply the Monte Carlo estimator of the expectation of $g(X)w(X)$ under $q$. In terms of the empirical distribution
+\begin{equation}
+    \hat{q}_N(x) = \frac{1}{N}\sum_{i=1}^N\delta(x-X_i),
+\end{equation}
+this can be written as
+\begin{equation}
+    \hat{I}_N^{\mathrm{IS}} = \int g(x)w(x)\hat{q}_N(x)\,\mathrm{d}x.
+\end{equation}
+
+There is another interpretation that is particularly useful. Instead of viewing the weights as part of the integrand, we can absorb them into the empirical distribution itself. Define
+\begin{equation}
+    \hat{p}_N^{\mathrm{IS}}(x) = \frac{1}{N}\sum_{i=1}^N w(X_i)\delta(x-X_i).
+    \label{eq:weighted_empirical_distribution}
+\end{equation}
+Then
+\begin{equation}
+    \hat{I}_N^{\mathrm{IS}} = \int g(x)\hat{p}_N^{\mathrm{IS}}(x)\,\mathrm{d}x.
+\end{equation}
+
+This gives importance sampling a useful interpretation: \emph{samples are drawn from $q$, but the importance weights allow them to represent the target distribution $p$.} Unlike ordinary Monte Carlo, where every sample contributes the same mass $1/N$, importance sampling assigns the sample $X_i$ a mass proportional to $w(X_i)$.
+
+There is, however, a slight problem. The quantity in~\eqref{eq:weighted_empirical_distribution} is not generally a probability distribution, because its total mass is
+\begin{equation}
+    \int \hat{p}_N^{\mathrm{IS}}(x)\,\mathrm{d}x = \frac{1}{N}\sum_{i=1}^N w(X_i),
+\end{equation}
+which is random and not neccessarily equal one for a finite sample.
+
+This does not mean that the construction fails to approximate $p$. In fact, the expected total mass is exactly one. Since $X\sim q$,
+\begin{align}
+    E_q[w(X)] = \int \frac{p(x)}{q(x)}q(x)\,\mathrm{d}x &= \int p(x)\,\mathrm{d}x = 1 \\
+    E_q\left[\frac{1}{N}\sum_{i=1}^N w(X_i)\right] &= 1.
+\end{align}
+Additionally, the strong law of large numbers gives
+\begin{equation}
+    \frac{1}{N}\sum_{i=1}^N w(X_i)
+    \xrightarrow[N\to\infty]{a.s.}1.
+\end{equation}
+Thus, although the weighted empirical distribution does not have unit mass for every finite sample, its total mass converges almost surely to one.
+
+\section{Self-normalized importance sampling}
+\label{sec:self_normalized_importance_sampling}
+
+The previous construction suggests a natural modification: instead of allowing the weights to have a random total mass, normalize them so that they sum to one.
+
+Define the normalized importance weights
+\begin{equation}
+    \tilde{w}_i = \frac{w(X_i)}{\sum_{j=1}^N w(X_j)}.
+\end{equation}
+We can therefore define the normalized weighted empirical distribution
+\begin{equation}
+    \hat{p}_N^{\mathrm{SNIS}}(x) = \sum_{i=1}^N \tilde{w}_i\delta(x-X_i).
+\end{equation}
+Unlike $\hat{p}_N^{\mathrm{IS}}$, this distribution has a total mass of one, since
+\begin{equation}
+    \int \hat{p}_N^{\mathrm{SNIS}}(x)\,\mathrm{d}x = \sum_{i=1}^N\tilde{w}_i = 1.
+\end{equation}
+
+The corresponding estimator of $I$ is
+\begin{align}
+    \hat{I}_N^{\mathrm{SNIS}} &= \int g(x)\tilde{p}_N(x)\,\mathrm{d}x \\
+    &= \sum_{i=1}^N \tilde{w}_i g(X_i) \\
+    &= \frac{\sum_{i=1}^N g(X_i)w(X_i)}{\sum_{i=1}^N w(X_i)}.
+    \label{eq:self_normalized_importance_sampling_estimator}
+\end{align}
+
+This estimator is called the \emph{self-normalized importance-sampling estimator}.
+
+There is a fundamental difference between~\ref{eq:importance_sampling_estimator} and~\ref{eq:self_normalized_importance_sampling_estimator}. The ordinary importance-sampling estimator is unbiased, whereas the self-normalized estimator is generally biased for finite $N$. The normalization introduces a random quantity into the denominator, so in general
+\begin{equation}
+    E_q[\hat{I}_N^{\mathrm{SNIS}}] \neq I.
+\end{equation}
+
+The estimator is nevertheless consistent. Under suitable regularity conditions, the strong law of large numbers gives
+\begin{align}
+    \frac{1}{N}\sum_{i=1}^N g(X_i)w(X_i) &\xrightarrow[N\to\infty]{a.s.}I,\\
+    \frac{1}{N}\sum_{i=1}^N w(X_i) &\xrightarrow[N\to\infty]{a.s.}1.
+\end{align}
+Consequently,
+\begin{equation}
+\hat{I}_N^{\mathrm{SNIS}} = \frac{\frac{1}{N}\sum_{i=1}^N g(X_i)w(X_i)}{\frac{1}{N}\sum_{i=1}^N w(X_i)} \xrightarrow[N\to\infty]{a.s.} I.
+\end{equation}
+
+At first it seems pointless to use the self-normalized estimator, just to assure that the $\hat{p}_N^{\mathrm{SNIS}}$ is a proper probability distribution, as we lose the unbiasedness of the estimator. However, in many applications, especially in Bayesian inference, the target density $p(x)$ is known only up to a proportionality constant. Suppose that our target has form
+\begin{equation}
+    p(x) = \frac{\tilde{p}(x)}{Z},
+\end{equation}
+where $\tilde{p}(x)$ is known and $Z = \int \tilde{p}(x)\,\mathrm{d}x$ is unknown normalization constant. The importance weights are then
+\begin{equation}
+    w(x) = \frac{p(x)}{q(x)} = \frac{\tilde{p}(x)}{Zq(x)},
+\end{equation}
+which makes it impossible to compute the ordinary importance sampling estimator $\hat{I}_N^{\mathrm{IS}}$. However, the normalized weights are still computable:
+\begin{equation}
+    \tilde{w}_i = \frac{w(X_i)}{\sum_{j=1}^N w(X_j)} = \frac{\frac{p(X_i)}{Zq(X_i)}}{\sum_{j=1}^N \frac{p(X_j)}{Zq(X_j)}} = \frac{\frac{\tilde{p}(X_i)}{q(X_i)}}{\sum_{j=1}^N \frac{\tilde{p}(X_j)}{q(X_j)}}.
+\end{equation}
+Therefore, the self-normalized importance sampling estimator $\hat{I}_N^{\mathrm{SNIS}}$ can be used even when the target density is known only up to a constant of proportionality at the cost of introducing bias.
+
+% \section{Importance sampling}
+% Previous sections assumed that the samples $X_1,\ldots,X_N$ were drawn from $p(x)$, but what if we do not know how to sample from $p(x)$? Importance sampling provides a solution to this problem by allowing us to draw samples from a different distribution $q(x)$, known as the proposal distribution. We can write our expectation as
+% \begin{equation}
+%     \mu = E[g(X)] = \int_{-\infty}^{\infty} g(x)p(x)\,\mathrm{d}x = \int_{-\infty}^{\infty} g(x)\frac{p(x)}{q(x)}q(x)\,\mathrm{d}x.
+% \end{equation}
+% We define the importance weights as $w(x) = p(x)/q(x)$.
+% Now we can sample $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} q(x)$ and the Monte Carlo estimator becomes
+% \begin{equation}
+%     \hat{\mu}_N = \frac{1}{N}\sum_{i=1}^N g(X_i)w(X_i).
+% \end{equation}
+% The proposal distribution $q(x)$ should cover the support of $p(x)$, meaning that if $p(x) > 0$, then $q(x) > 0$ as well. Other than that, the unbiasedness and consistency of the estimator still hold, and the central limit theorem still applies. However, the variance of the estimator may be larger than that of the original Monte Carlo estimator, depending on how well $q(x)$ approximates $p(x)$.
+
+% We already know that the samples $X_1,\ldots,X_N$ constitute an empirical distribution $\hat{q}_N(x) = \frac{1}{N}\sum_{i=1}^N \delta(x-X_i)$, but how about the empirical distribution of $p(x)$? We can write
+% \begin{align}
+%     \hat{\mu}_N &= \frac{1}{N}\sum_{i=1}^N g(X_i)w(X_i) \\
+%     &= \frac{1}{N}\sum_{i=1}^N w(X_i) \int_{-\infty}^{\infty} g(x)\delta(x-X_i)\,\mathrm{d}x \\
+%     &= \int_{-\infty}^{\infty} g(x)\frac{1}{N}\sum_{i=1}^N w(X_i)\delta(x-X_i)\,\mathrm{d}x \\
+%     &= \int_{-\infty}^{\infty} g(x)\hat{p}_N(x)\,\mathrm{d}x,
+% \end{align}
+% where we defined:
+% \begin{equation}
+%     \hat{p}_N(x) = \frac{1}{N}\sum_{i=1}^N w(X_i)\delta(x-X_i).
+% \end{equation}
+
+% The problem is that the total mass of $\hat{p}_N(x)$ is
+% \begin{align}
+%     \int_{-\infty}^{\infty} \hat{p}_N(x)\,\mathrm{d}x &= \frac{1}{N}\sum_{i=1}^N w(X_i) \int_{-\infty}^{\infty} \delta(x-X_i)\,\mathrm{d}x \\
+%     &= \frac{1}{N}\sum_{i=1}^N w(X_i), \\
+% \end{align}
+% which is not necessarily equal to 1, therefore this is not a proper probability density function. What is true is that in expectation we have
+% \begin{align}
+%     E\left[w(X)\right] &= \int_{-\infty}^{\infty} \frac{p(x)}{q(x)}q(x)\,\mathrm{d}x = \int_{-\infty}^{\infty} p(x)\,\mathrm{d}x = 1 \\
+%     E\left[\frac{1}{N}\sum_{i=1}^N w(X_i)\right] &= 1
+% \end{align}
+% and because of the strong law of large numbers:
+% \begin{equation}
+%     \frac{1}{N}\sum_{i=1}^N w(X_i) \xrightarrow[N\to\infty]{a.s.} 1,
+% \end{equation}
+% which means that with more samples, the total mass of $\hat{p}_N(x)$ will converge to 1. 
+
+% To fix this issue, we can normalize the weights by defining the normalized importance weights as
+% \begin{equation}
+%     \tilde{w}(X_i) = \frac{w(X_i)}{\sum_{j=1}^N w(X_j)}.
+% \end{equation}
+% Therefore, the normalized empirical distribution is
+% \begin{equation}
+%     \tilde{p}_N(x) = \sum_{i=1}^N \tilde{w}(X_i)\delta(x-X_i),
+% \end{equation}
+% which is a proper probability density function in the sense that its total mass is equal to 1:
+% \begin{equation}
+%     \int_{-\infty}^{\infty} \tilde{p}_N(x)\,\mathrm{d}x = \sum_{i=1}^N \tilde{w}(X_i) = 1.
+% \end{equation}
+% A Monte Carlo estimator is then:
+% \begin{equation}
+%     \hat{\mu}_N = \int_{-\infty}^{\infty} g(x)\tilde{p}_N(x)\,\mathrm{d}x = \sum_{i=1}^N g(X_i)\tilde{w}(X_i),
+% \end{equation}
+% which is now a biased estimator. But under weak assumptions, the strong law of large numbers still holds and therefore $\hat{\mu}_N \xrightarrow[N\to\infty]{a.s.} \mu$.
+
+\section{Sequential importance sampling}
+
+\section{Sequential importance sampling with resampling}
+
+\subsection{Bootstrap particle filter}
+
+\subsection{Auxiliary particle filter}
 
 \section{PMCMC}
+
+\subsection{Particle marginal Metropolis-Hastings}
+
+\subsection{Particle Gibbs}
 
 \section{SMC$^2$}
