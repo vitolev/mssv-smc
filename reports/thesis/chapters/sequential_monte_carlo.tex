@@ -118,6 +118,7 @@ The estimator is also consistent. The strong law of large numbers gives
 The choice of $q$, however, has a major effect on the variance. 
 
 \subsection{Importance sampling as a weighted empirical distribution}
+\label{sec:importance_sampling_as_weighted_empirical_distribution}
 
 There are two equivalent ways to interpret the importance sampling estimator. The first is to regard importance sampling simply as Monte Carlo integration under the proposal distribution $q$. Since $p(x) = w(x)q(x)$, we have
 \begin{equation}
@@ -219,69 +220,98 @@ where $\tilde{p}(x)$ is known and $Z = \int \tilde{p}(x)\,\mathrm{d}x$ is unknow
 \end{equation}
 which makes it impossible to compute the ordinary importance sampling estimator $\hat{I}_N^{\mathrm{IS}}$. However, the normalized weights are still computable:
 \begin{equation}
-    \tilde{w}_i = \frac{w(X_i)}{\sum_{j=1}^N w(X_j)} = \frac{\frac{p(X_i)}{Zq(X_i)}}{\sum_{j=1}^N \frac{p(X_j)}{Zq(X_j)}} = \frac{\frac{\tilde{p}(X_i)}{q(X_i)}}{\sum_{j=1}^N \frac{\tilde{p}(X_j)}{q(X_j)}}.
+    \tilde{w}_i = \frac{w(X_i)}{\sum_{j=1}^N w(X_j)} = \frac{\frac{\tilde{p}(X_i)}{Zq(X_i)}}{\sum_{j=1}^N \frac{\tilde{p}(X_j)}{Zq(X_j)}} = \frac{\frac{\tilde{p}(X_i)}{q(X_i)}}{\sum_{j=1}^N \frac{\tilde{p}(X_j)}{q(X_j)}}.
 \end{equation}
 Therefore, the self-normalized importance sampling estimator $\hat{I}_N^{\mathrm{SNIS}}$ can be used even when the target density is known only up to a constant of proportionality at the cost of introducing bias.
 
-% \section{Importance sampling}
-% Previous sections assumed that the samples $X_1,\ldots,X_N$ were drawn from $p(x)$, but what if we do not know how to sample from $p(x)$? Importance sampling provides a solution to this problem by allowing us to draw samples from a different distribution $q(x)$, known as the proposal distribution. We can write our expectation as
-% \begin{equation}
-%     \mu = E[g(X)] = \int_{-\infty}^{\infty} g(x)p(x)\,\mathrm{d}x = \int_{-\infty}^{\infty} g(x)\frac{p(x)}{q(x)}q(x)\,\mathrm{d}x.
-% \end{equation}
-% We define the importance weights as $w(x) = p(x)/q(x)$.
-% Now we can sample $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} q(x)$ and the Monte Carlo estimator becomes
-% \begin{equation}
-%     \hat{\mu}_N = \frac{1}{N}\sum_{i=1}^N g(X_i)w(X_i).
-% \end{equation}
-% The proposal distribution $q(x)$ should cover the support of $p(x)$, meaning that if $p(x) > 0$, then $q(x) > 0$ as well. Other than that, the unbiasedness and consistency of the estimator still hold, and the central limit theorem still applies. However, the variance of the estimator may be larger than that of the original Monte Carlo estimator, depending on how well $q(x)$ approximates $p(x)$.
-
-% We already know that the samples $X_1,\ldots,X_N$ constitute an empirical distribution $\hat{q}_N(x) = \frac{1}{N}\sum_{i=1}^N \delta(x-X_i)$, but how about the empirical distribution of $p(x)$? We can write
-% \begin{align}
-%     \hat{\mu}_N &= \frac{1}{N}\sum_{i=1}^N g(X_i)w(X_i) \\
-%     &= \frac{1}{N}\sum_{i=1}^N w(X_i) \int_{-\infty}^{\infty} g(x)\delta(x-X_i)\,\mathrm{d}x \\
-%     &= \int_{-\infty}^{\infty} g(x)\frac{1}{N}\sum_{i=1}^N w(X_i)\delta(x-X_i)\,\mathrm{d}x \\
-%     &= \int_{-\infty}^{\infty} g(x)\hat{p}_N(x)\,\mathrm{d}x,
-% \end{align}
-% where we defined:
-% \begin{equation}
-%     \hat{p}_N(x) = \frac{1}{N}\sum_{i=1}^N w(X_i)\delta(x-X_i).
-% \end{equation}
-
-% The problem is that the total mass of $\hat{p}_N(x)$ is
-% \begin{align}
-%     \int_{-\infty}^{\infty} \hat{p}_N(x)\,\mathrm{d}x &= \frac{1}{N}\sum_{i=1}^N w(X_i) \int_{-\infty}^{\infty} \delta(x-X_i)\,\mathrm{d}x \\
-%     &= \frac{1}{N}\sum_{i=1}^N w(X_i), \\
-% \end{align}
-% which is not necessarily equal to 1, therefore this is not a proper probability density function. What is true is that in expectation we have
-% \begin{align}
-%     E\left[w(X)\right] &= \int_{-\infty}^{\infty} \frac{p(x)}{q(x)}q(x)\,\mathrm{d}x = \int_{-\infty}^{\infty} p(x)\,\mathrm{d}x = 1 \\
-%     E\left[\frac{1}{N}\sum_{i=1}^N w(X_i)\right] &= 1
-% \end{align}
-% and because of the strong law of large numbers:
-% \begin{equation}
-%     \frac{1}{N}\sum_{i=1}^N w(X_i) \xrightarrow[N\to\infty]{a.s.} 1,
-% \end{equation}
-% which means that with more samples, the total mass of $\hat{p}_N(x)$ will converge to 1. 
-
-% To fix this issue, we can normalize the weights by defining the normalized importance weights as
-% \begin{equation}
-%     \tilde{w}(X_i) = \frac{w(X_i)}{\sum_{j=1}^N w(X_j)}.
-% \end{equation}
-% Therefore, the normalized empirical distribution is
-% \begin{equation}
-%     \tilde{p}_N(x) = \sum_{i=1}^N \tilde{w}(X_i)\delta(x-X_i),
-% \end{equation}
-% which is a proper probability density function in the sense that its total mass is equal to 1:
-% \begin{equation}
-%     \int_{-\infty}^{\infty} \tilde{p}_N(x)\,\mathrm{d}x = \sum_{i=1}^N \tilde{w}(X_i) = 1.
-% \end{equation}
-% A Monte Carlo estimator is then:
-% \begin{equation}
-%     \hat{\mu}_N = \int_{-\infty}^{\infty} g(x)\tilde{p}_N(x)\,\mathrm{d}x = \sum_{i=1}^N g(X_i)\tilde{w}(X_i),
-% \end{equation}
-% which is now a biased estimator. But under weak assumptions, the strong law of large numbers still holds and therefore $\hat{\mu}_N \xrightarrow[N\to\infty]{a.s.} \mu$.
-
 \section{Sequential importance sampling}
+Often we are interested in a density over a sequence of random variables $X_{1:T} = (X_1,\ldots,X_T)$, with target density $p(x_{1:T})$. If we can write the target density as
+\begin{equation}
+    p(x_{1:T}) = p(x_1)\prod_{t=2}^T p(x_t|x_{1:t-1}),
+\end{equation}
+and construct a proposal density of the form
+\begin{equation}
+    q(x_{1:T}) = q(x_1)\prod_{t=2}^T q(x_t|x_{1:t-1}),
+\end{equation}
+from which we can sample multiple trajectories $x_{1:T}^{(i)}$, $i=1,\ldots,N$,
+then the sequential importance weight of the $i$-th trajectory is
+\begin{equation}
+    w(x_{1:T}^{(i)}) = \frac{p(x_{1:T}^{(i)})}{q(x_{1:T}^{(i)})} = w(x_{1:T-1}^{(i)})\frac{p(x_T^{(i)}|x_{1:T-1}^{(i)})}{q(x_T^{(i)}|x_{1:T-1}^{(i)})}.
+\end{equation}
+For better readability, we can denote the equation above a bit more compactly as
+\begin{equation}
+    w_T^{(i)} = w_{T-1}^{(i)}\frac{p(x_T^{(i)}|x_{1:T-1}^{(i)})}{q(x_T^{(i)}|x_{1:T-1}^{(i)})}.
+\end{equation}
+In this recursive form, we can see the sequential nature of the method. The algorithm is summarized in Algorithm~\ref{alg:sis}.
+
+As in Sections~\ref{sec:importance_sampling_as_weighted_empirical_distribution} and ~\ref{sec:self_normalized_importance_sampling}, we can construct ordinary importance sampling estimator and its empirical distribution:
+\begin{equation}
+    \hat{I}_N^{\mathrm{IS}} = \frac{1}{N}\sum_{i=1}^{N} w_T^{(i)} g(x_{1:T}^{(i)}), \quad
+    \hat{p}_N^{\mathrm{IS}}(x_{1:T}) = \frac{1}{N}\sum_{i=1}^N w_T^{(i)}\delta(x_{1:T}-x_{1:T}^{(i)})
+\end{equation}
+or, if we normalize the weights, the self-normalized importance sampling estimator and its empirical distribution:
+\begin{equation}
+    \hat{I}_N^{\mathrm{SNIS}} = \sum_{i=1}^N \tilde{w}_T^{(i)} g(x_{1:T}^{(i)}), \quad
+    \hat{p}_N^{\mathrm{SNIS}}(x_{1:T}) = \sum_{i=1}^N \tilde{w}_T^{(i)}\delta(x_{1:T}-x_{1:T}^{(i)}).
+\end{equation}
+
+\begin{algorithm}
+\caption{Sequential importance sampling (SIS)}
+\label{alg:sis}
+\begin{algorithmic}
+
+\REQUIRE Number of particles $N$; proposal distributions
+$q(x_1)$ and $q(x_t \mid x_{1:t-1})$; target distributions
+$p(x_1)$ and $p(x_t \mid x_{1:t-1})$
+\ENSURE Weighted particles $\left\{x_{1:T}^{(i)},{w}_T^{(i)} \text{ or } \tilde{w}_T^{(i)}\right\}_{i=1}^N$
+
+\FOR{$i=1,\ldots,N$}
+    \STATE Sample $x_1^{(i)} \sim q(x_1)$
+    \STATE Compute $\displaystyle w_1^{(i)} = \frac{p(x_1^{(i)})}{q(x_1^{(i)})}$
+\ENDFOR
+
+\STATE Normalize the weights: $\displaystyle \tilde{w}_1^{(i)} = \frac{w_1^{(i)}}{\sum_{j=1}^N w_1^{(j)}}, \quad i=1,\ldots,N$
+
+\FOR{$t=2,\ldots,T$}
+    \FOR{$i=1,\ldots,N$}
+        \STATE Sample $\displaystyle x_t^{(i)}\sim q(x_t \mid x_{1:t-1}^{(i)})$
+        \STATE Update the unnormalized weight: $\displaystyle w_t^{(i)} = w_{t-1}^{(i)} \frac{p(x_t^{(i)} \mid x_{1:t-1}^{(i)})}{q(x_t^{(i)} \mid x_{1:t-1}^{(i)})}$
+    \ENDFOR
+
+    \STATE Normalize the weights: $\displaystyle \tilde{w}_t^{(i)}= \frac{w_t^{(i)}}{\sum_{j=1}^N w_t^{(j)}},\quad i=1,\ldots,N$
+\ENDFOR
+
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{SIS for state-space models}
+The main focus of this thesis is state-space models, in particular the MSSV model. We therefore now consider how sequential importance sampling can be applied to this class of models.
+
+Let $\theta$ denote the model parameters, which are assumed to be known for the moment. Given the observations $y_{1:T}$, the objective is to approximate the posterior distribution of the latent states,
+\begin{equation}
+p(x_{0:T} \mid y_{1:T},\theta) = \frac{p(x_{0:T},y_{1:T}\mid\theta)}{p(y_{1:T}\mid\theta)},
+\end{equation}
+where
+\begin{equation}
+p(y_{1:T}\mid\theta) = \int p(x_{0:T},y_{1:T}\mid\theta)\,\mathrm{d}x_{0:T}
+\end{equation}
+is the marginal likelihood. The marginal likelihood is generally intractable for nonlinear and non-Gaussian state-space models and therefore acts as an unknown normalizing constant of the posterior.
+
+For notational simplicity, the dependence on $\theta$ will be omitted from all densities for the remainder of this section. The joint density of the state-space model can be factorized according to its Markov structure as
+\begin{equation}
+p(x_{0:T},y_{1:T}) = \chi(x_0) \prod_{t=1}^T f(y_t\mid x_t) p(x_t\mid x_{t-1}).
+\end{equation}
+Consider a proposal of the form
+\begin{equation}
+q(x_{0:T}\mid y_{1:T}) = q_0(x_0) \prod_{t=1}^T q_t(x_t\mid x_{0:t-1},y_{1:t}),
+\end{equation}
+where $q_0$ is the proposal density for the initial state and $q_t$ is the proposal density used to generate $x_t$ conditional on the previously generated states and the observations available up to time $t$.
+We can therefore sequentially generate $N$ independent state trajectories
+$x_{0:T}^{(i)}$ for $i=1,\ldots,N$.
+
+Although the posterior density is only known up to the normalizing constant $p(y_{1:T})$, the unnormalized joint density
+$p(x_{0:T},y_{1:T})$ can be evaluated. This allows us to construct an importance sampling weight for each trajectory,
+
 
 \section{Sequential importance sampling with resampling}
 

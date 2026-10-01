@@ -90,9 +90,9 @@ The latent process $\{X_t\}_{t \geq 0}$ is modelled as a Markov process, while t
 \begin{align}
     X_0 &\sim \chi(x_0 | \theta), \\
     X_t | X_{t-1}=x_{t-1} &\sim p(x_t | x_{t-1}, \theta), \\
-    Y_t | X_t=x_t &\sim q(y_t | x_t, \theta),
+    Y_t | X_t=x_t &\sim f(y_t | x_t, \theta),
 \end{align}
-where $\chi$ is the \textit{initial density}, $p$ is the \textit{transition density}, and $q$ is the \textit{observation} or \textit{emission density}. The vector $\theta \in \Theta$ denotes the collection of model parameters \cite{chopin2020smc, doucet2001sequential,tingstrom2015smc2sv}. 
+where $\chi$ is the \textit{initial density}, $p$ is the \textit{transition density}, and $f$ is the \textit{observation} or \textit{emission density}. The vector $\theta \in \Theta$ denotes the collection of model parameters \cite{chopin2020smc, doucet2001sequential,tingstrom2015smc2sv}. 
 
 A potential problem with this definition is that conditional distribution of $X_t \mid X_{t-1}$ may not always admit a density. A proper way would be to define the state space model in a more measure focussed way using probability kernels \cite{chopin2020smc}.
 However, we will not deal with this more general definition in this thesis, as our models will admit nice densities.
@@ -123,28 +123,28 @@ From joint posterior distribution of the latent states and model parameters give
 
 A special case of state space models are the hidden Markov models (HMM). Although there is some discrepancy in the literature, the term hidden Markov model is often used to refer to a state space model in which the latent state is discrete and takes values in a finite set $\{1, 2, \ldots, K\}$, where $K$ is the number of states \cite{chopin2020smc}. 
 
-\subsection{Linear Gaussian state space model}
-\label{subsec:linear_gaussian_ssm}
-An important class of state space models is the linear Gaussian state space model (LG-SSM), in which both the transition and observation equations are linear and Gaussian. Mathematically, the model is defined as
-\begin{align}
-    X_t &= A_t X_{t-1} + \epsilon_t, \quad \epsilon_t \sim \mathcal{N}(0, Q_t), \\
-    Y_t &= C_t X_t + \delta_t, \quad \delta_t \sim \mathcal{N}(0, R_t),
-\end{align}
-where $A_t, C_t$ are matrices that define the dynamics, and $Q_t$ and $R_t$ are covariance matrices of the process and observation noise, respectively. Note that if matrices $A_t, C_t$ are time independent, the model is said to be stationary. 
-In literature we often find the LG-SSM defined in a more general form with control inputs, by adding $B_t U_t$ to the transition equation and $D_t U_t$ to the observation equation, where $U_t$ is a control input \cite{murphy2012machine}. However, as mentioned in Section \ref{sec:state_space_models}, we will not consider control inputs in this thesis.
+% \subsection{Linear Gaussian state space model}
+% \label{subsec:linear_gaussian_ssm}
+% An important class of state space models is the linear Gaussian state space model (LG-SSM), in which both the transition and observation equations are linear and Gaussian. Mathematically, the model is defined as
+% \begin{align}
+%     X_t &= A_t X_{t-1} + \epsilon_t, \quad \epsilon_t \sim \mathcal{N}(0, Q_t), \\
+%     Y_t &= C_t X_t + \delta_t, \quad \delta_t \sim \mathcal{N}(0, R_t),
+% \end{align}
+% where $A_t, C_t$ are matrices that define the dynamics, and $Q_t$ and $R_t$ are covariance matrices of the process and observation noise, respectively. Note that if matrices $A_t, C_t$ are time independent, the model is said to be stationary. 
+% In literature we often find the LG-SSM defined in a more general form with control inputs, by adding $B_t U_t$ to the transition equation and $D_t U_t$ to the observation equation, where $U_t$ is a control input \cite{murphy2012machine}. However, as mentioned in Section \ref{sec:state_space_models}, we will not consider control inputs in this thesis.
 
-We can write the model in a more density focused notation:
-\begin{align}
-    X_t | X_{t-1}=x_{t-1} &\sim \mathcal{N}(A_t x_{t-1}, Q_t), \\
-    Y_t | X_t=x_t &\sim \mathcal{N}(C_t x_t, R_t).
-\end{align}
-Let $\theta$ denote the collection of model parameters.
-If at time $t=0$, the initial state is Gaussian as well:
-\begin{equation}
-    X_0 \sim \mathcal{N}(\mu_0, Q_0),
-\end{equation}
-then all subsequent filtering distributions $p(x_t \mid y_{1:t}, \theta)$ are also Gaussian.
-Using the algorithm known as the Kalman filter, we can compute the parameters of these Gaussian filtering distributions in a closed form \cite{murphy2012machine}. 
+% We can write the model in a more density focused notation:
+% \begin{align}
+%     X_t | X_{t-1}=x_{t-1} &\sim \mathcal{N}(A_t x_{t-1}, Q_t), \\
+%     Y_t | X_t=x_t &\sim \mathcal{N}(C_t x_t, R_t).
+% \end{align}
+% Let $\theta$ denote the collection of model parameters.
+% If at time $t=0$, the initial state is Gaussian as well:
+% \begin{equation}
+%     X_0 \sim \mathcal{N}(\mu_0, Q_0),
+% \end{equation}
+% then all subsequent filtering distributions $p(x_t \mid y_{1:t}, \theta)$ are also Gaussian.
+% Using the algorithm known as the Kalman filter, we can compute the parameters of these Gaussian filtering distributions in a closed form \cite{murphy2012machine}. 
 
 \section[Markov switching stochastic volatility model]{Markov switching stochastic volatility\\ model}
 The Markov switching stochastic volatility (MSSV) model is the main model of interest in this thesis. 
@@ -246,10 +246,10 @@ In general we can distinguish between two types of our problem.
     \end{equation}
     We can further expand the likelihood:
     \begin{align}
-        p(y_{1:t} \mid x_{0:t}, \theta) &\propto q(y_t \mid x_{0:t}, y_{1:t-1}, \theta) p(y_{1:t-1} \mid x_{0:t}, \theta) \\
-        &\propto q(y_t \mid x_t, \theta) q(y_{t-1} \mid x_{0:t}, y_{1:t-2}, \theta) p(y_{1:t-2} \mid x_{0:t}, \theta) \\
-        &\propto \prod_{i=1}^{t} q(y_i \mid x_i, \theta), \\
-        &= \prod_{i=1}^{t} q(y_i \mid x_i),
+        p(y_{1:t} \mid x_{0:t}, \theta) &\propto f(y_t \mid x_{0:t}, y_{1:t-1}, \theta) p(y_{1:t-1} \mid x_{0:t}, \theta) \\
+        &\propto f(y_t \mid x_t, \theta) f(y_{t-1} \mid x_{0:t}, y_{1:t-2}, \theta) p(y_{1:t-2} \mid x_{0:t}, \theta) \\
+        &\propto \prod_{i=1}^{t} f(y_i \mid x_i, \theta), \\
+        &= \prod_{i=1}^{t} f(y_i \mid x_i),
     \end{align}
     where we used the fact that observations $y_i$ depend only on the current latent state $x_i$ (actually only on $h_i$) and not on the entire history of latent states, observations, or parameters.  
     We can also expand:
@@ -263,7 +263,7 @@ In general we can distinguish between two types of our problem.
     The final expression is thus
     \begin{equation}
         \label{eq:joint_posterior_known_parameters}
-        p(x_{0:t} \mid y_{1:t}, \theta) \propto \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) q(y_i \mid x_i).
+        p(x_{0:t} \mid y_{1:t}, \theta) \propto \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) f(y_i \mid x_i).
     \end{equation}
 
     \item \textbf{With unknown parameters}
@@ -283,7 +283,7 @@ In general we can distinguish between two types of our problem.
     Reusing the previously derived expressions, the joint posterior distribution can then be expressed as
     \begin{equation}
         \label{eq:joint_posterior_unknown_parameters}
-        p(x_{0:t}, \theta \mid y_{1:t}) \propto p(\theta) \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) q(y_i \mid x_i).
+        p(x_{0:t}, \theta \mid y_{1:t}) \propto p(\theta) \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) f(y_i \mid x_i).
     \end{equation}
 
 \end{enumerate}
