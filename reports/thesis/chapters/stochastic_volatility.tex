@@ -105,18 +105,22 @@ From joint posterior distribution of the latent states and model parameters give
 \begin{itemize}
     \item the \textit{smoothing distribution}
     \begin{equation}
+        \label{eq:smoothing_distribution}
         p(x_{0:t} \mid y_{1:t}) = \int p(x_{0:t}, \theta \mid y_{1:t}) d\theta,
     \end{equation}
     \item the \textit{filtering distribution}
     \begin{equation}
+        \label{eq:filtering_distribution}
         p(x_t \mid y_{1:t}) = \int p(x_{0:t}, \theta \mid y_{1:t}) dx_{0:t-1} d\theta,
     \end{equation}
     \item the \textit{prediction distribution}
     \begin{equation}
+        \label{eq:prediction_distribution}
         p(x_{t+1} \mid y_{1:t}) = \int p(x_{t+1} \mid x_t, \theta) p(x_{0:t}, \theta \mid y_{1:t}) dx_{0:t} d\theta,
     \end{equation}
     \item the \textit{posterior distribution of the parameters}
     \begin{equation}
+        \label{eq:posterior_distribution_parameters}
         p(\theta \mid y_{1:t}) = \int p(x_{0:t}, \theta \mid y_{1:t}) dx_{0:t}.
     \end{equation}
 \end{itemize}
@@ -229,6 +233,7 @@ Since $P$ is row stochastic, we have $K(K-1)$ free parameters in $P$. Therefore,
 Note that in case of $K=1$, the MSSV model reduces to the standard stochastic volatility (SV) model, in which only the log volatility $H_t$ is a latent variable and there are no regimes.
 
 \section{Problem formulation}
+\label{sec:problem_formulation}
 The goal of this thesis is to estimate volatility in financial markets, using the MSSV model with parameters $\theta$. 
 Let $y_{1:t} = \{y_1, y_2, \ldots, y_t\}$ denote the sequence of observed returns up to time $t \leq T$. Similarly, let $x_{0:t} = \{x_0, x_1, \ldots, x_t\}$ denote the sequence of latent states up to time $t$, where $x_0$ is the initial prior state.
 In general we can distinguish between two types of our problem.
