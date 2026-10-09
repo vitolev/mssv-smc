@@ -87,10 +87,7 @@ The empirical distribution assigns equal weight $1/N$ to each sampled value. It 
 \begin{proposition}
 For any measurable function $g$ with finite expectation,
 \begin{equation}
-    \int g(x)\hat{p}_N(x)\,\mathrm{d}x
-    =
-    \frac{1}{N}\sum_{i=1}^{N}g(X_i).
-    \label{eq:empirical_expectation}
+    \hat{I}_N = \int g(x)\hat{p}_N(x)\,\mathrm{d}x
 \end{equation}
 \end{proposition}
 
@@ -98,18 +95,10 @@ For any measurable function $g$ with finite expectation,
     \begin{align}
         \int g(x)\hat{p}_N(x)\,\mathrm{d}x &= \int g(x) \frac{1}{N}\sum_{i=1}^N \delta(x-X_i)\,\mathrm{d}x \\
         &= \frac{1}{N}\sum_{i=1}^N \int g(x)\delta(x-X_i)\,\mathrm{d}x \\
-        &= \frac{1}{N}\sum_{i=1}^N g(X_i),
+        &= \frac{1}{N}\sum_{i=1}^N g(X_i) = \hat{I}_N,
     \end{align}
     where the defining property of the Dirac delta function has been used.
 \end{proof}
-
-Combining~\eqref{eq:monte_carlo_estimator} and~\eqref{eq:empirical_expectation}, the Monte Carlo estimator can therefore be written as
-\begin{equation}
-    \hat{I}_N
-    =
-    \int g(x)\hat{p}_N(x)\,\mathrm{d}x.
-    \label{eq:mc_empirical_integral}
-\end{equation}
 
 It is important to distinguish the empirical distribution $\hat{p}_N$ from the density $p$. Even when $p$ is continuous, $\hat{p}_N$ consists of point masses for every finite $N$ and is therefore not a pointwise approximation of $p(x)$. The approximation is instead meaningful through quantities such as integrals and expectations.
 
@@ -136,7 +125,7 @@ The expectation of $g$ under $p$ can then be rewritten as
 Thus, although samples are generated from $q$, the importance weights correct for the difference between $q$ and $p$.
 
 \begin{definition}
-Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} q$.
+Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} q$ and $w(X_i)$ corresponding importance weights.
 The \emph{importance sampling estimator} of $I=E_p[g(X)]$ is defined by
 \begin{equation}
     \hat{I}_N^{\mathrm{IS}} = \frac{1}{N} \sum_{i=1}^N g(X_i)w(X_i).
@@ -167,34 +156,33 @@ The \emph{importance sampling estimator} of $I=E_p[g(X)]$ is defined by
 
 Although the importance sampling estimator is unbiased and consistent for any proposal distribution satisfying the support condition, its variance depends strongly on the choice of $q$.
 
+\subsection{(Weighted) empirical distribution}
+\label{sec:weighted_empirical_distribution}
+
 There are two equivalent ways to interpret the importance sampling estimator.
-The first is to regard importance sampling simply as a Monte Carlo estimator of the expectation of $g(X)w(X)$ under the proposal distribution $q$. 
-In terms of the empirical distribution
-\begin{equation}
-    \hat{q}_N(x) = \frac{1}{N}\sum_{i=1}^N\delta(x-X_i),
-\end{equation}
-this can be written as
-\begin{equation}
-    \hat{I}_N^{\mathrm{IS}} = \int g(x)w(x)\hat{q}_N(x)\,\mathrm{d}x.
-\end{equation}
+The first one follows the same logic as in \ref{sec:empirical_distribution}:
+\begin{align}
+    \hat{I}_N^{\mathrm{IS}} &= \frac{1}{N}\sum_{i=1}^{N}w(X_i)g(X_i) = \frac{1}{N}\sum_{i=1}^{N} \int w(x)g(x) \delta(x-X_i)\,\mathrm{d}x \\
+    &=\int w(x)g(x) \frac{1}{N}\sum_{i=1}^{N}\delta(x-X_i)\,\mathrm{d}x \\
+    &=\int w(x)g(x) \hat{q}_N(x)\,\mathrm{d}x,
+\end{align}
+where samples $X_1,\ldots,X_N\overset{\mathrm{iid}}{\sim}q$ construct an empirical distribution $\hat{q}_N(x)$ and we are simply computing the expectation of $w(X)g(X)$ with respect to it.
 
 There is another interpretation that is particularly useful. Instead of viewing the weights as part of the integrand, we can absorb them into the empirical distribution itself.
+\begin{align}
+    \hat{I}_N^{\mathrm{IS}} &= \frac{1}{N}\sum_{i=1}^{N}w(X_i)g(X_i) = \frac{1}{N}\sum_{i=1}^{N} \int w(x)g(x) \delta(x-X_i)\,\mathrm{d}x \\
+    &=\int g(x) \frac{1}{N}\sum_{i=1}^{N}w(x)\delta(x-X_i)\,\mathrm{d}x \\
+    &=\int g(x) \hat{p}_N^{\mathrm{IS}}(x)\,\mathrm{d}x,
+\end{align}
+leading us to next definition.
 \begin{definition}
-Let $X_1,\ldots,X_N\overset{\mathrm{iid}}{\sim}q$. The
-\emph{unnormalized weighted empirical distribution} is defined as
+Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} q$ and $w(X_i)$ corresponding importance weights. 
+The \emph{weighted empirical distribution} is defined as
 \begin{equation}
     \hat{p}_N^{\mathrm{IS}}(x) = \frac{1}{N} \sum_{i=1}^N w(X_i)\delta(x-X_i).
     \label{eq:weighted_empirical_distribution}
 \end{equation}
 \end{definition}
-
-Using the sifting property of the Dirac delta function, integration with
-respect to this weighted empirical distribution gives
-\begin{align}
-    \int g(x)\hat{p}_N^{\mathrm{IS}}(x)\,\mathrm{d}x &= \int g(x) \frac{1}{N} \sum_{i=1}^N w(X_i)\delta(x-X_i)\,\mathrm{d}x \\
-    &= \frac{1}{N} \sum_{i=1}^N w(X_i) \int g(x)\delta(x-X_i)\,\mathrm{d}x \\
-    &= \frac{1}{N} \sum_{i=1}^N g(X_i)w(X_i) = \hat{I}_N^{\mathrm{IS}}.
-\end{align}
 
 This provides an alternative interpretation of importance sampling:
 although the samples are drawn from the proposal distribution $q$, the
@@ -224,7 +212,133 @@ have unit mass for a finite sample, its total mass converges almost surely
 to one as the number of samples increases.
 
 \section{Self-normalized importance sampling}
-The previous construction suggests a natural modification: instead of allowing the weights to have a random total mass, normalize them so that they sum to one.
+\label{sec:self_normalized_importance_sampling}
+The previous construction suggests a natural modification: instead of allowing the weights to have a random total mass, normalize them as
+\begin{equation}
+    \tilde{w}_i = \frac{w(X_i)}{\sum_{j=1}^{N} w(X_j)},
+\end{equation}
+which leads us to the next definition.
+\begin{definition}
+    Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} q$ and $\tilde{w}(X_i)$ corresponding normalized importance weights.
+    The \emph{self-normalized weighted empirical distribution} is defined as
+    \begin{equation}
+        \hat{p}_N^{\mathrm{SNIS}}(x) = \sum_{i=1}^{N} \tilde{w}_i \delta(x-X_i)
+    \end{equation}
+\end{definition}
+This distribution clearly has a total mass of one.
+\begin{definition}
+    Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} q$ and $w(X_i)$ corresponding importance weights.
+    The \emph{self-normalized imporance sampling estimator} of $I=E_p[g(X)]$ is defined as
+    \begin{equation}
+        \hat{I}_N^{\mathrm{SNIS}} = \frac{\sum_{i=1}^{N} g(X_i)w(X_i)}{\sum_{i=1}^{N}w(X_i)}.
+    \end{equation}
+\end{definition}
+
+\begin{proposition}
+    For any measurable function $g$ with finite expectation,
+    \begin{equation}
+        \hat{I}_N^{\mathrm{SNIS}} = \int g(x) \hat{p}_N^{\mathrm{SNIS}}\, \mathrm{d}x.
+    \end{equation}
+\end{proposition}
+\begin{proof}
+    \begin{align}
+        \int g(x) \hat{p}_N^{\mathrm{SNIS}}\, \mathrm{d}x &= \int g(x) \sum_{i=1}^{N} \tilde{w}_i \delta(x-X_i)\,\mathrm{d}x \\
+        &= \sum_{i=1}^{N} \tilde{w}_i \int g(x) \delta(x-X_i)\,\mathrm{d}x \\
+        &= \sum_{i=1}^{N} \tilde{w}_i g(X_i) \\
+        &= \frac{\sum_{i=1}^{N} g(X_i)w(X_i)}{\sum_{i=1}^{N}w(X_i)}.
+    \end{align}
+\end{proof}
+
+There is a fundamental difference between $\hat{I}_N^{\mathrm{IS}}$ and $\hat{I}_N^{\mathrm{SNIS}}$. The ordinary importance sampling estimator is unbiased, whereas the self-normalized estimator is generally biased for finite $N$.
+\begin{proposition}
+    The self-normalized importance sampling estimator is biased.
+\end{proposition}
+\begin{proof}
+    Because the expected value of a fraction is not equal to the fraction of expected values we have
+    \begin{align}
+        E_q\left[\frac{\sum_{i=1}^{N}g(X_i)w(X_i)}{\sum_{i=1}^{N}w(X_i)}\right] &\neq \frac{E_q\left[\frac{1}{N} \sum_{i=1}^{N}g(X_i)w(X_i)\right]}{E_q\left[\frac{1}{N} \sum_{i=1}^{N}w(X_i)\right]} \\
+        E_q\left[\hat{I}_N^{\mathrm{SNIS}}\right] &\neq \frac{E_q\left[\hat{I}_N^{\mathrm{IS}}\right]}{1} = I.
+    \end{align}
+\end{proof}
+
+\begin{proposition}
+    The self-normalized importance sampling estimator is consistent.
+\end{proposition}
+\begin{proof}
+    Under suitable regularity conditions, the strong law of large numbers gives
+    \begin{align}
+        \frac{1}{N}\sum_{i=1}^{N} g(X_i)w(X_i) &\xrightarrow[N\to\infty]{a.s.} I,\\
+        \frac{1}{N}\sum_{i=1}^{N} w(X_i) &\xrightarrow[N\to\infty]{a.s.} 1.
+    \end{align}
+    Consequently,
+    \begin{equation}
+        \hat{I}_N^{\mathrm{SNIS}} = \frac{\frac{1}{N}\sum_{i=1}^{N} g(X_i)w(X_i)}{\frac{1}{N}\sum_{i=1}^{N} w(X_i)} \xrightarrow[N\to\infty]{a.s.} I.
+    \end{equation}
+\end{proof}
+
+At first it seems pointless to use the self-normalized estimator, just to assure that the $\hat{p}_N^{\mathrm{SNIS}}$ is a proper probability distribution, as we lose the unbiasedness of the estimator. 
+However, in many applications, especially in Bayesian inference, the target density $p(x)$ is known only up to a proportionality constant. Suppose that our target has form
+\begin{equation}
+    p(x) = \frac{\tilde{p}(x)}{Z},
+\end{equation}
+where $\tilde{p}(x)$ is known and $Z$ is an intractable normalization constant. The importance weights are then
+\begin{equation}
+    w(x) = \frac{p(x)}{q(x)} = \frac{\tilde{p}(x)}{Zq(x)},
+\end{equation}
+which makes it impossible to compute the ordinary importance sampling estimator $\hat{I}_N^{\mathrm{IS}}$. However, the normalized weights are still computable:
+\begin{equation}
+    \tilde{w}_i = \frac{w(X_i)}{\sum_{j=1}^N w(X_j)} = \frac{\frac{\tilde{p}(X_i)}{Zq(X_i)}}{\sum_{j=1}^N \frac{\tilde{p}(X_j)}{Zq(X_j)}} = \frac{\frac{\tilde{p}(X_i)}{q(X_i)}}{\sum_{j=1}^N \frac{\tilde{p}(X_j)}{q(X_j)}}.
+\end{equation}
+Therefore, the self-normalized importance sampling estimator $\hat{I}_N^{\mathrm{SNIS}}$ can be used even when the target density is known only up to a constant of proportionality at the cost of introducing bias.
+
+\section{Sequential importance sampling}
+% Sequential importance sampling (SIS) applies importance sampling to a sequence of random variables by exploiting the sequential structure of the problem. In most general form, if the target distribution can be sequentially factorized as
+% \begin{equation}
+%     p(x_{1:T}) = p(x_1)\prod_{i=2}^{T} p(x_i|x_{1:i-1}),
+% \end{equation}
+% and if the proposal distribution can be sequentially factorized as
+% \begin{equation}
+%     q(x_{1:T}) = q(x_1)\prod_{i=2}^{T} q(x_i|x_{1:i-1}),
+% \end{equation}
+% then the importance weight can be computed recursively as
+% \begin{align}
+%     w(x_{1:T}) &= \frac{p(x_{1:T})}{q(x_{1:T})} = \frac{p(x_1)\prod_{i=2}^{T} p(x_i|x_{1:i-1})}{q(x_1)\prod_{i=2}^{T} q(x_i|x_{1:i-1})} \\
+%     &= w(x_{1:T-1}) \cdot \frac{p(x_T|x_{1:T-1})}{q(x_T|x_{1:T-1})}.
+% \end{align}
+% Just like in Sections~\ref{sec:importance_sampling} and~\ref{sec:self_normalized_importance_sampling}, those weights can be used to construct an ordinary or self-normalized importance sampling estimator and empirical distribution. 
+% By keeping track of the weights and the samples, we can update the approximation sequentially, from which the name sequential importance sampling is derived.
+% Such an algorithm can be considered as the most basic form of a sequential Monte Carlo method.
+
+Sequential importance sampling (SIS) applies importance sampling to a sequence of random variables by exploiting the sequential structure of the problem.
+Because the main focus of this thesis are state-space models, in particular the MSSV model, we will consider the sequential importance sampling in the context of state-space models.
+
+Let's assume the model parameters $\theta$ are known for the moment. Given the observations $y_{1:T}$, the objective is to approximate the posterior distribution of the latent states,
+\begin{equation}
+p(x_{0:T} \mid y_{1:T},\theta) = \frac{p(x_{0:T},y_{1:T}\mid\theta)}{p(y_{1:T}\mid\theta)},
+\end{equation}
+where
+\begin{equation}
+p(y_{1:T}\mid\theta) = \int p(x_{0:T},y_{1:T}\mid\theta)\,\mathrm{d}x_{0:T}
+\end{equation}
+is the \emph{marginal likelihood}. The marginal likelihood is generally intractable for nonlinear and non-Gaussian state-space models and therefore acts as an unknown normalizing constant of the posterior.
+
+For notational simplicity, the notation for dependence on $\theta$ will be omitted. The joint density of the state-space model can be factorized according to its Markov structure as
+\begin{equation}
+p(x_{0:T},y_{1:T}) = \chi(x_0) \prod_{t=1}^T f(y_t\mid x_t) p(x_t\mid x_{t-1}).
+\end{equation}
+Let's assume that the proposal distribution can also be factorized sequentially as
+\begin{equation}
+q(x_{0:T}\mid y_{1:T}) = q_0(x_0) \prod_{t=1}^T q_t(x_t\mid x_{0:t-1},y_{1:t}).
+\end{equation}
+Then the importance weight can be computed recursively as
+\begin{align}
+    w_T &= \frac{p(x_{0:T},y_{1:T})}{q(x_{0:T}\mid y_{1:T})} = \frac{\chi(x_0) \prod_{t=1}^T f(y_t\mid x_t) p(x_t\mid x_{t-1})}{q_0(x_0) \prod_{t=1}^T q_t(x_t\mid x_{0:t-1},y_{1:t})} \\
+    &= w_{T-1} \cdot \frac{f(y_T\mid x_T) p(x_T\mid x_{T-1})}{q_T(x_T\mid x_{0:T-1},y_{1:T})} = w_{T-1} \cdot \alpha_T \\
+    &= \prod_{t=0}^{T} \alpha_t,
+\end{align}
+
+
+
 
 % -------------------------
 % old content

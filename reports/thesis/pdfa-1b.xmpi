@@ -9,18 +9,18 @@ xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">
 </rdf:Description> 
 <rdf:Description rdf:about="" 
 xmlns:xap="http://ns.adobe.com/xap/1.0/"> 
-<xap:CreateDate>2026-10-07T23:58:33+01:00</xap:CreateDate> 
+<xap:CreateDate>2026-10-09T20:52:05+02:00</xap:CreateDate> 
 <xap:CreatorTool>TeX</xap:CreatorTool> 
-<xap:ModifyDate>2026-10-07T23:58:33+01:00</xap:ModifyDate> 
-<xap:MetadataDate>2026-10-07T23:58:33+01:00</xap:MetadataDate> 
+<xap:ModifyDate>2026-10-09T20:52:05+02:00</xap:ModifyDate> 
+<xap:MetadataDate>2026-10-09T20:52:05+02:00</xap:MetadataDate> 
 </rdf:Description> 
 <rdf:Description rdf:about="" 
 xmlns:pdfx="http://ns.adobe.com/pdfx/1.3/"> 
-<pdfx:PTEX.Fullbanner>This is MiKTeX-pdfTeX 4.21.0 (1.40.27)</pdfx:PTEX.Fullbanner> 
+<pdfx:PTEX.Fullbanner>This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) kpathsea version 6.4.2</pdfx:PTEX.Fullbanner> 
 </rdf:Description> 
 <rdf:Description rdf:about="" 
 xmlns:pdf="http://ns.adobe.com/pdf/1.3/"> 
-<pdf:Producer>pdfTeX-1.40.27</pdf:Producer> 
+<pdf:Producer>pdfTeX-1.40.29</pdf:Producer> 
 <pdf:Trapped>False</pdf:Trapped> 
 <pdf:Keywords>computer, computer, computer</pdf:Keywords> 
 </rdf:Description> 
