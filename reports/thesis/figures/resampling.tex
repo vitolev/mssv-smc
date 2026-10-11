@@ -1,0 +1,27 @@
+\begin{tikzpicture}
+    \foreach \t in {0,1,2,3} {
+        \foreach \j in {1,2,3,4,5} {
+            \node[circle, draw, fill=gray!20] (X\t\j) at (4*\t,-1.5*\j) {$X_{\t}^{\j}$};
+        }
+    }
+    \draw[-{Stealth[scale=1.5]}] (X01.east) -- (X11.west);
+    \draw[-{Stealth[scale=1.5]}] (X02.east) -- (X12.west);
+    \draw[-{Stealth[scale=1.5]}] (X03.east) -- (X13.west);
+    \draw[-{Stealth[scale=1.5]}] (X04.east) -- (X14.west);
+    \draw[-{Stealth[scale=1.5]}] (X04.east) -- (X15.west);
+    \draw[-{Stealth[scale=1.5]}] (X12.east) -- (X21.west);
+    \draw[-{Stealth[scale=1.5]}] (X12.east) -- (X22.west);
+    \draw[-{Stealth[scale=1.5]}] (X12.east) -- (X23.west);
+    \draw[-{Stealth[scale=1.5]}] (X14.east) -- (X24.west);
+    \draw[-{Stealth[scale=1.5]}] (X15.east) -- (X25.west);
+    \draw[-{Stealth[scale=1.5]}] (X21.east) -- (X31.west);
+    \draw[-{Stealth[scale=1.5]}] (X21.east) -- (X32.west);
+    \draw[-{Stealth[scale=1.5]}] (X24.east) -- (X33.west);
+    \draw[-{Stealth[scale=1.5]}] (X24.east) -- (X34.west);
+    \draw[-{Stealth[scale=1.5]}] (X25.east) -- (X35.west);
+
+    \node[above, yshift=0.35cm] at (X01.north) {$t=0$};
+    \node[above, yshift=0.35cm] at (X11.north) {$t=1$};
+    \node[above, yshift=0.35cm] at (X21.north) {$t=2$};
+    \node[above, yshift=0.35cm] at (X31.north) {$t=3$};
+\end{tikzpicture}
