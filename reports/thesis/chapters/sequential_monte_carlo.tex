@@ -1,4 +1,5 @@
 \chapter{Sequential Monte Carlo Methods}
+\label{chap:sequential_monte_carlo}
 
 Sequential Monte Carlo (SMC) methods provide a flexible framework for approximating probability distributions that evolve sequentially over time. 
 They are particularly useful for inference in state-space models, where the latent states are typically not directly observed and their posterior distributions are analytically intractable. 
@@ -300,7 +301,7 @@ Sequential importance sampling (SIS) applies importance sampling to a sequence o
 Because the main focus of this thesis is on state-space models, in particular the MSSV model, we consider sequential importance sampling in the context of state-space models.
 
 For the moment, assume that the model parameters $\theta$ are known. Given the observations $y_{1:T}$, the objective is to approximate the posterior distribution of the latent states, $p(x_{0:T} \mid y_{1:T},\theta)$.
-As derived in Section~\ref{sec:problem_formulation}, the joint density is
+By Proposition~\ref{prop:joint_density}, the joint density is
 \begin{equation}
 p(x_{0:T},y_{1:T}\mid\theta) = \chi(x_0\mid\theta) \prod_{t=1}^T f(y_t\mid x_t,\theta) p(x_t\mid x_{t-1},\theta).
 \end{equation}
