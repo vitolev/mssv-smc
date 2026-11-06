@@ -1,0 +1,1281 @@
+\chapter{Sequential Monte Carlo Methods}
+\label{chap:sequential_monte_carlo}
+
+Sequential Monte Carlo (SMC) methods provide a flexible framework for approximating probability distributions that evolve sequentially over time. 
+They are particularly useful for inference in state-space models, where the latent states are typically not directly observed and their posterior distributions are analytically intractable. 
+SMC methods approximate these distributions using a set of weighted samples, commonly referred to as particles, and update this approximation as new observations become available.
+
+In this chapter, all distributions are treated as probability measures, conditional distributions as Markov kernels, and densities as Radon-Nikodym derivatives. This removes the need for formal manipulations with Dirac delta functions, and treats continuous, discrete and mixed state spaces, such as the state space of the MSSV model, in a single framework.
+The chapter first introduces the measure-theoretic tools that are used throughout. It then presents the foundations of SMC, beginning with Monte Carlo methods, importance sampling and sequential importance sampling. 
+The problem of weight degeneracy is then addressed through resampling, leading to sequential importance sampling with resampling, also known as particle filtering. 
+The bootstrap particle filter is presented in more detail.
+
+Next, the chapter considers particle-based methods for Bayesian parameter inference. 
+Particle marginal Metropolis-Hastings and particle Gibbs are introduced as particle Markov chain Monte Carlo methods. 
+Finally, SMC$^2$ is presented as an extension that combines particle filtering with sequential inference for static parameters and latent states.
+
+\section{Measure-theoretic preliminaries}
+\label{sec:measure_preliminaries}
+Throughout this chapter, all random variables are defined on a common probability space $(\Omega,\mathcal{F},\mathbb{P})$, and $\mathbb{E}$ denotes expectation with respect to $\mathbb{P}$. Let $(E,\mathcal{E})$ be a measurable space. For a measure $\mu$ on $(E,\mathcal{E})$ and a measurable function $\varphi\colon E\to\mathbb{R}$ that is either non-negative or $\mu$-integrable, we write
+\begin{equation}
+    \mu(\varphi) = \int_E \varphi(x)\,\mu(\mathrm{d}x).
+\end{equation}
+In particular, $\mu(\mathbf{1}_A) = \mu(A)$ for $A\in\mathcal{E}$, where $\mathbf{1}_A$ is the indicator function of $A$, and $\mu(1) = \mu(E)$ is the total mass of $\mu$. The set of $\mu$-integrable functions is denoted by $L^1(\mu)$. The \emph{law} of a random variable $X\colon\Omega\to E$ is the probability measure $\mathbb{P}\circ X^{-1}$ on $(E,\mathcal{E})$, and we write $X\sim\mu$ if $\mathbb{P}\circ X^{-1}=\mu$. In that case,
+\begin{equation}
+    \mathbb{E}[\varphi(X)] = \mu(\varphi)
+    \label{eq:law_change_of_variables}
+\end{equation}
+for every $\varphi$ that is non-negative or in $L^1(\mu)$. Conditional expectations of non-negative random variables are understood in the extended sense, so that the tower property and the rule of taking out what is known hold without integrability assumptions.
+
+\begin{definition}
+    \label{def:dirac_measure}
+    For $x\in E$, the \emph{Dirac measure} at $x$ is the probability measure
+    \begin{equation}
+        \delta_x(A) = \mathbf{1}_A(x), \qquad A\in\mathcal{E}.
+    \end{equation}
+\end{definition}
+
+\begin{proposition}
+    \label{prop:dirac_integral}
+    For every $x\in E$ and every measurable $\varphi\colon E\to\mathbb{R}$, $\delta_x(\varphi) = \varphi(x)$.
+\end{proposition}
+\begin{proof}
+    For an indicator function, $\delta_x(\mathbf{1}_A) = \mathbf{1}_A(x)$ by definition, and by linearity the claim holds for non-negative simple functions. A non-negative measurable $\varphi$ is the pointwise limit of an increasing sequence of non-negative simple functions $\varphi_n$, so by the monotone convergence theorem, $\delta_x(\varphi) = \lim_n \delta_x(\varphi_n) = \lim_n \varphi_n(x) = \varphi(x)$. For general $\varphi$, write $\varphi = \varphi^+ - \varphi^-$. Both $\delta_x(\varphi^\pm) = \varphi^\pm(x)$ are finite, so $\varphi$ is $\delta_x$-integrable and $\delta_x(\varphi) = \varphi^+(x) - \varphi^-(x) = \varphi(x)$.
+\end{proof}
+
+If $\mu_1,\ldots,\mu_N$ are measures and $c_1,\ldots,c_N\ge 0$, then $\mu = \sum_{i=1}^N c_i\mu_i$ is again a measure, and $\mu(\varphi) = \sum_{i=1}^N c_i\,\mu_i(\varphi)$ for every $\varphi$ that is non-negative or integrable with respect to every $\mu_i$. Together with Proposition~\ref{prop:dirac_integral}, this is the only property of point masses used in this chapter.
+
+\begin{definition}
+    Let $\mu$ and $\nu$ be measures on $(E,\mathcal{E})$. The measure $\nu$ is \emph{absolutely continuous} with respect to $\mu$, written $\nu\ll\mu$, if $\mu(A)=0$ implies $\nu(A)=0$ for every $A\in\mathcal{E}$.
+\end{definition}
+
+\begin{theorem}[Radon-Nikodym]
+    \label{thm:radon_nikodym}
+    Let $\mu$ and $\nu$ be $\sigma$-finite measures on $(E,\mathcal{E})$ with $\nu\ll\mu$. Then there exists a measurable function $g\colon E\to[0,\infty)$ such that
+    \begin{equation}
+        \nu(A) = \mu(g\,\mathbf{1}_A) \qquad \text{for all } A\in\mathcal{E},
+    \end{equation}
+    and $g$ is unique up to $\mu$-null sets. It is called the \emph{Radon-Nikodym derivative} or \emph{density} of $\nu$ with respect to $\mu$ and is denoted by $g = \mathrm{d}\nu/\mathrm{d}\mu$. Moreover, $\nu(\varphi) = \mu(g\varphi)$ for every measurable $\varphi$ that is non-negative or in $L^1(\nu)$.
+\end{theorem}
+
+We write $\nu(\mathrm{d}x) = g(x)\,\mu(\mathrm{d}x)$ to express that $g$ is a density of $\nu$ with respect to $\mu$. Conversely, every measurable $g\ge 0$ defines a measure $\nu(\mathrm{d}x)=g(x)\,\mu(\mathrm{d}x)$ with $\nu\ll\mu$. Densities compose: if $\nu(\mathrm{d}x)=g(x)\,\mu(\mathrm{d}x)$ and $\mu(\mathrm{d}x) = h(x)\,\kappa(\mathrm{d}x)$, then $\nu(\mathrm{d}x) = g(x)h(x)\,\kappa(\mathrm{d}x)$, since $\nu(\mathbf{1}_A) = \mu(g\mathbf{1}_A) = \kappa(hg\mathbf{1}_A)$.
+
+All densities used in Chapter~\ref{chap:stochastic_volatility} are Radon-Nikodym derivatives with respect to a fixed reference measure. For the MSSV model, the state space $\mathcal{X} = \mathbb{R}\times\{1,\ldots,K\}$ carries the reference measure
+\begin{equation}
+    \mu_{\mathcal{X}} = \lambda\otimes\#,
+    \label{eq:mssv_reference_measure}
+\end{equation}
+where $\lambda$ is the Lebesgue measure on $\mathbb{R}$ and $\#$ is the counting measure on $\{1,\ldots,K\}$, so that
+\begin{equation}
+    \mu_{\mathcal{X}}(\varphi) = \sum_{s=1}^{K}\int_{\mathbb{R}} \varphi(h,s)\,\mathrm{d}h.
+\end{equation}
+The observation space $\mathcal{Y}=\mathbb{R}$ carries the Lebesgue measure.
+
+\subsection{Markov kernels}
+\label{sec:markov_kernels}
+Conditional distributions are formalized by Markov kernels \cite{chopin2020smc}.
+
+\begin{definition}
+    \label{def:markov_kernel}
+    Let $(E,\mathcal{E})$ and $(F,\mathcal{G})$ be measurable spaces. A \emph{Markov kernel} from $E$ to $F$ is a map $K\colon E\times\mathcal{G}\to[0,1]$ such that
+    \begin{enumerate}
+        \item for every $x\in E$, $K(x,\cdot)$ is a probability measure on $(F,\mathcal{G})$;
+        \item for every $B\in\mathcal{G}$, $x\mapsto K(x,B)$ is $\mathcal{E}$-measurable.
+    \end{enumerate}
+\end{definition}
+
+For a Markov kernel $K$ from $E$ to $F$, a measure $\mu$ on $E$ and a measurable function $\varphi$ on $F$, respectively on $E\times F$, we use the notation
+\begin{align}
+    (K\varphi)(x) &= \int_F \varphi(y)\,K(x,\mathrm{d}y), \\
+    (\mu K)(B) &= \int_E K(x,B)\,\mu(\mathrm{d}x), \\
+    (\mu\otimes K)(C) &= \int_E \left(\int_F \mathbf{1}_C(x,y)\,K(x,\mathrm{d}y)\right)\mu(\mathrm{d}x), \qquad C\in\mathcal{E}\otimes\mathcal{G}.
+\end{align}
+The following facts are standard \cite{chopin2020smc}. For non-negative measurable $\varphi$, the function $K\varphi$ is measurable. If $\mu$ is $\sigma$-finite, then $\mu\otimes K$ is the unique measure on $(E\times F,\mathcal{E}\otimes\mathcal{G})$ with $(\mu\otimes K)(A\times B) = \int_A K(x,B)\,\mu(\mathrm{d}x)$, and for every non-negative measurable $\varphi$ on $E\times F$,
+\begin{equation}
+    (\mu\otimes K)(\varphi) = \int_E \left(\int_F \varphi(x,y)\,K(x,\mathrm{d}y)\right)\mu(\mathrm{d}x).
+    \label{eq:kernel_tonelli}
+\end{equation}
+The second marginal of $\mu\otimes K$ is $\mu K$, and $(\mu K)(\varphi) = \mu(K\varphi)$. If $X\sim\mu$ and $\mathbb{P}(Y\in B\mid X) = K(X,B)$ almost surely for every $B$, then $(X,Y)\sim\mu\otimes K$ and $\mathbb{E}[\varphi(Y)\mid X] = (K\varphi)(X)$ almost surely for every non-negative measurable $\varphi$. A kernel from $E$ to $F$ may also be applied to a measure on a product space $E'\times E$ by letting it act on the last coordinate only, $(x',x)\mapsto K(x,\cdot)$, which is again a Markov kernel.
+
+\begin{lemma}
+    \label{lem:kernel_product_density}
+    Let $\mu,\mu'$ be $\sigma$-finite measures on $E$ and $K,K'$ Markov kernels from $E$ to $F$. Assume that $\mu(\mathrm{d}x) = g(x)\,\mu'(\mathrm{d}x)$ and that there is a measurable function $k\colon E\times F\to[0,\infty)$ such that $K(x,\mathrm{d}y) = k(x,y)\,K'(x,\mathrm{d}y)$ for every $x\in E$. Then
+    \begin{equation}
+        (\mu\otimes K)(\mathrm{d}x,\mathrm{d}y) = g(x)\,k(x,y)\,(\mu'\otimes K')(\mathrm{d}x,\mathrm{d}y).
+    \end{equation}
+\end{lemma}
+\begin{proof}
+    Let $C\in\mathcal{E}\otimes\mathcal{G}$. Using~\eqref{eq:kernel_tonelli} twice and the densities of $\mu$ and $K(x,\cdot)$,
+    \begin{align}
+        (\mu\otimes K)(C) &= \int_E \left(\int_F \mathbf{1}_C(x,y)\,K(x,\mathrm{d}y)\right)\mu(\mathrm{d}x) \\
+        &= \int_E g(x) \left(\int_F \mathbf{1}_C(x,y)\,k(x,y)\,K'(x,\mathrm{d}y)\right)\mu'(\mathrm{d}x) \\
+        &= (\mu'\otimes K')(g\,k\,\mathbf{1}_C),
+    \end{align}
+    where the inner integral is a non-negative measurable function of $x$, so Theorem~\ref{thm:radon_nikodym} applies to the outer integral.
+\end{proof}
+
+\begin{definition}
+    \label{def:image_measure}
+    Let $\mu$ be a measure on $(E,\mathcal{E})$ and $\tau\colon E\to F$ a measurable map. The \emph{image measure} of $\mu$ under $\tau$ is $\tau_{\#}\mu = \mu\circ\tau^{-1}$, that is, $(\tau_{\#}\mu)(B) = \mu(\tau^{-1}(B))$.
+\end{definition}
+By the change of variables formula, $(\tau_{\#}\mu)(\varphi) = \mu(\varphi\circ\tau)$ for every $\varphi$ that is non-negative or in $L^1(\tau_{\#}\mu)$. In particular, $\tau_{\#}\delta_x = \delta_{\tau(x)}$, since $(\tau_{\#}\delta_x)(B) = \mathbf{1}_B(\tau(x))$, and $\tau_{\#}$ is linear in the measure.
+
+\section{Monte Carlo methods}
+Monte Carlo methods approximate quantities involving a probability distribution by using a finite collection of random samples. The basic idea is simple: rather than evaluating an integral directly, we replace it by an average over samples drawn from the distribution of interest.
+
+Until further notice, let $\pi$ be a probability measure on a measurable space $(E,\mathcal{E})$, let $X\sim\pi$, and let $\varphi\in L^1(\pi)$. The quantity of interest is
+\begin{equation}
+    I = \mathbb{E}[\varphi(X)] = \pi(\varphi) = \int_E \varphi(x)\,\pi(\mathrm{d}x).
+    \label{eq:target_expectation}
+\end{equation}
+
+\begin{definition}
+    Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} \pi$. The \emph{Monte Carlo estimator} of $I$ is defined as
+    \begin{equation}
+        \hat{I}_N = \frac{1}{N}\sum_{i=1}^{N} \varphi(X_i).
+        \label{eq:monte_carlo_estimator}
+    \end{equation}
+\end{definition}
+
+Such an estimator has several desirable properties, including unbiasedness, consistency, and asymptotic normality.
+
+\begin{proposition}
+    The Monte Carlo estimator $\hat{I}_N$ is unbiased.
+\end{proposition}
+\begin{proof}
+    By linearity of expectation and~\eqref{eq:law_change_of_variables},
+    \begin{equation}
+        \mathbb{E}[\hat{I}_N] = \frac{1}{N}\sum_{i=1}^N \mathbb{E}[\varphi(X_i)] = \frac{1}{N}\sum_{i=1}^N \pi(\varphi) = I.
+    \end{equation}
+\end{proof}
+
+\begin{proposition}
+    The Monte Carlo estimator $\hat{I}_N$ is strongly consistent.
+\end{proposition}
+\begin{proof}
+    The random variables $\varphi(X_1),\varphi(X_2),\ldots$ are i.i.d.\ with $\mathbb{E}[|\varphi(X_1)|] = \pi(|\varphi|)<\infty$, so the strong law of large numbers gives
+    \begin{equation}
+        \hat{I}_N \xrightarrow[N\to\infty]{a.s.} I.
+    \end{equation}
+    Almost sure convergence implies convergence in probability, so the estimator is also (weakly) consistent.
+\end{proof}
+
+\begin{proposition}
+    If $\pi(\varphi^2)<\infty$, then the Monte Carlo estimator $\hat{I}_N$ is asymptotically normal.
+\end{proposition}
+\begin{proof}
+    The random variables $\varphi(X_i)$ are i.i.d.\ with finite variance $\sigma^2 = \pi(\varphi^2)-\pi(\varphi)^2$, so the central limit theorem gives
+    \begin{equation}
+        \sqrt{N}\left(\hat{I}_N-I\right)
+        \xrightarrow[N\to\infty]{D}
+        \mathcal{N}(0,\sigma^2),
+    \end{equation}
+    which is the definition of asymptotic normality.
+\end{proof}
+
+\subsection{Empirical measure}
+\label{sec:empirical_distribution}
+
+The Monte Carlo estimator can be interpreted as integration with respect to a random probability measure constructed from the samples.
+
+\begin{definition}
+Given samples $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} \pi$, the \emph{empirical measure} associated with these samples is defined as
+\begin{equation}
+    \hat{\pi}^N
+    = \frac{1}{N}\sum_{i=1}^{N}\delta_{X_i}.
+    \label{eq:empirical_distribution}
+\end{equation}
+\end{definition}
+
+For every $\omega\in\Omega$, $\hat{\pi}^N$ is a probability measure on $(E,\mathcal{E})$ that assigns mass $1/N$ to each sampled value, and for every $A\in\mathcal{E}$, $\hat{\pi}^N(A) = \frac{1}{N}\sum_{i=1}^N \mathbf{1}_A(X_i)$ is a random variable, namely the fraction of samples that fall into $A$.
+
+\begin{proposition}
+For $\varphi$, $\hat{I}_N$ and $\hat{\pi}^N$ as previously defined,
+\begin{equation}
+    \hat{I}_N = \hat{\pi}^N(\varphi).
+\end{equation}
+\end{proposition}
+\begin{proof}
+    By linearity of the integral in the measure and Proposition~\ref{prop:dirac_integral},
+    \begin{equation}
+        \hat{\pi}^N(\varphi) = \frac{1}{N}\sum_{i=1}^N \delta_{X_i}(\varphi) = \frac{1}{N}\sum_{i=1}^N \varphi(X_i) = \hat{I}_N.
+    \end{equation}
+\end{proof}
+
+It is important to distinguish the empirical measure $\hat{\pi}^N$ from the target $\pi$. Even when $\pi$ has a density with respect to the Lebesgue measure, $\hat{\pi}^N$ is concentrated on a finite set, which is a Lebesgue null set. Hence $\hat{\pi}^N$ is singular with respect to the Lebesgue measure and has no density at all, so it is not a pointwise approximation of any density of $\pi$. The approximation is instead meaningful in the sense of integrals: for every fixed $\varphi\in L^1(\pi)$, $\hat{\pi}^N(\varphi)\to\pi(\varphi)$ almost surely. Note that the null set on which this convergence fails depends on $\varphi$.
+
+\section{Importance sampling}
+\label{sec:importance_sampling}
+The standard Monte Carlo method requires samples from the target distribution $\pi$. In many problems, however, sampling directly from $\pi$ is difficult or even impossible.
+Importance sampling addresses this problem by introducing a second distribution from which sampling is easier.
+
+\begin{definition}
+Let $Q$ be a probability measure on $(E,\mathcal{E})$, called the \emph{proposal distribution}, such that $\pi\ll Q$.
+The \emph{importance weight function} is a fixed version of the Radon-Nikodym derivative
+\begin{equation}
+    w = \frac{\mathrm{d}\pi}{\mathrm{d}Q}.
+    \label{eq:importance_weight}
+\end{equation}
+\end{definition}
+
+\begin{proposition}
+    \label{prop:importance_change_of_measure}
+    Let $\pi\ll Q$ with importance weight function $w$. Then $\varphi\in L^1(\pi)$ if and only if $w\varphi\in L^1(Q)$, and in that case
+    \begin{equation}
+        I = \pi(\varphi) = Q(w\varphi) = \mathbb{E}[w(X)\varphi(X)], \qquad X\sim Q.
+    \end{equation}
+\end{proposition}
+\begin{proof}
+    By Theorem~\ref{thm:radon_nikodym} applied to the non-negative function $|\varphi|$, $\pi(|\varphi|) = Q(w|\varphi|)$, which proves the first claim since $w\ge 0$. Applying the same theorem to $\varphi^+$ and $\varphi^-$ and subtracting gives $\pi(\varphi) = Q(w\varphi)$. The last equality is~\eqref{eq:law_change_of_variables}.
+\end{proof}
+Thus, although samples are generated from $Q$, the importance weights correct for the difference between $Q$ and $\pi$. The weight function is only determined up to $Q$-null sets, but different versions $w$ and $w'$ satisfy $\mathbb{P}(w(X)\neq w'(X)) = Q(\{w\neq w'\}) = 0$ for $X\sim Q$, so all estimators below are almost surely unaffected by the choice of version.
+
+\begin{remark}
+    \label{rem:density_weights}
+    The condition $\pi\ll Q$ generalizes the familiar support condition on densities. Suppose that $\pi(\mathrm{d}x) = p(x)\,\mu(\mathrm{d}x)$ and $Q(\mathrm{d}x) = q(x)\,\mu(\mathrm{d}x)$ for a $\sigma$-finite reference measure $\mu$. If $p=0$ $\mu$-almost everywhere on $\{q=0\}$, in particular if $q(x)>0$ whenever $p(x)>0$, then for every $A\in\mathcal{E}$,
+    \begin{equation}
+        \pi(A) = \int_{A\cap\{q>0\}} p(x)\,\mu(\mathrm{d}x) = \int_A \frac{p(x)}{q(x)}\mathbf{1}_{\{q>0\}}(x)\,Q(\mathrm{d}x),
+    \end{equation}
+    so $\pi\ll Q$ and $w = (p/q)\mathbf{1}_{\{q>0\}}$ is a version of $\mathrm{d}\pi/\mathrm{d}Q$. Conversely, if $\pi\ll Q$, the set $A = \{q=0,\,p>0\}$ satisfies $Q(A)=0$, hence $\pi(A) = \int_A p\,\mathrm{d}\mu = 0$, and since $p>0$ on $A$, $\mu(A)=0$. The importance weight is therefore the ratio of densities whenever both measures admit densities with respect to a common reference measure.
+\end{remark}
+
+\begin{definition}
+Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} Q$ and $w(X_1),\ldots,w(X_N)$ their corresponding importance weights.
+The \emph{importance sampling estimator} of $I=\pi(\varphi)$ is defined by
+\begin{equation}
+    \hat{I}_N^{\mathrm{IS}} = \frac{1}{N} \sum_{i=1}^N \varphi(X_i)w(X_i).
+    \label{eq:importance_sampling_estimator}
+\end{equation}
+\end{definition}
+\begin{proposition}
+    \label{prop:importance_sampling_unbiased}
+    The importance sampling estimator $\hat{I}_N^{\mathrm{IS}}$ is unbiased.
+\end{proposition}
+\begin{proof}
+    By linearity of expectation and Proposition~\ref{prop:importance_change_of_measure},
+    \begin{equation}
+        \mathbb{E}[\hat{I}_N^{\mathrm{IS}}] = \frac{1}{N}\sum_{i=1}^N \mathbb{E}[\varphi(X_i)w(X_i)] = Q(w\varphi) = \pi(\varphi) = I.
+    \end{equation}
+\end{proof}
+
+\begin{proposition}
+    \label{prop:importance_sampling_consistent}
+    The importance sampling estimator $\hat{I}_N^{\mathrm{IS}}$ is strongly consistent.
+\end{proposition}
+\begin{proof}
+    The random variables $\varphi(X_i)w(X_i)$ are i.i.d.\ with $\mathbb{E}[|\varphi(X_1)w(X_1)|] = Q(w|\varphi|) = \pi(|\varphi|) < \infty$, so the strong law of large numbers gives
+    \begin{equation}
+        \hat{I}_N^{\mathrm{IS}} \xrightarrow[N\to\infty]{a.s.} Q(w\varphi) = I.
+    \end{equation}
+\end{proof}
+
+Although the importance sampling estimator is unbiased and consistent for any proposal distribution with $\pi\ll Q$, its variance depends strongly on the choice of $Q$.
+
+\subsection{Weighted empirical measure}
+\label{sec:weighted_empirical_distribution}
+
+There are two equivalent ways to interpret the importance sampling estimator.
+Let $\hat{Q}^N = \frac{1}{N}\sum_{i=1}^N\delta_{X_i}$ be the empirical measure of the samples $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} Q$. The first interpretation follows the same logic as in Section~\ref{sec:empirical_distribution}:
+\begin{equation}
+    \hat{I}_N^{\mathrm{IS}} = \frac{1}{N}\sum_{i=1}^{N}\delta_{X_i}(w\varphi) = \hat{Q}^N(w\varphi),
+\end{equation}
+so the estimator is simply the integral of $w\varphi$ with respect to $\hat{Q}^N$, which mirrors the identity $\pi(\varphi) = Q(w\varphi)$.
+
+There is another interpretation that is particularly useful. Instead of viewing the weights as part of the integrand, we can absorb them into the measure itself, that is, apply the same change of measure to $\hat{Q}^N$ that transforms $Q$ into $\pi$.
+\begin{definition}
+Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} Q$ and $w(X_1),\ldots,w(X_N)$ their corresponding importance weights. 
+The \emph{weighted empirical measure} is defined as
+\begin{equation}
+    \hat{\pi}^N_{\mathrm{IS}} = \frac{1}{N} \sum_{i=1}^N w(X_i)\,\delta_{X_i}, \qquad \text{equivalently} \qquad \hat{\pi}^N_{\mathrm{IS}}(\mathrm{d}x) = w(x)\,\hat{Q}^N(\mathrm{d}x).
+    \label{eq:weighted_empirical_distribution}
+\end{equation}
+\end{definition}
+By Proposition~\ref{prop:dirac_integral}, $\hat{\pi}^N_{\mathrm{IS}}(\varphi) = \frac{1}{N}\sum_{i=1}^N w(X_i)\varphi(X_i) = \hat{I}_N^{\mathrm{IS}}$.
+
+This provides an alternative interpretation of importance sampling:
+although the samples are drawn from the proposal distribution $Q$, the
+importance weights allow the samples to represent the target distribution
+$\pi$. Unlike ordinary Monte Carlo, where every sample carries the same
+mass $1/N$, importance sampling assigns the sample $X_i$ a mass
+proportional to $w(X_i)$.
+
+The weighted empirical measure in
+\eqref{eq:weighted_empirical_distribution} is, for every $\omega$, a finite measure, but it is not in general a
+probability measure. Its total mass is
+\begin{equation}
+    \hat{\pi}^N_{\mathrm{IS}}(1) = \frac{1}{N} \sum_{i=1}^N w(X_i),
+\end{equation}
+which is a random quantity and is not necessarily equal to one.
+Nevertheless, the total mass has expectation equal to one, since
+\begin{equation}
+    \mathbb{E}\left[\hat{\pi}^N_{\mathrm{IS}}(1)\right] = Q(w) = \pi(1) = 1.
+\end{equation}
+Additionally, the strong law of large numbers gives
+\begin{equation}
+    \hat{\pi}^N_{\mathrm{IS}}(1) \xrightarrow[N\to\infty]{a.s.} Q(w) = 1.
+\end{equation}
+Thus, although the weighted empirical measure does not necessarily
+have unit mass for a finite sample, its total mass converges almost surely
+to one as the number of samples increases.
+
+\section{Self-normalized importance sampling}
+\label{sec:self_normalized_importance_sampling}
+In many applications, especially in Bayesian inference, the target is known only up to a normalizing constant. Formally, let $\gamma$ be a finite measure on $(E,\mathcal{E})$ with total mass $Z = \gamma(1)\in(0,\infty)$, called the \emph{unnormalized target}, and let the target be the probability measure
+\begin{equation}
+    \pi = \frac{\gamma}{Z}.
+\end{equation}
+Here, $\gamma$ can be evaluated in the sense that its density with respect to a known reference measure is available pointwise, while $Z$ is intractable. Let $Q$ be a proposal distribution with $\gamma\ll Q$, and let
+\begin{equation}
+    w = \frac{\mathrm{d}\gamma}{\mathrm{d}Q}
+\end{equation}
+be the \emph{unnormalized importance weight function}. Then $\pi\ll Q$ with $\mathrm{d}\pi/\mathrm{d}Q = w/Z$, and $Q(w) = \gamma(1) = Z$. If $\gamma(\mathrm{d}x) = \tilde{p}(x)\,\mu(\mathrm{d}x)$ and $Q(\mathrm{d}x) = q(x)\,\mu(\mathrm{d}x)$, Remark~\ref{rem:density_weights} shows that $w = (\tilde{p}/q)\mathbf{1}_{\{q>0\}}$ is computable, whereas the importance weight $w/Z$ of Section~\ref{sec:importance_sampling} is not. The ordinary importance sampling estimator $\hat{I}_N^{\mathrm{IS}}$ of $\pi(\varphi)$ therefore cannot be computed. A natural remedy is to normalize the weights.
+
+Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} Q$ and write $w_i = w(X_i)$ for brevity. On the event $\{\sum_{j=1}^N w_j > 0\}$, the \emph{normalized importance weights} are
+\begin{equation}
+    \tilde{w}_i = \frac{w_i}{\sum_{j=1}^{N} w_j},
+\end{equation}
+and on the complementary event we set $\tilde{w}_i = 1/N$ by convention. Since $Q(w) = Z>0$, we have $Q(\{w>0\})>0$, so the complementary event has probability $\mathbb{P}(w_1=\cdots=w_N=0) = (1-Q(\{w>0\}))^N < 1$, which converges to zero as $N\to\infty$. Note that the normalized weights do not depend on $Z$, since
+\begin{equation}
+    \tilde{w}_i = \frac{w_i/Z}{\sum_{j=1}^N w_j/Z}.
+\end{equation}
+
+\begin{definition}
+    Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} Q$ and $\tilde{w}_1,\ldots,\tilde{w}_N$ their corresponding normalized importance weights.
+    The \emph{self-normalized empirical measure} is defined as
+    \begin{equation}
+        \hat{\pi}^N_{\mathrm{SNIS}} = \sum_{i=1}^{N} \tilde{w}_i\, \delta_{X_i}.
+    \end{equation}
+\end{definition}
+For every $\omega$, this is a probability measure, since $\sum_{i=1}^N\tilde{w}_i = 1$.
+\begin{definition}
+    Let $X_1,\ldots,X_N \overset{\mathrm{iid}}{\sim} Q$ and $\tilde{w}_1,\ldots,\tilde{w}_N$ their corresponding normalized importance weights.
+    The \emph{self-normalized importance sampling estimator} of $I=\pi(\varphi)$ is defined as
+    \begin{equation}
+        \hat{I}_N^{\mathrm{SNIS}} = \sum_{i=1}^{N} \tilde{w}_i\,\varphi(X_i),
+    \end{equation}
+    which equals $\sum_{i=1}^{N} \varphi(X_i)w_i / \sum_{i=1}^{N}w_i$ on the event $\{\sum_{j=1}^N w_j>0\}$.
+\end{definition}
+
+\begin{proposition}
+    For $\varphi$, $\hat{I}_N^{\mathrm{SNIS}}$ and $\hat{\pi}^N_{\mathrm{SNIS}}$ as previously defined,
+    \begin{equation}
+        \hat{I}_N^{\mathrm{SNIS}} = \hat{\pi}^N_{\mathrm{SNIS}}(\varphi).
+    \end{equation}
+\end{proposition}
+\begin{proof}
+    By linearity of the integral in the measure and Proposition~\ref{prop:dirac_integral},
+    $\hat{\pi}^N_{\mathrm{SNIS}}(\varphi) = \sum_{i=1}^{N} \tilde{w}_i\, \delta_{X_i}(\varphi) = \sum_{i=1}^{N} \tilde{w}_i\,\varphi(X_i)$.
+\end{proof}
+
+There is a fundamental difference between $\hat{I}_N^{\mathrm{IS}}$ and $\hat{I}_N^{\mathrm{SNIS}}$. The ordinary importance sampling estimator is unbiased, whereas the self-normalized estimator is, in general, biased for finite $N$, because the expectation of a ratio is in general not the ratio of expectations. The following proposition makes this precise.
+\begin{proposition}
+    \label{prop:self_normalized_importance_sampling_biased}
+    The self-normalized importance sampling estimator is, in general, biased: there exist $\gamma$, $Q$, $\varphi$ and $N$ such that $\mathbb{E}[\hat{I}_N^{\mathrm{SNIS}}] \neq \pi(\varphi)$.
+\end{proposition}
+\begin{proof}
+    Let $E=\{0,1\}$ with $\mathcal{E}=2^E$, let $Q$ be the uniform distribution on $E$, let $\gamma = \pi$ with $\pi(\{0\}) = 1/4$ and $\pi(\{1\}) = 3/4$, and let $\varphi(x) = x$, so that $\pi(\varphi) = 3/4$. The weight function is $w(0) = 1/2$ and $w(1) = 3/2$, which is strictly positive. For $N=1$, the only normalized weight is $\tilde{w}_1 = 1$, so $\hat{I}_1^{\mathrm{SNIS}} = \varphi(X_1) = X_1$ and
+    \begin{equation}
+        \mathbb{E}\left[\hat{I}_1^{\mathrm{SNIS}}\right] = Q(\varphi) = \frac{1}{2} \neq \frac{3}{4} = \pi(\varphi).
+    \end{equation}
+\end{proof}
+
+\begin{proposition}
+    \label{prop:self_normalized_importance_sampling_consistent}
+    The self-normalized importance sampling estimator is strongly consistent for every $\varphi\in L^1(\pi)$.
+\end{proposition}
+\begin{proof}
+    Since $Q(w|\varphi|) = \gamma(|\varphi|) = Z\pi(|\varphi|)<\infty$ and $Q(w) = Z<\infty$, the strong law of large numbers gives
+    \begin{align}
+        \frac{1}{N}\sum_{i=1}^{N} \varphi(X_i)w_i &\xrightarrow[N\to\infty]{a.s.} Q(w\varphi) = Z\,\pi(\varphi),\\
+        \frac{1}{N}\sum_{i=1}^{N} w_i &\xrightarrow[N\to\infty]{a.s.} Q(w) = Z.
+    \end{align}
+    Since $Z>0$, almost surely $\sum_{j=1}^N w_j>0$ for all sufficiently large $N$, and for those $N$
+    \begin{equation}
+        \hat{I}_N^{\mathrm{SNIS}} = \frac{\frac{1}{N}\sum_{i=1}^{N} \varphi(X_i)w_i}{\frac{1}{N}\sum_{i=1}^{N} w_i} \xrightarrow[N\to\infty]{a.s.} \frac{Z\,\pi(\varphi)}{Z} = \pi(\varphi).
+    \end{equation}
+\end{proof}
+
+Therefore, the self-normalized importance sampling estimator $\hat{I}_N^{\mathrm{SNIS}}$ can be used even when the target is known only up to a constant of proportionality, at the cost of introducing bias. The ordinary importance sampling estimator remains useful for estimating the normalizing constant itself: by Propositions~\ref{prop:importance_sampling_unbiased} and~\ref{prop:importance_sampling_consistent} applied to the probability measure $\pi$ with weight $w/Z$ and $\varphi\equiv Z$, the estimator $\frac{1}{N}\sum_{i=1}^N w_i$ is an unbiased and strongly consistent estimator of $Z$.
+
+\section{Sequential importance sampling}
+Sequential importance sampling (SIS) applies importance sampling to a sequence of random variables by exploiting the sequential structure of the problem.
+Because the main focus of this thesis is on state-space models, in particular the MSSV model, we consider sequential importance sampling in the context of state-space models.
+
+\subsection{State-space models in terms of kernels}
+\label{sec:ssm_kernels}
+As announced in Chapter~\ref{chap:stochastic_volatility}, a state-space model is properly defined through probability kernels \cite{chopin2020smc}. Let $(\mathcal{X},\mathcal{B}(\mathcal{X}))$ and $(\mathcal{Y},\mathcal{B}(\mathcal{Y}))$ be the state and observation spaces, and let $\mathcal{X}^{t+1} = \mathcal{X}\times\cdots\times\mathcal{X}$ carry the product $\sigma$-algebra.
+
+\begin{definition}
+    \label{def:state_space_model_kernels}
+    A \emph{state-space model} with parameters $\theta\in\Theta$ is specified by
+    \begin{enumerate}
+        \item an \emph{initial distribution} $M_0^\theta$, a probability measure on $\mathcal{X}$;
+        \item a \emph{transition kernel} $M^\theta$, a Markov kernel from $\mathcal{X}$ to $\mathcal{X}$;
+        \item an \emph{observation kernel} $F^\theta(x,\mathrm{d}y) = f(y\mid x,\theta)\,\nu(\mathrm{d}y)$, where $\nu$ is a $\sigma$-finite measure on $\mathcal{Y}$ and $(x,y)\mapsto f(y\mid x,\theta)$ is a non-negative measurable function with $\int f(y\mid x,\theta)\,\nu(\mathrm{d}y) = 1$ for every $x$.
+    \end{enumerate}
+    The \emph{path measures} are the probability measures $P_t^\theta$ on $\mathcal{X}^{t+1}$ defined recursively by
+    \begin{equation}
+        P_0^\theta = M_0^\theta, \qquad P_t^\theta = P_{t-1}^\theta\otimes M^\theta, \quad t\ge 1,
+    \end{equation}
+    where $M^\theta$ acts on the last coordinate. The processes $\{X_t\}_{t\ge 0}$ and $\{Y_t\}_{t\ge 1}$ form a state-space model if, for every $T\ge 1$ and all measurable $A\subseteq\mathcal{X}^{T+1}$ and $B\subseteq\mathcal{Y}^{T}$,
+    \begin{equation}
+        \mathbb{P}\left(X_{0:T}\in A,\, Y_{1:T}\in B\right) = \int_A \left(\int_B \prod_{t=1}^{T} f(y_t\mid x_t,\theta)\,\nu^{\otimes T}(\mathrm{d}y_{1:T})\right) P_T^\theta(\mathrm{d}x_{0:T}).
+        \label{eq:ssm_joint_law}
+    \end{equation}
+\end{definition}
+
+Equation~\eqref{eq:ssm_joint_law} encodes both properties of Definition~\ref{def:state_space_model}: by construction of $P_T^\theta$, the conditional law of $X_t$ given $X_{0:t-1}$ is $M^\theta(X_{t-1},\cdot)$, so the latent process is Markov, and given $X_{0:T}$ the observations are independent with $Y_t$ distributed according to $F^\theta(X_t,\cdot)$. Unlike the transition, the observation kernel is required to have a density, since the likelihood $f(y_t\mid x_t,\theta)$ of an observed value $y_t$ is needed for the importance weights.
+
+For the MSSV model, $\nu$ is the Lebesgue measure on $\mathcal{Y}=\mathbb{R}$, and the initial distribution and transition kernel have densities with respect to the reference measure $\mu_{\mathcal{X}}$ in~\eqref{eq:mssv_reference_measure},
+\begin{equation}
+    M_0^\theta(\mathrm{d}x_0) = \chi(x_0\mid\theta)\,\mu_{\mathcal{X}}(\mathrm{d}x_0), \qquad M^\theta(x_{t-1},\mathrm{d}x_t) = p(x_t\mid x_{t-1},\theta)\,\mu_{\mathcal{X}}(\mathrm{d}x_t),
+\end{equation}
+with $\chi$ and $p$ as in Section~\ref{sec:mssv}. Applying Lemma~\ref{lem:kernel_product_density} $T$ times shows that $P_T^\theta$ has density $\chi(x_0\mid\theta)\prod_{t=1}^{T}p(x_t\mid x_{t-1},\theta)$ with respect to $\mu_{\mathcal{X}}^{\otimes(T+1)}$. By~\eqref{eq:ssm_joint_law}, $(X_{0:T},Y_{1:T})$ then has the density~\eqref{eq:joint_density} with respect to $\mu_{\mathcal{X}}^{\otimes(T+1)}\otimes\nu^{\otimes T}$, which recovers Proposition~\ref{prop:joint_density}. All results of this chapter are stated for general kernels and therefore apply to the MSSV model directly.
+
+For the moment, assume that the model parameters $\theta$ are known, and let $y_{1:T}$ be the observed data. All objects below depend on $y_{1:T}$, which is suppressed from the notation when no confusion can arise.
+
+\begin{definition}
+    \label{def:marginal_likelihood}
+    The \emph{unnormalized smoothing measure} at time $t$ is the finite measure $\gamma_t^\theta$ on $\mathcal{X}^{t+1}$ given by
+    \begin{equation}
+        \gamma_t^\theta(\mathrm{d}x_{0:t}) = \left(\prod_{s=1}^{t} f(y_s\mid x_s,\theta)\right) P_t^\theta(\mathrm{d}x_{0:t}), \qquad \gamma_0^\theta = M_0^\theta,
+    \end{equation}
+    and the \emph{marginal likelihood} is its total mass,
+    \begin{equation}
+        p(y_{1:t}\mid\theta) = Z_t(\theta) = \gamma_t^\theta(1) = \int \prod_{s=1}^{t} f(y_s\mid x_s,\theta)\,P_t^\theta(\mathrm{d}x_{0:t}).
+    \end{equation}
+\end{definition}
+
+The notation $p(y_{1:t}\mid\theta)$ is justified by the following proposition.
+
+\begin{proposition}
+    \label{prop:marginal_likelihood_density}
+    For every $\theta$ and $t\ge 1$, the law of $Y_{1:t}$ has density $y_{1:t}\mapsto Z_t(\theta)$ with respect to $\nu^{\otimes t}$. In particular, $Z_t(\theta)<\infty$ for $\nu^{\otimes t}$-almost every $y_{1:t}$.
+\end{proposition}
+\begin{proof}
+    Let $B\subseteq\mathcal{Y}^t$ be measurable. By~\eqref{eq:ssm_joint_law} with $A = \mathcal{X}^{t+1}$ and Tonelli's theorem,
+    \begin{align}
+        \mathbb{P}(Y_{1:t}\in B) &= \int_B \left(\int \prod_{s=1}^{t} f(y_s\mid x_s,\theta)\,P_t^\theta(\mathrm{d}x_{0:t})\right)\nu^{\otimes t}(\mathrm{d}y_{1:t}) \\
+        &= \int_B Z_t(\theta)\,\nu^{\otimes t}(\mathrm{d}y_{1:t}).
+    \end{align}
+    A probability density is integrable, hence finite almost everywhere.
+\end{proof}
+
+Throughout, we assume that the observed data satisfy $0<Z_t(\theta)<\infty$ for $t=1,\ldots,T$. For the MSSV model this holds whenever all $y_t\neq 0$: the observation density $f(y\mid h) = (2\pi e^{h})^{-1/2}\exp(-y^2/(2e^{h}))$ is strictly positive, and maximizing over $v = e^h$ shows that $f(y\mid h)\le(2\pi e\,y^2)^{-1/2}$, so $0<Z_t(\theta)\le\prod_{s=1}^{t}(2\pi e\,y_s^2)^{-1/2}$.
+
+\begin{definition}
+    \label{def:smoothing_distribution_measure}
+    The \emph{smoothing distribution} is the probability measure
+    \begin{equation}
+        \pi_t^\theta = \frac{\gamma_t^\theta}{Z_t(\theta)}
+    \end{equation}
+    on $\mathcal{X}^{t+1}$.
+\end{definition}
+
+\begin{proposition}[Bayes' formula]
+    \label{prop:bayes_formula}
+    For every measurable $A\subseteq\mathcal{X}^{t+1}$, the function $y_{1:t}\mapsto\pi_t^\theta(A)$, defined arbitrarily on the $\mathbb{P}\circ Y_{1:t}^{-1}$-null set $\{Z_t(\theta)\in\{0,\infty\}\}$, is a version of the conditional probability $\mathbb{P}(X_{0:t}\in A\mid Y_{1:t}=y_{1:t})$.
+\end{proposition}
+\begin{proof}
+    Let $D = \{0<Z_t(\theta)<\infty\}$. By Proposition~\ref{prop:marginal_likelihood_density}, $\mathbb{P}(Y_{1:t}\notin D) = \int_{\{Z_t=0\}} Z_t\,\mathrm{d}\nu^{\otimes t} + \int_{\{Z_t=\infty\}} Z_t\,\mathrm{d}\nu^{\otimes t} = 0$, since the first integrand vanishes and the second set is a $\nu^{\otimes t}$-null set. By Tonelli's theorem, $y_{1:t}\mapsto\gamma_t^\theta(A)$ is measurable, and for every measurable $B\subseteq\mathcal{Y}^t$,~\eqref{eq:ssm_joint_law} gives
+    \begin{align}
+        \mathbb{P}(X_{0:t}\in A,\,Y_{1:t}\in B) &= \int_{B\cap D} \gamma_t^\theta(A)\,\nu^{\otimes t}(\mathrm{d}y_{1:t}) \\
+        &= \int_{B\cap D} \pi_t^\theta(A)\,Z_t(\theta)\,\nu^{\otimes t}(\mathrm{d}y_{1:t}) = \mathbb{E}\left[\pi_t^\theta(A)\,\mathbf{1}_B(Y_{1:t})\right],
+    \end{align}
+    where the first equality also uses that $\gamma_t^\theta(A)\le Z_t(\theta)$ vanishes on $\{Z_t(\theta)=0\}$ and that $\{Z_t(\theta)=\infty\}$ is a $\nu^{\otimes t}$-null set, and the last equality uses Proposition~\ref{prop:marginal_likelihood_density}. This is the defining property of the conditional probability.
+\end{proof}
+For the MSSV model, $\pi_t^\theta$ has density $p(x_{0:t}\mid y_{1:t},\theta)$ given by~\eqref{eq:joint_posterior_known_parameters} with respect to $\mu_{\mathcal{X}}^{\otimes(t+1)}$, which connects the definition above with Chapter~\ref{chap:stochastic_volatility}.
+
+\subsection{Sequential proposals and importance weights}
+\label{sec:sis_weights}
+Until further notice, assume that the proposal distribution on trajectories is built sequentially from a probability measure $Q_0^\theta$ on $\mathcal{X}$ and Markov kernels $K_t^\theta$ from $\mathcal{X}^{t}$ to $\mathcal{X}$, which may depend on the observations $y_{1:t}$,
+\begin{equation}
+    Q_0^\theta, \qquad Q_t^\theta = Q_{t-1}^\theta\otimes K_t^\theta, \quad t\ge 1.
+\end{equation}
+Sampling from $Q_T^\theta$ amounts to sampling $X_0\sim Q_0^\theta$ and then, sequentially, $X_t\sim K_t^\theta(X_{0:t-1},\cdot)$, conditioned on the currently available observations.
+
+\begin{definition}
+    \label{def:admissible_proposal}
+    The proposal is \emph{admissible} if there exist measurable functions $r_0\colon\mathcal{X}\to[0,\infty)$ and $r_t\colon\mathcal{X}^{t+1}\to[0,\infty)$, $t=1,\ldots,T$, such that
+    \begin{equation}
+        M_0^\theta(\mathrm{d}x_0) = r_0(x_0)\,Q_0^\theta(\mathrm{d}x_0), \qquad M^\theta(x_{t-1},\mathrm{d}x_t) = r_t(x_{0:t})\,K_t^\theta(x_{0:t-1},\mathrm{d}x_t)
+    \end{equation}
+    for every $x_{0:t-1}\in\mathcal{X}^t$.
+\end{definition}
+Admissibility requires $M_0^\theta\ll Q_0^\theta$ and $M^\theta(x_{t-1},\cdot)\ll K_t^\theta(x_{0:t-1},\cdot)$ for every $x_{0:t-1}$, together with a version of the Radon-Nikodym derivatives that is jointly measurable in $x_{0:t}$. If all kernels have densities with respect to $\mu_{\mathcal{X}}$, $K_t^\theta(x_{0:t-1},\mathrm{d}x_t) = q_t(x_t\mid x_{0:t-1},y_{1:t},\theta)\,\mu_{\mathcal{X}}(\mathrm{d}x_t)$ and $Q_0^\theta(\mathrm{d}x_0) = q_0(x_0\mid\theta)\,\mu_{\mathcal{X}}(\mathrm{d}x_0)$, then by Remark~\ref{rem:density_weights} the proposal is admissible as soon as $q_t>0$ wherever $p>0$ and $q_0>0$ wherever $\chi>0$, with
+\begin{equation}
+    r_0(x_0) = \frac{\chi(x_0\mid\theta)}{q_0(x_0\mid\theta)}, \qquad r_t(x_{0:t}) = \frac{p(x_t\mid x_{t-1},\theta)}{q_t(x_t\mid x_{0:t-1},y_{1:t},\theta)}.
+\end{equation}
+
+\begin{proposition}
+    \label{prop:sis_weights}
+    Let the proposal be admissible. Then $\gamma_t^\theta\ll Q_t^\theta$ for every $t=0,\ldots,T$, and the importance weight function $w_t = \mathrm{d}\gamma_t^\theta/\mathrm{d}Q_t^\theta$ can be chosen as
+    \begin{equation}
+        w_t(x_{0:t}) = \prod_{s=0}^{t}\alpha_s(x_{0:s}), \qquad \alpha_0 = r_0, \qquad \alpha_s(x_{0:s}) = f(y_s\mid x_s,\theta)\,r_s(x_{0:s}),
+    \end{equation}
+    so that the weights satisfy the recursion $w_t = w_{t-1}\,\alpha_t$.
+\end{proposition}
+\begin{proof}
+    We first show by induction that $P_t^\theta(\mathrm{d}x_{0:t}) = \prod_{s=0}^t r_s(x_{0:s})\,Q_t^\theta(\mathrm{d}x_{0:t})$. For $t=0$, this is admissibility. If it holds at time $t-1$, Lemma~\ref{lem:kernel_product_density} applied to $P_t^\theta = P_{t-1}^\theta\otimes M^\theta$ and $Q_t^\theta = Q_{t-1}^\theta\otimes K_t^\theta$, with $g = \prod_{s=0}^{t-1}r_s$ and $k = r_t$, proves it at time $t$. Since $\gamma_t^\theta$ has density $\prod_{s=1}^{t}f(y_s\mid x_s,\theta)$ with respect to $P_t^\theta$, composing densities yields the claim.
+\end{proof}
+
+By Proposition~\ref{prop:importance_change_of_measure} applied to the unnormalized target, the marginal likelihood can therefore be written as
+\begin{equation}
+    p(y_{1:T}\mid\theta) = \gamma_T^\theta(1) = Q_T^\theta(w_T) = \mathbb{E}\left[w_T(X_{0:T})\right], \qquad X_{0:T}\sim Q_T^\theta.
+\end{equation}
+For nonlinear and non-Gaussian state-space models, the marginal likelihood is typically intractable and therefore has to be estimated.
+
+\begin{definition}
+    \label{def:marginal_likelihood_estimator}
+    Let $X_{0:T}^{(1)},\ldots,X_{0:T}^{(N)} \overset{\mathrm{iid}}{\sim} Q_T^\theta$ be sampled trajectories and $w_T^{(i)} = w_T(X_{0:T}^{(i)})$ their corresponding importance weights.
+    Then the \emph{marginal likelihood estimator} is defined as
+    \begin{equation}
+        \hat{p}(y_{1:T}\mid\theta) = \frac{1}{N} \sum_{i=1}^{N} w_T^{(i)} = \frac{1}{N} \sum_{i=1}^{N} \prod_{t=0}^{T} \alpha_t(X_{0:t}^{(i)}).
+        \label{eq:marginal_likelihood_estimator}
+    \end{equation}
+\end{definition}
+
+\begin{proposition}
+    \label{prop:marginal_likelihood_estimator_unbiased_consistent}
+    The marginal likelihood estimator $\hat{p}(y_{1:T}\mid\theta)$ is unbiased and strongly consistent.
+\end{proposition}
+\begin{proof}
+    The weights $w_T^{(i)}$ are i.i.d., non-negative and, by~\eqref{eq:law_change_of_variables}, have expectation $Q_T^\theta(w_T) = \gamma_T^\theta(1) = p(y_{1:T}\mid\theta)<\infty$. Unbiasedness follows from the linearity of expectation, and strong consistency from the strong law of large numbers. Equivalently, this is the last statement of Section~\ref{sec:self_normalized_importance_sampling} with $\gamma = \gamma_T^\theta$ and $Q = Q_T^\theta$.
+\end{proof}
+
+\subsection{Smoothing distribution}
+\label{sec:smoothing_distribution}
+
+The smoothing distribution $\pi_T^\theta = \gamma_T^\theta/p(y_{1:T}\mid\theta)$ of Definition~\ref{def:smoothing_distribution_measure} is the posterior distribution of the entire latent trajectory given all available observations. For $\varphi\in L^1(\pi_T^\theta)$, the \emph{smoothing expectation} is
+\begin{equation}
+    I^{\mathrm{smth}} = \mathbb{E}\left[\varphi(X_{0:T}) \mid Y_{1:T}=y_{1:T}\right] = \pi_T^\theta(\varphi),
+\end{equation}
+where the first equality follows from Proposition~\ref{prop:bayes_formula}. By Proposition~\ref{prop:sis_weights},
+\begin{equation}
+    I^{\mathrm{smth}} = \frac{\gamma_T^\theta(\varphi)}{\gamma_T^\theta(1)} = \frac{Q_T^\theta(w_T\varphi)}{Q_T^\theta(w_T)}.
+\end{equation}
+The smoothing distribution is thus a target known only up to the normalizing constant $p(y_{1:T}\mid\theta)$, with unnormalized target $\gamma_T^\theta$, which is exactly the setting of Section~\ref{sec:self_normalized_importance_sampling}. Replacing both integrals by Monte Carlo averages over the sampled trajectories motivates the following definitions.
+
+\begin{definition}
+    \label{def:smoothing_estimator}
+    Let $X_{0:T}^{(1)},\ldots,X_{0:T}^{(N)} \overset{\mathrm{iid}}{\sim} Q_T^\theta$ be sampled trajectories, $w_T^{(i)}$ their importance weights, and $\tilde{w}_T^{(i)}$ the corresponding normalized weights, defined as in Section~\ref{sec:self_normalized_importance_sampling}. The \emph{empirical smoothing distribution} is
+    \begin{equation}
+        \hat{\pi}_T^{N} = \sum_{i=1}^{N} \tilde{w}_T^{(i)}\, \delta_{X_{0:T}^{(i)}},
+        \label{eq:empirical_smoothing_distribution}
+    \end{equation}
+    and the \emph{smoothing estimator} of $I^{\mathrm{smth}}$ is
+    \begin{equation}
+        \hat{I}_N^{\mathrm{smth}} = \hat{\pi}_T^{N}(\varphi) = \sum_{i=1}^{N} \tilde{w}_T^{(i)} \varphi(X_{0:T}^{(i)}).
+        \label{eq:smoothing_estimator}
+    \end{equation}
+\end{definition}
+
+\begin{proposition}
+    \label{prop:smoothing_estimator}
+    The smoothing estimator $\hat{I}_N^{\mathrm{smth}}$ is, in general, biased, but strongly consistent for every $\varphi\in L^1(\pi_T^\theta)$.
+\end{proposition}
+\begin{proof}
+    The estimator $\hat{I}_N^{\mathrm{smth}}$ is the self-normalized importance sampling estimator $\hat{I}_N^{\mathrm{SNIS}}$ on $E = \mathcal{X}^{T+1}$ with unnormalized target $\gamma = \gamma_T^\theta$, normalizing constant $Z = p(y_{1:T}\mid\theta)$, target $\pi = \pi_T^\theta$ and proposal $Q = Q_T^\theta$.
+    Bias and consistency therefore follow from Propositions~\ref{prop:self_normalized_importance_sampling_biased} and~\ref{prop:self_normalized_importance_sampling_consistent}; for the former, the counterexample is a state-space model with $T=0$ and $\mathcal{X}=\{0,1\}$.
+\end{proof}
+
+\subsection{Filtering distribution}
+\label{sec:filtering_distribution}
+For $0\le t\le T$, let $\mathrm{pr}_t\colon\mathcal{X}^{T+1}\to\mathcal{X}$, $x_{0:T}\mapsto x_t$, denote the coordinate projection.
+
+\begin{definition}
+    The \emph{filtering distribution} is the marginal of the smoothing distribution in the last coordinate,
+    \begin{equation}
+        \pi_T^{\theta,\mathrm{filt}} = (\mathrm{pr}_T)_{\#}\,\pi_T^\theta.
+    \end{equation}
+    The \emph{filtering expectation} of $\varphi\in L^1(\pi_T^{\theta,\mathrm{filt}})$ is
+    \begin{equation}
+        I^{\mathrm{filt}} = \pi_T^{\theta,\mathrm{filt}}(\varphi) = \pi_T^\theta(\varphi\circ\mathrm{pr}_T).
+    \end{equation}
+\end{definition}
+Applying Proposition~\ref{prop:bayes_formula} to $A = \mathrm{pr}_T^{-1}(B)$ shows that $\pi_T^{\theta,\mathrm{filt}}(B)$ is a version of $\mathbb{P}(X_T\in B\mid Y_{1:T}=y_{1:T})$. For the MSSV model, its density with respect to $\mu_{\mathcal{X}}$ is $p(x_T\mid y_{1:T},\theta)$ from Definition~\ref{def:distributions_of_interest}.
+
+In the empirical setting, marginalization is immediate. Since $(\mathrm{pr}_T)_{\#}$ is linear and $(\mathrm{pr}_T)_{\#}\delta_{x_{0:T}} = \delta_{x_T}$,
+\begin{equation}
+    (\mathrm{pr}_T)_{\#}\,\hat{\pi}_T^{N} = \sum_{i=1}^{N} \tilde{w}_T^{(i)} \,(\mathrm{pr}_T)_{\#}\delta_{X_{0:T}^{(i)}} = \sum_{i=1}^{N} \tilde{w}_T^{(i)}\, \delta_{X_T^{(i)}},
+\end{equation}
+which leads to the following definition.
+
+\begin{definition}
+    Let $X_{0:T}^{(i)} \overset{\mathrm{iid}}{\sim} Q_T^\theta$ and $\tilde{w}_T^{(i)}$ their corresponding normalized weights. 
+    The \emph{empirical filtering distribution} is
+    \begin{equation}
+        \hat{\pi}_T^{N,\mathrm{filt}} = \sum_{i=1}^{N} \tilde{w}_T^{(i)}\, \delta_{X_T^{(i)}},
+    \end{equation}
+    and the \emph{filtering estimator} of $I^{\mathrm{filt}}$ is
+    \begin{equation}
+        \hat{I}_N^{\mathrm{filt}} = \hat{\pi}_T^{N,\mathrm{filt}}(\varphi) = \sum_{i=1}^{N}\tilde{w}_{T}^{(i)} \varphi(X_T^{(i)}).
+    \end{equation}
+\end{definition}
+
+\begin{proposition}
+    \label{prop:filtering_estimator}
+    The filtering estimator $\hat{I}_N^{\mathrm{filt}}$ is, in general, biased, but strongly consistent for every $\varphi\in L^1(\pi_T^{\theta,\mathrm{filt}})$.
+\end{proposition}
+\begin{proof}
+    Let $\bar{\varphi} = \varphi\circ\mathrm{pr}_T$, which depends on the trajectory only through its final state. By the change of variables formula, $\bar{\varphi}\in L^1(\pi_T^\theta)$ and $\pi_T^\theta(\bar{\varphi}) = I^{\mathrm{filt}}$. Likewise,
+    \begin{equation}
+        \hat{\pi}_T^{N}(\bar{\varphi}) = \sum_{i=1}^{N} \tilde{w}_T^{(i)} \varphi(X_T^{(i)}) = \hat{I}_N^{\mathrm{filt}}.
+    \end{equation}
+    Thus, $\hat{I}_N^{\mathrm{filt}}$ is the smoothing estimator $\hat{I}_N^{\mathrm{smth}}$ applied to $\bar{\varphi}$, and its bias and consistency follow from Proposition~\ref{prop:smoothing_estimator}.
+\end{proof}
+
+\subsection{Predictive distribution}
+\label{sec:predictive_distribution}
+
+\begin{definition}
+    The (one-step) \emph{predictive distribution} is obtained by propagating the filtering distribution through the transition kernel,
+    \begin{equation}
+        \pi_{T+1\mid T}^{\theta} = \pi_T^{\theta,\mathrm{filt}} M^\theta, \qquad \text{that is,} \qquad \pi_{T+1\mid T}^{\theta}(B) = \int M^\theta(x_T,B)\,\pi_T^{\theta,\mathrm{filt}}(\mathrm{d}x_T).
+    \end{equation}
+    The \emph{predictive expectation} of $\varphi\in L^1(\pi_{T+1\mid T}^{\theta})$ is
+    \begin{equation}
+        I^{\mathrm{pred}} = \pi_{T+1\mid T}^{\theta}(\varphi) = \pi_T^{\theta,\mathrm{filt}}(M^\theta\varphi).
+    \end{equation}
+\end{definition}
+
+Replacing the filtering distribution with its empirical approximation gives
+\begin{equation}
+    \hat{\pi}_T^{N,\mathrm{filt}} M^\theta = \sum_{i=1}^N \tilde{w}_T^{(i)}\, M^\theta(X_T^{(i)},\cdot),
+\end{equation}
+a mixture of transition distributions weighted by the normalized weights. A particle approximation of this mixture is obtained by propagating each particle through the transition kernel, which leads to the following definition.
+
+\begin{definition}
+    Let $X_{0:T}^{(i)}$ and $\tilde{w}_T^{(i)}$ be as in Definition~\ref{def:smoothing_estimator}, and, conditionally on $X_{0:T}^{(1:N)}$, let $X_{T+1}^{(1)},\ldots,X_{T+1}^{(N)}$ be independent with $X_{T+1}^{(i)} \sim M^\theta(X_T^{(i)}, \cdot)$. 
+    The \emph{empirical predictive distribution} is
+    \begin{equation}
+        \hat{\pi}_{T+1\mid T}^{N} = \sum_{i=1}^N \tilde{w}_T^{(i)}\, \delta_{X_{T+1}^{(i)}},
+        \label{eq:empirical_predictive_distribution}
+    \end{equation}
+    and the \emph{predictive estimator} of $I^{\mathrm{pred}}$ is
+    \begin{equation}
+        \hat{I}_N^{\mathrm{pred}} = \hat{\pi}_{T+1\mid T}^{N}(\varphi) = \sum_{i=1}^{N}\tilde{w}_{T}^{(i)} \varphi(X_{T+1}^{(i)}).
+        \label{eq:predictive_estimator}
+    \end{equation}
+\end{definition}
+
+\begin{proposition}
+    \label{prop:predictive_estimator}
+    The predictive estimator $\hat{I}_N^{\mathrm{pred}}$ is, in general, biased, but strongly consistent for every $\varphi\in L^1(\pi_{T+1\mid T}^{\theta})$.
+\end{proposition}
+\begin{proof}
+    By construction, the extended trajectories $X_{0:T+1}^{(i)}$ are i.i.d.\ draws from the extended proposal
+    \begin{equation}
+        \bar{Q} = Q_T^\theta\otimes M^\theta
+    \end{equation}
+    on $\mathcal{X}^{T+2}$, where $M^\theta$ acts on the last coordinate. Take as the unnormalized target the extended measure
+    \begin{equation}
+        \bar{\gamma} = \gamma_T^\theta\otimes M^\theta.
+    \end{equation}
+    By Proposition~\ref{prop:sis_weights} and Lemma~\ref{lem:kernel_product_density} with $g = w_T$ and $k\equiv 1$, the transition kernels cancel in the importance weight,
+    \begin{equation}
+        \frac{\mathrm{d}\bar{\gamma}}{\mathrm{d}\bar{Q}}(x_{0:T+1}) = w_T(x_{0:T}).
+    \end{equation}
+    By~\eqref{eq:kernel_tonelli}, the total mass of $\bar{\gamma}$ is $\bar{\gamma}(1) = \gamma_T^\theta(M^\theta 1) = \gamma_T^\theta(1) = p(y_{1:T}\mid\theta)$, and for the function $\bar{\varphi}(x_{0:T+1}) = \varphi(x_{T+1})$,
+    \begin{equation}
+        \frac{\bar{\gamma}(\bar{\varphi})}{\bar{\gamma}(1)} = \frac{\gamma_T^\theta\left((M^\theta\varphi)\circ\mathrm{pr}_T\right)}{p(y_{1:T}\mid\theta)} = \pi_T^\theta\left((M^\theta\varphi)\circ\mathrm{pr}_T\right) = \pi_T^{\theta,\mathrm{filt}}(M^\theta\varphi) = I^{\mathrm{pred}},
+    \end{equation}
+    first for $|\varphi|$, which shows $\bar{\varphi}\in L^1(\bar{\gamma})$, and then for $\varphi^\pm$. The self-normalized importance sampling estimator of $\bar{\gamma}(\bar{\varphi})/\bar{\gamma}(1)$ with proposal $\bar{Q}$ is
+    \begin{equation}
+        \frac{\sum_{i=1}^{N} \varphi(X_{T+1}^{(i)})\, w_T^{(i)}}{\sum_{i=1}^{N} w_T^{(i)}} = \sum_{i=1}^{N} \tilde{w}_T^{(i)} \varphi(X_{T+1}^{(i)}) = \hat{I}_N^{\mathrm{pred}}.
+    \end{equation}
+    Bias and consistency follow from Propositions~\ref{prop:self_normalized_importance_sampling_biased} and~\ref{prop:self_normalized_importance_sampling_consistent}.
+\end{proof}
+
+\begin{algorithm}[H]
+\caption{Sequential importance sampling}
+\label{alg:sequential_importance_sampling}
+\begin{algorithmic}[1]
+    \REQUIRE Observations $y_{1:T}$, number of particles $N$, admissible proposal $Q_0^\theta, K_t^\theta$ with derivatives $r_t$, and observation density $f$.
+
+    \FOR{$i=1,\ldots,N$}
+        \STATE Sample $X_0^{(i)} \sim Q_0^\theta$.
+        \STATE Set $w_0^{(i)} = r_0(X_0^{(i)})$.
+    \ENDFOR
+    \STATE Normalize weights to obtain $\tilde{w}_0^{(i)}$.
+
+    \FOR{$t=1,\ldots,T$}
+        \FOR{$i=1,\ldots,N$}
+            \STATE Propagate $X_t^{(i)} \sim K_t^\theta(X_{0:t-1}^{(i)},\cdot)$.
+            \STATE Compute $\alpha_t^{(i)} = f(y_t\mid X_t^{(i)}, \theta)\, r_t(X_{0:t}^{(i)})$.
+            \STATE Update $w_t^{(i)} = w_{t-1}^{(i)}\alpha_t^{(i)}$.
+        \ENDFOR
+        \STATE Normalize weights to obtain $\tilde{w}_t^{(i)}$.
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+In summary, the sequential updates of the importance weights together with the propagation of particles allow us to approximate the smoothing, filtering, and predictive distributions, and their expectations, in a sequential manner. The procedure is summarized in Algorithm~\ref{alg:sequential_importance_sampling}. When all kernels have densities with respect to $\mu_{\mathcal{X}}$, the weight increment is $\alpha_t = f(y_t\mid x_t,\theta)\,p(x_t\mid x_{t-1},\theta)/q_t(x_t\mid x_{0:t-1},y_{1:t},\theta)$.
+Since all of $\hat{I}_N^{\mathrm{smth}}$, $\hat{I}_N^{\mathrm{filt}}$ and $\hat{I}_N^{\mathrm{pred}}$ are self-normalized, they are biased but consistent estimators. Only the marginal likelihood estimator $\hat{p}(y_{1:T}\mid\theta)$ is unbiased.
+
+The main limitation of SIS is \emph{weight degeneracy}. As the number of observations increases, the importance weights become increasingly unequal, because only a small fraction of the particle trajectories are able to explain all of the observations. Eventually, almost all of the normalized weight is concentrated on a few particles, and the remaining particles contribute virtually nothing to the estimates. This motivates the idea of resampling.
+
+\section{Sequential importance sampling with resampling}
+\label{sec:sequential_importance_sampling_with_resampling}
+Sequential importance sampling with resampling (SISR), also known as particle filtering, is an extension of SIS that incorporates a resampling step to mitigate the problem of weight degeneracy. 
+
+\begin{definition}
+    The \emph{effective sample size} at time $t$ is calculated as
+    \begin{equation}
+        \mathrm{ESS}_t = \frac{1}{\sum_{i=1}^{N} \left(\tilde{w}_t^{(i)}\right)^2},
+    \end{equation}
+    where $\tilde{w}_t^{(i)}$ are the current normalized importance weights.
+\end{definition}
+
+Resampling can be performed adaptively, only when the effective sample size falls below a chosen threshold. 
+Note that $1 \le \mathrm{ESS}_t \le N$, with $\mathrm{ESS}_t = N$ for equal weights and $\mathrm{ESS}_t = 1$ when all the weight is concentrated on a single particle. In this thesis, however, resampling is performed at every time step.
+
+Resampling replaces the weighted particles by $N$ equally weighted copies of them. Formally, let $\Delta_N = \{v\in[0,1]^N : \sum_{i=1}^N v_i = 1\}$ denote the probability simplex, and let $\mathcal{G}$ be a $\sigma$-algebra that contains all the randomness generated before resampling at time $t$, so that the particles $X_{0:t}^{(1:N)}$ and the normalized weights $\tilde{w}_t^{(1:N)}$ are $\mathcal{G}$-measurable.
+
+\begin{definition}
+    \label{def:resampling_scheme}
+    A \emph{resampling scheme} is a Markov kernel $R$ from $\Delta_N$ to $\{1,\ldots,N\}^N$. Resampling draws \emph{ancestor indices} $A^{(1:N)} = (A^{(1)},\ldots,A^{(N)})$ such that
+    \begin{equation}
+        \mathbb{P}\left(A^{(1:N)}=a \mid \mathcal{G}\right) = R\left(\tilde{w}_t^{(1:N)},\{a\}\right), \qquad a\in\{1,\ldots,N\}^N,
+        \label{eq:resampling_conditional_independence}
+    \end{equation}
+    and sets the resampled particles to $\bar{X}_{0:t}^{(j)} = X_{0:t}^{(A^{(j)})}$. The \emph{offspring count} of particle $i$ is $N^{(i)} = \sum_{j=1}^{N}\mathbf{1}\{A^{(j)}=i\}$. The scheme is \emph{unbiased} if
+    \begin{equation}
+        \mathbb{E}\left[N^{(i)}\mid \mathcal{G}\right] = N\tilde{w}_t^{(i)}, \qquad i=1,\ldots,N.
+        \label{eq:unbiased_resampling}
+    \end{equation}
+\end{definition}
+Condition~\eqref{eq:resampling_conditional_independence} states that, given everything generated so far, the ancestors depend only on the normalized weights. Since $\sum_{i=1}^N N^{(i)} = N$, resampling replaces the empirical measure $\sum_{i=1}^{N} \tilde{w}_t^{(i)} \delta_{X_{0:t}^{(i)}}$ by the random probability measure
+\begin{equation}
+    \frac{1}{N}\sum_{j=1}^{N} \delta_{\bar{X}_{0:t}^{(j)}} = \frac{1}{N} \sum_{i=1}^{N} N^{(i)}\, \delta_{X_{0:t}^{(i)}}.
+\end{equation}
+Common resampling schemes include multinomial, stratified, residual, and systematic resampling, all of which are unbiased. In \emph{multinomial} resampling, $R(v,\cdot)$ is the $N$-fold product of the categorical distribution with probabilities $v$, so $N^{(1:N)}$ is multinomial with parameters $N$ and $v$, and~\eqref{eq:unbiased_resampling} is immediate. \emph{Systematic} resampling, which is used in this thesis, draws a single $U\sim\mathcal{U}[0,1)$ independent of $\mathcal{G}$, sets $c_0 = 0$ and $c_i = \sum_{k=1}^{i}\tilde{w}_t^{(k)}$, and chooses $A^{(j)} = i$ if and only if $(j-1+U)/N\in[c_{i-1},c_i)$. Each point $(j-1+U)/N$ is uniformly distributed on $[(j-1)/N,j/N)$, so
+\begin{equation}
+    \mathbb{E}\left[N^{(i)}\mid\mathcal{G}\right] = \sum_{j=1}^N N\,\lambda\left([c_{i-1},c_i)\cap\left[\tfrac{j-1}{N},\tfrac{j}{N}\right)\right) = N\,\lambda([c_{i-1},c_i)) = N\tilde{w}_t^{(i)},
+\end{equation}
+which shows that systematic resampling is unbiased as well.
+
+The validity of resampling can be established by considering its effect on estimates of expectations with respect to the weighted empirical measure. Let $\varphi$ be a measurable function on $\mathcal{X}^{t+1}$. Before resampling, its integral with respect to the weighted empirical measure is
+\begin{equation}
+    \hat{I}_N = \sum_{i=1}^{N} \tilde{w}_t^{(i)} \varphi(X_{0:t}^{(i)}).
+\end{equation}
+After resampling, the corresponding estimate becomes
+\begin{equation}
+    \hat{I}_N^{\mathrm{res}} = \frac{1}{N} \sum_{j=1}^{N} \varphi(\bar{X}_{0:t}^{(j)}) = \frac{1}{N} \sum_{i=1}^{N} N^{(i)}\varphi(X_{0:t}^{(i)}).
+\end{equation}
+The estimates $\hat{I}_N$ and $\hat{I}_N^{\mathrm{res}}$ generally differ for a particular resampling outcome, but they agree on average.
+
+\begin{proposition}
+    \label{prop:resampling_unbiased}
+    Let $\hat{I}_N$ and $\hat{I}_N^{\mathrm{res}}$ be the estimators before and after resampling with an unbiased resampling scheme. If $\varphi\ge 0$, or if $\mathbb{E}[|\varphi(X_{0:t}^{(i)})|]<\infty$ for all $i$, then the resampled estimator is conditionally unbiased,
+    \begin{equation}
+        \mathbb{E}\left[\hat{I}_N^{\mathrm{res}} \mid \mathcal{G}\right] = \hat{I}_N.
+    \end{equation}
+\end{proposition}
+\begin{proof}
+    The values $\varphi(X_{0:t}^{(i)})$ are $\mathcal{G}$-measurable, and $0\le N^{(i)}\le N$, so $N^{(i)}\varphi(X_{0:t}^{(i)})$ is either non-negative or integrable. Taking out what is known and using~\eqref{eq:unbiased_resampling},
+    \begin{equation}
+        \mathbb{E}\left[\hat{I}_N^{\mathrm{res}} \mid \mathcal{G}\right] = \frac{1}{N} \sum_{i=1}^{N} \varphi(X_{0:t}^{(i)})\, \mathbb{E}\left[N^{(i)} \mid \mathcal{G}\right] = \sum_{i=1}^{N} \tilde{w}_t^{(i)}\varphi(X_{0:t}^{(i)}) = \hat{I}_N.
+    \end{equation}
+\end{proof}
+
+Resampling creates a new set of equally weighted particles. A slight complication arises when keeping track of the entire trajectories of the latent states, as resampling mixes the trajectories of the particles. This is solved by storing the ancestor indices $A^{(1:N)}$ at every resampling step, which allows us to reconstruct the entire trajectory of each particle at any time step.
+Figure~\ref{fig:resampling} illustrates the effect of resampling on the particle trajectories. The resampling step prunes particles with low weights and replicates particles with high weights, so that computational effort is concentrated on regions of high posterior probability.
+A side effect of repeated resampling is \emph{path degeneracy}: going backwards in time, the reconstructed trajectories coalesce to only a few common ancestors, so the approximation of the smoothing distribution $\pi_t^\theta$ deteriorates for early states, even though the approximation of the filtering distribution remains accurate.
+\begin{figure}
+    \centering
+    \resizebox{0.8\textwidth}{!}{
+        \input{figures/resampling.tex}
+    }
+    \caption{Schematic illustration of the resampling process. Particles with low weights are pruned, while particles with high weights are replicated.}
+    \label{fig:resampling}
+\end{figure}
+
+
+\subsection{Bootstrap particle filter}
+One of the simplest and most widely used particle filtering algorithms is the bootstrap particle filter, which uses the model itself as the proposal,
+\begin{equation}
+    Q_0^\theta = M_0^\theta, \qquad K_t^\theta(x_{0:t-1},\cdot) = M^\theta(x_{t-1},\cdot).
+\end{equation}
+This proposal is trivially admissible in the sense of Definition~\ref{def:admissible_proposal}, with $r_t\equiv 1$ for all $t$, so no densities of $M_0^\theta$ or $M^\theta$ are required. The weight update then simplifies to
+\begin{equation}
+    w_t = w_{t-1}\,\alpha_t = w_{t-1}\, f(y_t\mid x_t,\theta).
+\end{equation}
+The entire bootstrap particle filter algorithm is presented in Algorithm~\ref{alg:bootstrap_particle_filter}.
+Due to the resampling step, the particles at the end of each iteration become equally weighted.
+Expectations with respect to the empirical distribution can be calculated either by using the weighted particles before resampling or by using the equally weighted particles after resampling. By Proposition~\ref{prop:resampling_unbiased} both have the same conditional expectation, but the latter introduces additional Monte Carlo variability due to the randomness of the resampling step, so the former is generally preferred.
+The time complexity of the bootstrap particle filter is $O(N)$ per time step, since the weight update and resampling steps each take $O(N)$ time. In total, the time complexity is $O(NT)$.
+Similarly, the space complexity is $O(N)$ per time step, since for every time step, we need to store $N$ particles and their weights. But if we want entire trajectories, the space complexity is $O(NT)$, since we need to store the particles and ancestor indices for each time step.
+\begin{algorithm}[H]
+\caption{Bootstrap particle filter}
+\label{alg:bootstrap_particle_filter}
+\begin{algorithmic}[1]
+    \REQUIRE Observations $y_{1:T}$, number of particles $N$, initial distribution $M_0^\theta$, transition kernel $M^\theta$, observation density $f$, unbiased resampling scheme $R$.
+
+    \FOR{$i=1,\ldots,N$}
+        \STATE Sample $X_0^{(i)} \sim M_0^\theta$ and set $\bar{X}_0^{(i)} = X_0^{(i)}$.
+        \STATE Set $w_0^{(i)} = \tilde{w}_0^{(i)} = 1/N$.
+    \ENDFOR
+
+    \FOR{$t=1,\ldots,T$}
+        \FOR{$i=1,\ldots,N$}
+            \STATE Propagate $X_t^{(i)} \sim M^\theta(\bar{X}_{t-1}^{(i)}, \cdot)$.
+            \STATE Compute $\alpha_t^{(i)} = f(y_t \mid X_t^{(i)}, \theta)$. 
+            \STATE Update $w_t^{(i)} = w_{t-1}^{(i)} \alpha_t^{(i)}$.
+        \ENDFOR
+        \FOR{$i=1,\ldots,N$}
+            \STATE Normalize weights $\tilde{w}_t^{(i)} = \dfrac{w_t^{(i)}}{\sum_{j=1}^N w_t^{(j)}}$.
+        \ENDFOR
+        \STATE Sample ancestor indices $A_t^{(1:N)} \sim R(\tilde{w}_t^{(1:N)},\cdot)$ and set $\bar{X}_t^{(i)} = X_t^{(A_t^{(i)})}$.
+        \STATE Set $w_t^{(i)} = 1/N$ for all $i=1,\ldots,N$.
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+
+\section{Particle Markov chain Monte Carlo}
+\label{sec:particle_mcmc}
+So far, the model parameters $\theta$ have been assumed known. In practice they are not, and in the Bayesian framework they are treated as random variables. Let $(\Theta,\mathcal{T})$ be the parameter space, equipped with a $\sigma$-finite reference measure $\lambda_\Theta$, for instance the Lebesgue measure on an unconstrained parameterization, and let the \emph{prior distribution} be $\Pi_0(\mathrm{d}\theta) = p(\theta)\,\lambda_\Theta(\mathrm{d}\theta)$. We assume that the model depends measurably on the parameters, meaning that $\theta\mapsto M_0^\theta(A)$, $(\theta,x)\mapsto M^\theta(x,A)$ and $(\theta,x,y)\mapsto f(y\mid x,\theta)$ are measurable. Then $\theta\mapsto P_T^\theta$ is a Markov kernel from $\Theta$ to $\mathcal{X}^{T+1}$, and by~\eqref{eq:kernel_tonelli}, $\theta\mapsto p(y_{1:T}\mid\theta)$ is measurable. The object of interest is the posterior distribution of the parameters,
+\begin{equation}
+    \Pi_T(\mathrm{d}\theta) = p(\theta\mid y_{1:T})\,\lambda_\Theta(\mathrm{d}\theta), \qquad p(\theta\mid y_{1:T}) = \frac{p(y_{1:T}\mid\theta)\,p(\theta)}{p(y_{1:T})},
+    \label{eq:parameter_posterior}
+\end{equation}
+where $p(y_{1:T}\mid\theta)$ is the marginal likelihood from Definition~\ref{def:marginal_likelihood} and $p(y_{1:T}) = \Pi_0(p(y_{1:T}\mid\cdot))$ is the (intractable) model evidence, which we assume to lie in $(0,\infty)$. The same argument as in Proposition~\ref{prop:bayes_formula} shows that $\Pi_T$ is a version of the conditional distribution of $\theta$ given $Y_{1:T}=y_{1:T}$.
+Sampling directly from $\Pi_T$ is not possible, and importance sampling in the parameter space is typically inefficient when $\theta$ is multidimensional. The standard tool in such situations is Markov chain Monte Carlo (MCMC), which constructs a Markov chain whose long-run behaviour is governed by the target distribution.
+For state-space models, however, MCMC faces an additional obstacle: the marginal likelihood $p(y_{1:T}\mid\theta)$ is itself intractable.
+Particle Markov chain Monte Carlo (PMCMC) methods \cite{andrieu2010particle} resolve this by combining MCMC in the parameter space with particle filters in the state space.
+
+This section first reviews the necessary Markov chain theory and the Metropolis-Hastings algorithm. It then shows that the particle filter yields an unbiased estimator of the marginal likelihood, and that plugging this estimator into the Metropolis-Hastings algorithm still produces a chain targeting the exact posterior distribution~\eqref{eq:parameter_posterior}.
+
+\subsection{Markov chains}
+\label{sec:markov_chains}
+In this and the next subsection, $(\Theta,\mathcal{T})$ denotes an arbitrary measurable space, since the results will later be applied to an extended space that contains auxiliary variables in addition to the parameters. Let $\Pi$ be a target probability measure on $\Theta$.
+
+\begin{definition}
+    A sequence of random variables $\theta_0,\theta_1,\theta_2,\ldots$ in $\Theta$ is a \emph{Markov chain} with \emph{transition kernel} $K$, a Markov kernel from $\Theta$ to $\Theta$, if for every $m\ge 1$ and every $A\in\mathcal{T}$,
+    \begin{equation}
+        \mathbb{P}\left(\theta_m\in A \mid \theta_{0:m-1}\right) = K(\theta_{m-1},A) \quad \text{almost surely.}
+    \end{equation}
+    The $n$-step kernels are defined by $K^1 = K$ and
+    \begin{equation}
+        K^n(\theta,A) = \int K(\theta,\mathrm{d}\theta')\,K^{n-1}(\theta',A),
+    \end{equation}
+    so that $\mathbb{P}(\theta_n\in A\mid\theta_0) = K^n(\theta_0,A)$.
+\end{definition}
+The kernel $K(\theta,\cdot)$ may contain point masses, for instance at $\theta$ itself, and need not have a density with respect to any reference measure.
+
+\begin{definition}
+    A probability measure $\Pi$ is \emph{invariant} (or stationary) for the transition kernel $K$ if $\Pi K = \Pi$, that is,
+    \begin{equation}
+        \int K(\theta,A)\,\Pi(\mathrm{d}\theta) = \Pi(A) \quad \text{for all } A\in\mathcal{T}.
+        \label{eq:invariance}
+    \end{equation}
+\end{definition}
+In words, if $\theta_{m-1}\sim\Pi$, then also $\theta_m\sim\Pi$. Verifying~\eqref{eq:invariance} directly requires evaluating an integral, which is rarely possible. A stronger, but local and therefore easily verifiable, condition is the following.
+
+\begin{definition}
+    A transition kernel $K$ satisfies \emph{detailed balance} with respect to $\Pi$ if the measure $\Pi\otimes K$ on $\Theta\times\Theta$ is symmetric, that is,
+    \begin{equation}
+        (\Pi\otimes K)(A\times B) = (\Pi\otimes K)(B\times A) \quad \text{for all } A,B\in\mathcal{T},
+        \label{eq:detailed_balance}
+    \end{equation}
+    that is, $\int_A K(\theta,B)\,\Pi(\mathrm{d}\theta) = \int_B K(\theta,A)\,\Pi(\mathrm{d}\theta)$.
+    A Markov chain whose kernel satisfies detailed balance with respect to $\Pi$ is called \emph{reversible} with respect to $\Pi$.
+\end{definition}
+In the informal notation of densities, \eqref{eq:detailed_balance} reads $\Pi(\mathrm{d}\theta)\,K(\theta,\mathrm{d}\theta') = \Pi(\mathrm{d}\theta')\,K(\theta',\mathrm{d}\theta)$. Since measurable rectangles form a $\pi$-system that generates $\mathcal{T}\otimes\mathcal{T}$, it is equivalent to the invariance of $\Pi\otimes K$ under the swap $(\theta,\theta')\mapsto(\theta',\theta)$. If $(\theta_{m-1},\theta_m)$ is distributed according to $\Pi\otimes K$, detailed balance means that the chain looks the same forwards and backwards in time.
+
+\begin{proposition}
+    \label{prop:detailed_balance_invariance}
+    If $K$ satisfies detailed balance with respect to $\Pi$, then $\Pi$ is invariant for $K$.
+\end{proposition}
+\begin{proof}
+    Taking $A=\Theta$ in~\eqref{eq:detailed_balance} gives, for every $B\in\mathcal{T}$,
+    \begin{equation}
+        (\Pi K)(B) = \int_\Theta K(\theta,B)\,\Pi(\mathrm{d}\theta) = \int_B K(\theta,\Theta)\,\Pi(\mathrm{d}\theta) = \Pi(B),
+    \end{equation}
+    since $K(\theta,\cdot)$ is a probability measure.
+\end{proof}
+
+Invariance alone does not guarantee that the chain actually converges to $\Pi$ from an arbitrary starting point. Two further properties are needed.
+
+\begin{definition}
+    \label{def:irreducibility}
+    A Markov chain with transition kernel $K$ is \emph{$\Pi$-irreducible} if for every $\theta\in\Theta$ and every $A\in\mathcal{T}$ with $\Pi(A)>0$ there exists an $n\ge 1$ such that
+    \begin{equation}
+        K^n(\theta,A) > 0.
+    \end{equation}
+\end{definition}
+In words, from any starting point, every region that carries positive target probability is reached with positive probability after finitely many steps. Without this property the chain could remain trapped in a part of $\Theta$ and never explore the rest of the support of $\Pi$.
+
+\begin{definition}
+    \label{def:aperiodicity}
+    A $\Pi$-irreducible Markov chain with transition kernel $K$ is \emph{periodic} with period $d\ge 2$ if there exist disjoint sets $E_0,\ldots,E_{d-1}\in\mathcal{T}$, each with $\Pi(E_i)>0$, such that
+    \begin{equation}
+        K(\theta,E_{(i+1)\bmod d}) = 1 \quad \text{for all } \theta\in E_i,\ i=0,\ldots,d-1.
+    \end{equation}
+    The chain is \emph{aperiodic} if it is not periodic for any $d\ge 2$.
+\end{definition}
+A periodic chain cycles deterministically through the sets $E_0,E_1,\ldots,E_{d-1},E_0,\ldots$, so the distribution of $\theta_m$ keeps oscillating and cannot converge, even though time averages may still converge. Finally, the \emph{total variation distance} between two probability measures $\mu$ and $\nu$ on $\Theta$ is $\|\mu-\nu\|_{\mathrm{TV}} = \sup_{A\in\mathcal{T}}|\mu(A)-\nu(A)|$. We state the following result without proof; see \cite[Theorems~1 and~3, Corollary~2]{tierney1994markov} and \cite[Chapter~6]{robert2004monte}.
+
+\begin{theorem}[Ergodic theorem]
+    \label{thm:ergodic_theorem}
+    Let $\theta_0,\theta_1,\ldots$ be a $\Pi$-irreducible Markov chain with transition kernel $K$ and invariant distribution $\Pi$. Then $\Pi$ is the unique invariant distribution, and the following hold for $\Pi$-almost every starting point $\theta_0$.
+    \begin{enumerate}
+        \item \emph{Law of large numbers.} For every $\varphi\in L^1(\Pi)$,
+        \begin{equation}
+            \hat{I}_M^{\mathrm{MCMC}} = \frac{1}{M}\sum_{m=1}^{M} \varphi(\theta_m) \xrightarrow[M\to\infty]{a.s.} \Pi(\varphi).
+        \end{equation}
+        \item \emph{Convergence in distribution.} If the chain is in addition aperiodic, the distribution of the $m$-th state converges to $\Pi$ in total variation,
+        \begin{equation}
+            \left\|K^m(\theta_0,\cdot) - \Pi\right\|_{\mathrm{TV}} \xrightarrow[m\to\infty]{} 0.
+        \end{equation}
+    \end{enumerate}
+    If the chain is generated by a Metropolis-Hastings kernel (Section~\ref{sec:metropolis_hastings}), both statements hold for every starting point $\theta_0$ with $\pi(\theta_0)>0$, where $\pi$ is the density of $\Pi$ used by the algorithm.
+\end{theorem}
+
+The two statements concern different objects. The first is about the time average over the whole trajectory $\theta_1,\ldots,\theta_M$ as the number of iterations $M$ grows, and it does not require aperiodicity, since averaging over a full cycle removes any periodic behavior. The second is about the marginal distribution of a single state $\theta_m$ as its index $m$ grows, and it justifies treating late states of the chain as approximate draws from $\Pi$. The restriction to $\Pi$-almost every starting point in general state spaces is a technicality: a chain can behave badly on a $\Pi$-null set of starting points that it never returns to. For Metropolis-Hastings chains this cannot happen, since every $\Pi$-irreducible Metropolis-Hastings chain is Harris recurrent \cite[Corollary~2]{tierney1994markov}. This is the property that extends both statements to every starting point. Since Algorithm~\ref{alg:metropolis_hastings} below requires $\tilde{\pi}(\theta_0)>0$, this is the case relevant in practice.
+
+The MCMC estimator $\hat{I}_M^{\mathrm{MCMC}}$ plays the same role as the Monte Carlo estimator~\eqref{eq:monte_carlo_estimator}, with the important difference that the samples are now dependent and only asymptotically distributed according to $\Pi$. In practice, the first iterations (the \emph{burn-in}) are therefore discarded.
+
+\subsection{Metropolis-Hastings algorithm}
+\label{sec:metropolis_hastings}
+The Metropolis-Hastings (MH) algorithm \cite{metropolis1953equation,hastings1970monte} is a general recipe for constructing a transition kernel that satisfies detailed balance with respect to a given target $\Pi$. Let $\lambda$ be a $\sigma$-finite reference measure on $\Theta$, and assume that the target has a density
+\begin{equation}
+    \Pi(\mathrm{d}\theta) = \pi(\theta)\,\lambda(\mathrm{d}\theta), \qquad \pi = \frac{\tilde{\pi}}{Z},
+\end{equation}
+where the unnormalized density $\tilde{\pi}\ge 0$ can be evaluated pointwise and $Z = \lambda(\tilde{\pi})\in(0,\infty)$ is unknown. The algorithm requires a \emph{proposal kernel} with density with respect to $\lambda$,
+\begin{equation}
+    q(\theta,\mathrm{d}\theta') = q(\theta'\mid\theta)\,\lambda(\mathrm{d}\theta'),
+\end{equation}
+from which it is easy to sample, where $(\theta,\theta')\mapsto q(\theta'\mid\theta)$ is measurable. It is not to be confused with the importance sampling proposals of the previous sections.
+
+\begin{definition}
+    \label{def:mh_acceptance_probability}
+    The \emph{Metropolis-Hastings acceptance probability} of moving from $\theta$ to $\theta'$ is
+    \begin{equation}
+        \alpha(\theta,\theta') = \min\left\{1,\, \frac{\pi(\theta')\,q(\theta\mid\theta')}{\pi(\theta)\,q(\theta'\mid\theta)}\right\} = \min\left\{1,\, \frac{\tilde{\pi}(\theta')\,q(\theta\mid\theta')}{\tilde{\pi}(\theta)\,q(\theta'\mid\theta)}\right\},
+        \label{eq:mh_acceptance_probability}
+    \end{equation}
+    with the convention $\alpha(\theta,\theta') = 1$ if $\pi(\theta)\,q(\theta'\mid\theta) = 0$.
+\end{definition}
+
+The function $\alpha$ is measurable, and the normalizing constant $Z$ cancels in the ratio, so, exactly as for self-normalized importance sampling, only the unnormalized density $\tilde{\pi}$ is required. The resulting procedure is given in Algorithm~\ref{alg:metropolis_hastings}.
+
+\begin{algorithm}[H]
+\caption{Metropolis-Hastings}
+\label{alg:metropolis_hastings}
+\begin{algorithmic}[1]
+    \REQUIRE Unnormalized target density $\tilde{\pi}$, proposal density $q$, number of iterations $M$, initial state $\theta_0$ with $\tilde{\pi}(\theta_0)>0$.
+    \FOR{$m=1,\ldots,M$}
+        \STATE Sample $\theta' \sim q(\theta_{m-1},\cdot)$.
+        \STATE Compute $\alpha(\theta_{m-1},\theta')$ according to~\eqref{eq:mh_acceptance_probability}.
+        \STATE Sample $V \sim \mathcal{U}(0,1)$.
+        \IF{$V \le \alpha(\theta_{m-1},\theta')$}
+            \STATE Accept: set $\theta_m = \theta'$.
+        \ELSE
+            \STATE Reject: set $\theta_m = \theta_{m-1}$.
+        \ENDIF
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+Given $\theta_{m-1}=\theta$, a proposal $\theta'\sim q(\theta,\cdot)$ and an independent $V\sim\mathcal{U}(0,1)$ are drawn, and the move is accepted if $V\le\alpha(\theta,\theta')$. By~\eqref{eq:kernel_tonelli}, the probability of accepting a proposal in $B\in\mathcal{T}$ is $\int_B\alpha(\theta,\theta')\,q(\theta'\mid\theta)\,\lambda(\mathrm{d}\theta')$, and the probability of rejecting is
+\begin{equation}
+    r(\theta) = 1 - \int_\Theta \alpha(\theta,\theta')\,q(\theta'\mid\theta)\,\lambda(\mathrm{d}\theta') \in [0,1].
+\end{equation}
+The transition kernel of Algorithm~\ref{alg:metropolis_hastings} is therefore
+\begin{equation}
+    K_{\mathrm{MH}}(\theta,B) = \int_B \alpha(\theta,\theta')\,q(\theta'\mid\theta)\,\lambda(\mathrm{d}\theta') + r(\theta)\,\delta_\theta(B).
+    \label{eq:mh_kernel}
+\end{equation}
+The first term corresponds to accepted proposals, and the second term, a point mass at the current state, to rejections. By Tonelli's theorem, $\theta\mapsto K_{\mathrm{MH}}(\theta,B)$ is measurable, so $K_{\mathrm{MH}}$ is a Markov kernel. Note that $K_{\mathrm{MH}}(\theta,\cdot)$ has no density with respect to $\lambda$ whenever $r(\theta)>0$ and $\lambda(\{\theta\})=0$.
+
+\begin{theorem}
+    \label{thm:mh_detailed_balance}
+    The Metropolis-Hastings kernel~\eqref{eq:mh_kernel} satisfies detailed balance with respect to $\Pi$. Consequently, $\Pi$ is an invariant distribution of the Metropolis-Hastings chain.
+\end{theorem}
+\begin{proof}
+    We first claim that for all $\theta,\theta'\in\Theta$,
+    \begin{equation}
+        \pi(\theta)\,q(\theta'\mid\theta)\,\alpha(\theta,\theta') = \min\left\{\pi(\theta)\,q(\theta'\mid\theta),\, \pi(\theta')\,q(\theta\mid\theta')\right\}.
+        \label{eq:mh_symmetric_flux}
+    \end{equation}
+    If $\pi(\theta)\,q(\theta'\mid\theta)>0$, this follows by multiplying~\eqref{eq:mh_acceptance_probability} by $\pi(\theta)\,q(\theta'\mid\theta)$ and moving it inside the minimum. If $\pi(\theta)\,q(\theta'\mid\theta)=0$, both sides of~\eqref{eq:mh_symmetric_flux} equal zero, since the right-hand side is a minimum of two non-negative numbers, one of which is zero. Denote the right-hand side of~\eqref{eq:mh_symmetric_flux} by $m(\theta,\theta')$. The function $m$ is measurable and symmetric, $m(\theta,\theta') = m(\theta',\theta)$.
+
+    Let $A,B\in\mathcal{T}$. Inserting~\eqref{eq:mh_kernel} and $\Pi(\mathrm{d}\theta) = \pi(\theta)\,\lambda(\mathrm{d}\theta)$, and using Proposition~\ref{prop:dirac_integral} for the second term,
+    \begin{align}
+        (\Pi\otimes K_{\mathrm{MH}})(A\times B) &= \int_A \int_B \pi(\theta)\,q(\theta'\mid\theta)\,\alpha(\theta,\theta')\,\lambda(\mathrm{d}\theta')\,\lambda(\mathrm{d}\theta) \\
+        &\quad + \int_A r(\theta)\,\delta_\theta(B)\,\Pi(\mathrm{d}\theta) \\
+        &= \iint \mathbf{1}_A(\theta)\,\mathbf{1}_B(\theta')\,m(\theta,\theta')\,\lambda(\mathrm{d}\theta')\,\lambda(\mathrm{d}\theta) + \Pi\left(r\,\mathbf{1}_{A\cap B}\right).
+    \end{align}
+    The second term is symmetric in $A$ and $B$. Since $\lambda$ is $\sigma$-finite and $m\ge 0$, Tonelli's theorem allows us to exchange the order of integration in the first term, and after renaming the variables and using the symmetry of $m$, the first term equals $\iint \mathbf{1}_B(\theta)\,\mathbf{1}_A(\theta')\,m(\theta,\theta')\,\lambda(\mathrm{d}\theta')\,\lambda(\mathrm{d}\theta)$. Hence $(\Pi\otimes K_{\mathrm{MH}})(A\times B) = (\Pi\otimes K_{\mathrm{MH}})(B\times A)$, which is~\eqref{eq:detailed_balance}. Invariance follows from Proposition~\ref{prop:detailed_balance_invariance}.
+\end{proof}
+
+The theorem holds for any proposal density $q$. However, invariance alone is not enough for Theorem~\ref{thm:ergodic_theorem}, which also requires irreducibility and aperiodicity, and these do depend on $q$. A simple sufficient condition is that $q(\theta'\mid\theta)>0$ for all $\theta\in\Theta$ and all $\theta'$ with $\pi(\theta')>0$. Let $\theta\in\Theta$ and $A\in\mathcal{T}$ with $\Pi(A)>0$. Then $A^+ = A\cap\{\pi>0\}$ satisfies $\lambda(A^+)>0$, and $\alpha(\theta,\theta')\,q(\theta'\mid\theta)>0$ for every $\theta'\in A^+$: if $\pi(\theta)=0$, then $\alpha(\theta,\theta')=1$ by convention, and otherwise both $q(\theta'\mid\theta)$ and $q(\theta\mid\theta')$ are positive. Hence
+\begin{equation}
+    K_{\mathrm{MH}}(\theta,A) \ge \int_{A^+} \alpha(\theta,\theta')\,q(\theta'\mid\theta)\,\lambda(\mathrm{d}\theta') > 0.
+\end{equation}
+Every set of positive target probability is therefore reached in a single step, which gives $\Pi$-irreducibility with $n=1$ in Definition~\ref{def:irreducibility}. It also rules out periodicity. If sets $E_0,\ldots,E_{d-1}$ as in Definition~\ref{def:aperiodicity} existed, then for $\theta\in E_0$ we would have $K_{\mathrm{MH}}(\theta,E_0)>0$, contradicting $K_{\mathrm{MH}}(\theta,E_1)=1$ since $E_0$ and $E_1$ are disjoint. Beyond these qualitative properties, the choice of $q$ determines how quickly the chain explores $\Theta$ and hence how many iterations are needed in practice. A common choice on $\Theta=\mathbb{R}^d$ with the Lebesgue measure is the Gaussian random walk proposal $q(\theta'\mid\theta) = \mathcal{N}(\theta';\theta,\Sigma)$, which is symmetric, $q(\theta'\mid\theta) = q(\theta\mid\theta')$, so that the proposal densities cancel in~\eqref{eq:mh_acceptance_probability}.
+
+Applied to Bayesian parameter inference with target $\Pi_T$ from~\eqref{eq:parameter_posterior}, we have $\lambda = \lambda_\Theta$, $\tilde{\pi}(\theta) = p(y_{1:T}\mid\theta)\,p(\theta)$ and $Z = p(y_{1:T})$, so the acceptance probability becomes
+\begin{equation}
+    \alpha(\theta,\theta') = \min\left\{1,\, \frac{p(y_{1:T}\mid\theta')\,p(\theta')\,q(\theta\mid\theta')}{p(y_{1:T}\mid\theta)\,p(\theta)\,q(\theta'\mid\theta)}\right\}.
+    \label{eq:mh_acceptance_parameters}
+\end{equation}
+The intractable evidence $p(y_{1:T})$ cancels, but the marginal likelihood $p(y_{1:T}\mid\theta)$ does not. For the MSSV model, and for nonlinear state-space models in general, Algorithm~\ref{alg:metropolis_hastings} therefore cannot be implemented directly. A natural idea is to replace $p(y_{1:T}\mid\theta)$ in~\eqref{eq:mh_acceptance_parameters} by a particle filter estimate. Remarkably, if this is done correctly, the resulting chain still targets the exact posterior. The key property that makes this possible is unbiasedness of the estimator, which we establish next.
+
+\subsection{Marginal likelihood estimation with the particle filter}
+\label{sec:pf_marginal_likelihood}
+Proposition~\ref{prop:marginal_likelihood_estimator_unbiased_consistent} established that the SIS estimator of the marginal likelihood is unbiased. Because of weight degeneracy, however, its variance typically grows exponentially in $T$, which makes it useless in practice. We now show that the particle filter with resampling also yields an unbiased estimator. Throughout this subsection, $\theta$ is fixed, and we abbreviate $G_t(x) = f(y_t\mid x,\theta)$.
+
+\begin{definition}
+    The \emph{unnormalized filtering measure} at time $t$ is the finite measure $\gamma_t^{\theta,\mathrm{filt}} = (\mathrm{pr}_t)_{\#}\,\gamma_t^\theta$ on $\mathcal{X}$, that is,
+    \begin{equation}
+        \gamma_t^{\theta,\mathrm{filt}}(\varphi) = \int \varphi(x_t) \prod_{s=1}^{t} G_s(x_s)\,P_t^\theta(\mathrm{d}x_{0:t}), \qquad \gamma_0^{\theta,\mathrm{filt}} = M_0^\theta.
+    \end{equation}
+\end{definition}
+Its total mass is $\gamma_t^{\theta,\mathrm{filt}}(1) = p(y_{1:t}\mid\theta)$, and its normalization $\gamma_t^{\theta,\mathrm{filt}}/p(y_{1:t}\mid\theta)$ is the filtering distribution $\pi_t^{\theta,\mathrm{filt}}$ of Section~\ref{sec:filtering_distribution}.
+
+\begin{lemma}
+    \label{lem:unnormalized_filtering_recursion}
+    For every $t\ge 1$ and every non-negative measurable $\varphi$ on $\mathcal{X}$,
+    \begin{equation}
+        \gamma_t^{\theta,\mathrm{filt}}(\varphi) = \gamma_{t-1}^{\theta,\mathrm{filt}}\left(M^\theta(G_t\varphi)\right).
+    \end{equation}
+\end{lemma}
+\begin{proof}
+    Since $P_t^\theta = P_{t-1}^\theta\otimes M^\theta$, equation~\eqref{eq:kernel_tonelli} gives
+    \begin{align}
+        \gamma_t^{\theta,\mathrm{filt}}(\varphi) &= \int \prod_{s=1}^{t-1} G_s(x_s) \left(\int G_t(x_t)\,\varphi(x_t)\,M^\theta(x_{t-1},\mathrm{d}x_t)\right) P_{t-1}^\theta(\mathrm{d}x_{0:t-1}) \\
+        &= \int \left(M^\theta(G_t\varphi)\right)(x_{t-1}) \prod_{s=1}^{t-1} G_s(x_s)\,P_{t-1}^\theta(\mathrm{d}x_{0:t-1}) = \gamma_{t-1}^{\theta,\mathrm{filt}}\left(M^\theta(G_t\varphi)\right).
+    \end{align}
+\end{proof}
+
+With $\varphi\equiv 1$, the lemma yields the decomposition
+\begin{align}
+    p(y_{1:T}\mid\theta) &= \prod_{t=1}^{T} p(y_t\mid y_{1:t-1},\theta), \\
+    p(y_t\mid y_{1:t-1},\theta) &= \frac{\gamma_t^{\theta,\mathrm{filt}}(1)}{\gamma_{t-1}^{\theta,\mathrm{filt}}(1)} = \pi_{t-1}^{\theta,\mathrm{filt}}\left(M^\theta G_t\right) = \pi_{t\mid t-1}^{\theta}(G_t),
+\end{align}
+with the convention $p(y_1\mid y_{1:0},\theta) = p(y_1\mid\theta)$. Each factor is the integral of the observation density with respect to the predictive distribution of Section~\ref{sec:predictive_distribution}. In the bootstrap particle filter, the propagated particles $X_t^{(1)},\ldots,X_t^{(N)}$ are equally weighted samples approximating $\pi_{t\mid t-1}^{\theta}$, so each factor can be estimated by the average of the observation densities.
+
+\begin{definition}
+    \label{def:pf_marginal_likelihood_estimator}
+    Let $X_t^{(i)}$, $t=1,\ldots,T$, $i=1,\ldots,N$, be the propagated particles of the bootstrap particle filter (Algorithm~\ref{alg:bootstrap_particle_filter}) before resampling. The \emph{particle filter marginal likelihood estimator} is defined as
+    \begin{equation}
+        \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta) = \prod_{t=1}^{T} \left(\frac{1}{N}\sum_{i=1}^{N} G_t(X_t^{(i)})\right).
+        \label{eq:pf_marginal_likelihood_estimator}
+    \end{equation}
+\end{definition}
+Since $w_{t-1}^{(i)} = 1/N$ after resampling, the unnormalized weights in Algorithm~\ref{alg:bootstrap_particle_filter} satisfy $\sum_{i=1}^{N} w_t^{(i)} = \frac{1}{N}\sum_{i=1}^{N} G_t(X_t^{(i)})$. The estimator is therefore obtained at no extra cost by accumulating the sums of the unnormalized weights before they are normalized.
+
+To prove unbiasedness, we introduce some notation. Recall that $\bar{X}_t^{(i)}$ denotes the particles after resampling at time $t$, with $\bar{X}_0^{(i)} = X_0^{(i)}$ since no resampling is performed at time $0$. Let
+\begin{equation}
+    \hat{Z}_0 = 1, \qquad \hat{Z}_t = \prod_{s=1}^{t} \left(\frac{1}{N}\sum_{i=1}^{N} G_s(X_s^{(i)})\right), \quad t=1,\ldots,T,
+\end{equation}
+so that $\hat{Z}_T = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$. Let $\mathcal{F}_{t-1}$ denote the $\sigma$-algebra generated by all random variables up to and including resampling at time $t-1$, and let $\mathcal{G}_t = \mathcal{F}_{t-1}\vee\sigma(X_t^{(1:N)})$ additionally contain the propagated particles at time $t$. Then $\hat{Z}_{t-1}$ is $\mathcal{F}_{t-1}$-measurable and $\hat{Z}_t$ is $\mathcal{G}_t$-measurable. By construction, the propagation step satisfies $\mathbb{P}(X_t^{(i)}\in B\mid\mathcal{F}_{t-1}) = M^\theta(\bar{X}_{t-1}^{(i)},B)$, and the resampling step satisfies~\eqref{eq:resampling_conditional_independence} and~\eqref{eq:unbiased_resampling} with $\mathcal{G} = \mathcal{G}_t$. No positivity assumption on $G_t$ is needed: on the event where all $G_t(X_t^{(i)})$ vanish, the normalized weights are set to $1/N$ by the convention of Section~\ref{sec:self_normalized_importance_sampling}, and $\hat{Z}_t = 0$.
+
+\begin{lemma}
+    \label{lem:pf_unnormalized_unbiased}
+    For every $N\ge 1$, every unbiased resampling scheme, every non-negative measurable function $\varphi$ on $\mathcal{X}$ and every $t=0,1,\ldots,T$,
+    \begin{equation}
+        \mathbb{E}\left[\hat{Z}_t \, \frac{1}{N}\sum_{i=1}^{N} \varphi(\bar{X}_t^{(i)})\right] = \gamma_t^{\theta,\mathrm{filt}}(\varphi),
+        \label{eq:pf_unnormalized_unbiased}
+    \end{equation}
+    where the expectation is taken with respect to all the randomness of the particle filter.
+\end{lemma}
+\begin{proof}
+    We proceed by induction on $t$. For $t=0$, $\hat{Z}_0 = 1$ and $\bar{X}_0^{(i)} = X_0^{(i)} \sim M_0^\theta$, so by~\eqref{eq:law_change_of_variables}
+    \begin{equation}
+        \mathbb{E}\left[\frac{1}{N}\sum_{i=1}^{N}\varphi(X_0^{(i)})\right] = M_0^\theta(\varphi) = \gamma_0^{\theta,\mathrm{filt}}(\varphi).
+    \end{equation}
+
+    Assume now that~\eqref{eq:pf_unnormalized_unbiased} holds at time $t-1$ for every non-negative measurable $\varphi$.
+
+    \emph{Resampling step.} Let $S_t = \{\sum_{j=1}^{N} G_t(X_t^{(j)})>0\}\in\mathcal{G}_t$. On $S_t$, the normalized weights are $\tilde{w}_t^{(i)} = G_t(X_t^{(i)})/\sum_{j=1}^{N} G_t(X_t^{(j)})$, and Proposition~\ref{prop:resampling_unbiased} with $\mathcal{G}=\mathcal{G}_t$, applied to the non-negative function $x_{0:t}\mapsto\varphi(x_t)$, gives
+    \begin{equation}
+        \mathbb{E}\left[\frac{1}{N}\sum_{i=1}^{N}\varphi(\bar{X}_t^{(i)}) \,\middle|\, \mathcal{G}_t\right] = \sum_{i=1}^{N} \tilde{w}_t^{(i)}\,\varphi(X_t^{(i)}).
+    \end{equation}
+    Since $\hat{Z}_t = \hat{Z}_{t-1}\,\frac{1}{N}\sum_{j=1}^{N} G_t(X_t^{(j)})$ is non-negative and $\mathcal{G}_t$-measurable, taking it out of the conditional expectation cancels the normalizing sum on $S_t$,
+    \begin{equation}
+        \mathbb{E}\left[\hat{Z}_t\,\frac{1}{N}\sum_{i=1}^{N}\varphi(\bar{X}_t^{(i)}) \,\middle|\, \mathcal{G}_t\right] = \hat{Z}_{t-1}\,\frac{1}{N}\sum_{i=1}^{N} G_t(X_t^{(i)})\,\varphi(X_t^{(i)}).
+        \label{eq:pf_resampling_step}
+    \end{equation}
+    On the complement of $S_t$, both sides of~\eqref{eq:pf_resampling_step} vanish, since $\hat{Z}_t=0$ and $G_t(X_t^{(i)})=0$ for all $i$. Hence~\eqref{eq:pf_resampling_step} holds almost surely.
+
+    \emph{Propagation step.} Since the conditional law of $X_t^{(i)}$ given $\mathcal{F}_{t-1}$ is $M^\theta(\bar{X}_{t-1}^{(i)},\cdot)$, we have $\mathbb{E}[\psi(X_t^{(i)})\mid\mathcal{F}_{t-1}] = (M^\theta\psi)(\bar{X}_{t-1}^{(i)})$ for every non-negative measurable $\psi$. With $\psi = G_t\varphi$ and since $\hat{Z}_{t-1}$ is $\mathcal{F}_{t-1}$-measurable,
+    \begin{equation}
+        \mathbb{E}\left[\hat{Z}_{t-1}\,\frac{1}{N}\sum_{i=1}^{N} G_t(X_t^{(i)})\,\varphi(X_t^{(i)}) \,\middle|\, \mathcal{F}_{t-1}\right] = \hat{Z}_{t-1}\,\frac{1}{N}\sum_{i=1}^{N} \bar{\varphi}(\bar{X}_{t-1}^{(i)}),
+    \end{equation}
+    where $\bar{\varphi} = M^\theta(G_t\varphi)$ is again a non-negative measurable function.
+
+    \emph{Induction.} By the tower property, the induction hypothesis applied to $\bar{\varphi}$ and Lemma~\ref{lem:unnormalized_filtering_recursion},
+    \begin{align}
+        \mathbb{E}\left[\hat{Z}_t\,\frac{1}{N}\sum_{i=1}^{N}\varphi(\bar{X}_t^{(i)})\right] &= \mathbb{E}\left[\hat{Z}_{t-1}\,\frac{1}{N}\sum_{i=1}^{N} \bar{\varphi}(\bar{X}_{t-1}^{(i)})\right] \\
+        &= \gamma_{t-1}^{\theta,\mathrm{filt}}\left(M^\theta(G_t\varphi)\right) = \gamma_t^{\theta,\mathrm{filt}}(\varphi),
+    \end{align}
+    which completes the induction.
+\end{proof}
+
+\begin{theorem}
+    \label{thm:pf_marginal_likelihood_unbiased}
+    For every $N\ge 1$ and every unbiased resampling scheme, the particle filter marginal likelihood estimator is unbiased,
+    \begin{equation}
+        \mathbb{E}\left[\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)\right] = p(y_{1:T}\mid\theta).
+    \end{equation}
+\end{theorem}
+\begin{proof}
+    Take $t=T$ and $\varphi\equiv 1$ in Lemma~\ref{lem:pf_unnormalized_unbiased}. Then $\frac{1}{N}\sum_{i=1}^{N}\varphi(\bar{X}_T^{(i)}) = 1$ and
+    \begin{equation}
+        \mathbb{E}\left[\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)\right] = \mathbb{E}\left[\hat{Z}_T\right] = \gamma_T^{\theta,\mathrm{filt}}(1) = p(y_{1:T}\mid\theta).
+    \end{equation}
+\end{proof}
+
+\begin{remark}
+    The theorem holds for any number of particles $N\ge 1$, not only asymptotically, and it does not require the transition kernel to have a density. Unbiasedness does not carry over to the logarithm: by Jensen's inequality, $\mathbb{E}[\log\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)] \le \log p(y_{1:T}\mid\theta)$, so the log-likelihood is, on average, underestimated. In contrast to SIS, under mild conditions the relative variance of $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ grows only linearly in $T$ for a fixed $N$ \cite{chopin2020smc}, which means that $N$ should be increased proportionally to $T$ to keep the variance under control.
+\end{remark}
+
+\subsection{Pseudo-marginal Metropolis-Hastings}
+\label{sec:pseudo_marginal_mh}
+We now return to the Metropolis-Hastings algorithm and formalize what it means to replace the marginal likelihood in~\eqref{eq:mh_acceptance_parameters} by an estimate. Consider the following general setting \cite{andrieu2009pseudo}. Let $(\mathcal{U},\mathcal{A})$ be a measurable space of auxiliary variables, let $\Psi$ be a Markov kernel from $\Theta$ to $\mathcal{U}$, and let $\hat{p}(y_{1:T}\mid\theta,u)$ be an estimator of the marginal likelihood computed from $U=u$, that is, a measurable function $(\theta,u)\mapsto\hat{p}(y_{1:T}\mid\theta,u)$, satisfying
+\begin{equation}
+    \hat{p}(y_{1:T}\mid\theta,u) \ge 0 \qquad \text{and} \qquad \int \hat{p}(y_{1:T}\mid\theta,u)\,\Psi(\theta,\mathrm{d}u) = p(y_{1:T}\mid\theta)
+    \label{eq:pseudo_marginal_unbiased}
+\end{equation}
+where the first condition holds for all $(\theta,u)\in\Theta\times\mathcal{U}$ and the second for all $\theta\in\Theta$.
+Note that $\Psi(\theta,\cdot)$ is an arbitrary probability measure and need not have a density. This matters for the particle filter, whose auxiliary variables include discrete resampling indices.
+
+The \emph{pseudo-marginal Metropolis-Hastings} algorithm, given in Algorithm~\ref{alg:pseudo_marginal_mh}, is Algorithm~\ref{alg:metropolis_hastings} with $p(y_{1:T}\mid\theta)$ replaced by its estimate. It is crucial that the estimate associated with the current state is stored and reused in subsequent iterations, rather than recomputed. Recomputing it would yield a different algorithm that does not, in general, target the correct distribution.
+
+\begin{algorithm}[H]
+\caption{Pseudo-marginal Metropolis-Hastings}
+\label{alg:pseudo_marginal_mh}
+\begin{algorithmic}[1]
+    \REQUIRE Prior density $p(\theta)$, proposal density $q$, auxiliary kernel $\Psi$, estimator $\hat{p}$, number of iterations $M$, initial state $\theta_0$.
+    \STATE Sample $U_0 \sim \Psi(\theta_0,\cdot)$ and compute $\hat{p}_0 = \hat{p}(y_{1:T}\mid\theta_0,U_0)$; repeat until $p(\theta_0)\,\hat{p}_0 > 0$.
+    \FOR{$m=1,\ldots,M$}
+        \STATE Sample $\theta' \sim q(\theta_{m-1},\cdot)$.
+        \STATE Sample $U' \sim \Psi(\theta',\cdot)$ and compute $\hat{p}' = \hat{p}(y_{1:T}\mid\theta',U')$.
+        \STATE Compute
+        \begin{equation*}
+            \hat{\alpha} = \min\left\{1,\, \frac{\hat{p}'\,p(\theta')\,q(\theta_{m-1}\mid\theta')}{\hat{p}_{m-1}\,p(\theta_{m-1})\,q(\theta'\mid\theta_{m-1})}\right\}.
+        \end{equation*}
+        \STATE Sample $V \sim \mathcal{U}(0,1)$.
+        \IF{$V \le \hat{\alpha}$}
+            \STATE Accept: set $(\theta_m,U_m,\hat{p}_m) = (\theta',U',\hat{p}')$.
+        \ELSE
+            \STATE Reject: set $(\theta_m,U_m,\hat{p}_m) = (\theta_{m-1},U_{m-1},\hat{p}_{m-1})$.
+        \ENDIF
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+At first sight, Algorithm~\ref{alg:pseudo_marginal_mh} appears to be merely an approximation of Algorithm~\ref{alg:metropolis_hastings}. The key insight is that it is an \emph{exact} Metropolis-Hastings algorithm, but on an extended space that includes the auxiliary variables. On $\Theta\times\mathcal{U}$ with the product $\sigma$-algebra, define the reference measure
+\begin{equation}
+    \rho = \lambda_\Theta\otimes\Psi, \qquad \text{that is,} \qquad \rho(\mathrm{d}\theta,\mathrm{d}u) = \lambda_\Theta(\mathrm{d}\theta)\,\Psi(\theta,\mathrm{d}u).
+\end{equation}
+It is $\sigma$-finite: if $\Theta = \bigcup_n B_n$ with $\lambda_\Theta(B_n)<\infty$, then $\rho(B_n\times\mathcal{U}) = \lambda_\Theta(B_n)<\infty$.
+
+\begin{definition}
+    \label{def:extended_target}
+    The \emph{extended target} on $\Theta\times\mathcal{U}$ is the measure
+    \begin{equation}
+        \bar{\Pi}(\mathrm{d}\theta,\mathrm{d}u) = \bar{\pi}(\theta,u)\,\rho(\mathrm{d}\theta,\mathrm{d}u), \qquad \bar{\pi}(\theta,u) = \frac{p(\theta)\,\hat{p}(y_{1:T}\mid\theta,u)}{p(y_{1:T})}.
+        \label{eq:extended_target}
+    \end{equation}
+\end{definition}
+
+\begin{theorem}
+    \label{thm:pseudo_marginal_exact}
+    Assume that the estimator satisfies~\eqref{eq:pseudo_marginal_unbiased}. Then:
+    \begin{enumerate}
+        \item $\bar{\Pi}$ is a probability measure on $\Theta\times\mathcal{U}$;
+        \item the marginal of $\bar{\Pi}$ in $\theta$ is the posterior distribution, $\bar{\Pi}(A\times\mathcal{U}) = \Pi_T(A)$ for all $A\in\mathcal{T}$;
+        \item the sequence $(\theta_m,U_m)_{m\ge 0}$ generated by Algorithm~\ref{alg:pseudo_marginal_mh} is a Metropolis-Hastings chain on $\Theta\times\mathcal{U}$ with reference measure $\rho$, target density $\bar{\pi}$ and proposal density
+        \begin{equation}
+            \bar{q}(\theta',u'\mid\theta,u) = q(\theta'\mid\theta).
+        \end{equation}
+    \end{enumerate}
+    Consequently, $\bar{\Pi}$ is invariant for $(\theta_m,U_m)_{m\ge 0}$, and if $(\theta_{m-1},U_{m-1}) \sim \bar{\Pi}$, then $\theta_m \sim \Pi_T$.
+\end{theorem}
+\begin{proof}
+    \emph{1 and 2.} Clearly $\bar{\pi}\ge 0$. Let $A\in\mathcal{T}$. By~\eqref{eq:kernel_tonelli} and~\eqref{eq:pseudo_marginal_unbiased},
+    \begin{align}
+        \bar{\Pi}(A\times\mathcal{U}) &= \int_A \frac{p(\theta)}{p(y_{1:T})} \left(\int \hat{p}(y_{1:T}\mid\theta,u)\,\Psi(\theta,\mathrm{d}u)\right)\lambda_\Theta(\mathrm{d}\theta) \\
+        &= \int_A \frac{p(\theta)\,p(y_{1:T}\mid\theta)}{p(y_{1:T})}\,\lambda_\Theta(\mathrm{d}\theta) = \Pi_T(A),
+    \end{align}
+    which proves the second claim. With $A=\Theta$, it gives $\bar{\Pi}(\Theta\times\mathcal{U}) = \Pi_T(\Theta) = 1$, which proves the first.
+
+    \emph{3.} The proposal kernel with density $\bar{q}$ with respect to $\rho$ is, by~\eqref{eq:kernel_tonelli},
+    \begin{align}
+        \bar{q}\left((\theta,u),C\right) &= \int \mathbf{1}_C(\theta',u')\,q(\theta'\mid\theta)\,\rho(\mathrm{d}\theta',\mathrm{d}u') \\
+        &= \int \left(\int \mathbf{1}_C(\theta',u')\,\Psi(\theta',\mathrm{d}u')\right) q(\theta'\mid\theta)\,\lambda_\Theta(\mathrm{d}\theta'),
+    \end{align}
+    which is the law of $(\theta',U')$ when $\theta'\sim q(\theta,\cdot)$ and then $U'\sim\Psi(\theta',\cdot)$. This is precisely how Algorithm~\ref{alg:pseudo_marginal_mh} proposes. The Metropolis-Hastings ratio~\eqref{eq:mh_acceptance_probability} on the extended space is
+    \begin{equation}
+        \frac{\bar{\pi}(\theta',u')\,\bar{q}(\theta,u\mid\theta',u')}{\bar{\pi}(\theta,u)\,\bar{q}(\theta',u'\mid\theta,u)}
+        = \frac{\hat{p}(y_{1:T}\mid\theta',u')\,p(\theta')\,q(\theta\mid\theta')}{\hat{p}(y_{1:T}\mid\theta,u)\,p(\theta)\,q(\theta'\mid\theta)},
+    \end{equation}
+    since the evidence $p(y_{1:T})$ cancels. This is exactly the ratio in $\hat{\alpha}$ of Algorithm~\ref{alg:pseudo_marginal_mh}, where $\hat{p}_{m-1} = \hat{p}(y_{1:T}\mid\theta_{m-1},U_{m-1})$. The chain is started at a state with $\bar{\pi}(\theta_0,U_0)>0$, and a proposal with $\bar{\pi}(\theta',U')=0$ has $\hat{\alpha}=0$ and is rejected almost surely, so the convention in Definition~\ref{def:mh_acceptance_probability} is never invoked. Moreover, on acceptance both $\theta$ and $u$ are replaced, and on rejection both are kept. Hence Algorithm~\ref{alg:pseudo_marginal_mh} is Algorithm~\ref{alg:metropolis_hastings} on the extended space. Since the algorithm uses $u$ only through the value $\hat{p}(y_{1:T}\mid\theta,u)$, storing $\hat{p}_m$ is equivalent to storing $U_m$, so $U_m$ never has to be kept in memory.
+
+    By Theorem~\ref{thm:mh_detailed_balance}, the chain $(\theta_m,U_m)_{m\ge 0}$ satisfies detailed balance with respect to $\bar{\Pi}$, so $\bar{\Pi}$ is invariant. If $(\theta_{m-1},U_{m-1})\sim\bar{\Pi}$, then $(\theta_m,U_m)\sim\bar{\Pi}$, and by the second claim, $\mathbb{P}(\theta_m\in A) = \bar{\Pi}(A\times\mathcal{U}) = \Pi_T(A)$.
+\end{proof}
+
+The choice of the reference measure $\rho$ is what makes the argument work without any density for the auxiliary variables: the law $\Psi(\theta',\cdot)$ from which $U'$ is proposed is absorbed into $\rho$, so it never appears in the acceptance ratio. The proof also explains why the estimate of the current state must not be recomputed. Reusing $\hat{p}_{m-1}$ corresponds to keeping $U_{m-1}$ as part of the state of the chain, whereas drawing a fresh $U$ for the current state at every iteration would alter the transition kernel, and the resulting kernel no longer satisfies detailed balance with respect to $\bar{\Pi}$. The proof also shows that unbiasedness is exactly the property needed. Without it, the $\theta$-marginal of $\bar{\Pi}$ would have density proportional to $p(\theta)\int\hat{p}(y_{1:T}\mid\theta,u)\,\Psi(\theta,\mathrm{d}u)$ instead of to the posterior density.
+
+\subsection{Particle marginal Metropolis-Hastings}
+\label{sec:pmmh}
+Particle marginal Metropolis-Hastings (PMMH) \cite{andrieu2010particle} is the pseudo-marginal Metropolis-Hastings algorithm in which the estimator is the particle filter marginal likelihood estimator~\eqref{eq:pf_marginal_likelihood_estimator}. Here the auxiliary variables consist of all the random variables generated by one run of the bootstrap particle filter at parameter $\theta$,
+\begin{equation}
+    U = \left(X_0^{(1:N)}, \left(X_t^{(1:N)}, A_t^{(1:N)}\right)_{t=1}^{T}\right) \in \mathcal{U} = \mathcal{X}^N\times\left(\mathcal{X}^N\times\{1,\ldots,N\}^N\right)^T,
+\end{equation}
+that is, the initial particles, the propagated particles at every time step and the ancestor indices of all resampling steps. Their joint law $\Psi(\theta,\cdot)$ is the iterated kernel product of $(M_0^\theta)^{\otimes N}$, the propagation kernels $M^\theta$ and the resampling kernel $R$, as implicitly defined by Algorithm~\ref{alg:bootstrap_particle_filter}. Under the measurability assumptions of Section~\ref{sec:particle_mcmc}, $\Psi$ is a Markov kernel from $\Theta$ to $\mathcal{U}$, and $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta,u) = \prod_{t=1}^{T}\frac{1}{N}\sum_{i=1}^{N}f(y_t\mid x_t^{(i)},\theta)$ is a measurable function of $(\theta,u)$. The kernel $\Psi$ never needs to be evaluated, since it only enters through the reference measure $\rho$. The complete procedure is given in Algorithm~\ref{alg:pmmh}.
+
+\begin{algorithm}[H]
+\caption{Particle marginal Metropolis-Hastings}
+\label{alg:pmmh}
+\begin{algorithmic}[1]
+    \REQUIRE Observations $y_{1:T}$, number of particles $N$, prior density $p(\theta)$, proposal density $q$, number of iterations $M$, initial state $\theta_0$.
+    \STATE Run Algorithm~\ref{alg:bootstrap_particle_filter} at $\theta_0$ and compute $\hat{p}_0 = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta_0)$.
+    \FOR{$m=1,\ldots,M$}
+        \STATE Sample $\theta' \sim q(\theta_{m-1},\cdot)$.
+        \STATE Run Algorithm~\ref{alg:bootstrap_particle_filter} at $\theta'$ and compute $\hat{p}' = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta')$.
+        \STATE Compute
+        \begin{equation*}
+            \hat{\alpha} = \min\left\{1,\, \frac{\hat{p}'\,p(\theta')\,q(\theta_{m-1}\mid\theta')}{\hat{p}_{m-1}\,p(\theta_{m-1})\,q(\theta'\mid\theta_{m-1})}\right\}.
+        \end{equation*}
+        \STATE Sample $V \sim \mathcal{U}(0,1)$.
+        \IF{$V \le \hat{\alpha}$}
+            \STATE Accept: set $(\theta_m,\hat{p}_m) = (\theta',\hat{p}')$.
+        \ELSE
+            \STATE Reject: set $(\theta_m,\hat{p}_m) = (\theta_{m-1},\hat{p}_{m-1})$.
+        \ENDIF
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\begin{theorem}
+    \label{thm:pmmh_exact}
+    For every number of particles $N\ge 1$, the particle marginal Metropolis-Hastings chain admits an invariant distribution whose marginal in $\theta$ is the exact posterior distribution $\Pi_T$.
+\end{theorem}
+\begin{proof}
+    The estimator $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta,u)$ is a product of averages of densities and is therefore non-negative. By Theorem~\ref{thm:pf_marginal_likelihood_unbiased}, applied for each fixed $\theta$ and written in terms of the law $\Psi(\theta,\cdot)$ of the particle filter randomness,
+    \begin{equation}
+        \int \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta,u)\,\Psi(\theta,\mathrm{d}u) = p(y_{1:T}\mid\theta) \qquad \text{for all } \theta\in\Theta.
+    \end{equation}
+    Condition~\eqref{eq:pseudo_marginal_unbiased} is thus satisfied, and Algorithm~\ref{alg:pmmh} is a special case of Algorithm~\ref{alg:pseudo_marginal_mh}. The claim follows from Theorem~\ref{thm:pseudo_marginal_exact}.
+\end{proof}
+
+Theorem~\ref{thm:pmmh_exact} shows that PMMH is not an approximation: the number of particles does not affect the invariant distribution, only how efficiently the chain explores it. Under mild additional conditions, essentially that the corresponding exact Metropolis-Hastings chain would be irreducible and aperiodic, the PMMH chain also converges to its invariant distribution \cite{andrieu2010particle}. The role of $N$ is best understood by noting that the acceptance ratio of PMMH equals the ideal ratio~\eqref{eq:mh_acceptance_parameters} multiplied by
+\begin{equation}
+    \frac{\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta')/p(y_{1:T}\mid\theta')}{\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)/p(y_{1:T}\mid\theta)}.
+\end{equation}
+If the estimate at the current state happens to be much larger than the true likelihood, this factor is small for most proposals, and the chain may get stuck at the same value for many iterations. A small $N$ produces noisy estimates and hence poor mixing, while a large $N$ makes every iteration expensive. As a rule of thumb, \cite{doucet2015efficient} recommend that $N$ should be chosen such that the standard deviation of $\log\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ around the posterior mode is approximately between $1$ and $1.7$.
+
+In practice, the acceptance ratio is computed on the logarithmic scale to avoid numerical underflow, since $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ is a product of $T$ factors. Moreover, if the proposed $\theta'$ lies outside the support of the prior, then $p(\theta')=0$ and the proposal can be rejected immediately, without running the particle filter.
+
+\begin{remark}
+    Algorithm~\ref{alg:pmmh} targets only the posterior distribution of the parameters. It is shown in \cite{andrieu2010particle} that PMMH can be extended to target the joint posterior distribution of $(\theta,X_{0:T})$ given $Y_{1:T}=y_{1:T}$ as well. Each time the particle filter is run at a proposed $\theta'$, a trajectory $X_{0:T}'$ is additionally drawn from its empirical smoothing distribution, and this trajectory is accepted or rejected together with $\theta'$. The acceptance probability is unchanged.
+\end{remark}
+
+\subsection{Particle Gibbs}
+
+\section{SMC$^2$}

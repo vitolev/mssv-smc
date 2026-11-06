@@ -305,6 +305,11 @@ By Proposition~\ref{prop:joint_density}, the joint density is
 \begin{equation}
 p(x_{0:T},y_{1:T}\mid\theta) = \chi(x_0\mid\theta) \prod_{t=1}^T f(y_t\mid x_t,\theta) p(x_t\mid x_{t-1},\theta).
 \end{equation}
+For the MSSV model, the latent state $x_t = (h_t,s_t)$ has a continuous component $h_t$ and a discrete component $s_t \in \{1,\ldots,K\}$. All densities of the latent states are therefore understood with respect to the product of the Lebesgue measure and the counting measure, so that integrals over $x_t$ are shorthand for
+\begin{equation}
+    \int g(x_t)\,\mathrm{d}x_t = \sum_{s_t=1}^{K} \int g(h_t,s_t)\,\mathrm{d}h_t.
+\end{equation}
+Correspondingly, $\delta(x_t - X_t)$ acts as a Dirac delta in $h_t$ and as a Kronecker delta in $s_t$. With this convention, all results of this chapter apply to the MSSV model without change.
 
 Until further notice, assume that the proposal distribution can also be factorized sequentially as
 \begin{equation}
@@ -606,7 +611,7 @@ with a new empirical distribution
 \end{equation}
 where $N^{(i)}$ is the number of offspring of particle $X_{0:t}^{(i)}$ after resampling, such that $\sum_{i=1}^{N} N^{(i)} = N$. Common resampling algorithms include multinomial, stratified, residual, and systematic resampling. The last of these, systematic resampling, is used in this thesis.
 
-The validity of resampling can be established by considering its effect on estimates of expectations with respect to the weighted empirical distribution. As always let $g$ be a bounded measurable function with finite expectation. Before resampling, its expectation under the weighted empirical distribution is
+The validity of resampling can be established by considering its effect on estimates of expectations with respect to the weighted empirical distribution. As always let $g$ be a measurable function with finite expectation. Before resampling, its expectation under the weighted empirical distribution is
 \begin{equation}
     \hat{I}_N = \sum_{i=1}^{N} \tilde{w}_t^{(i)} g(X_{0:t}^{(i)}).
 \end{equation}
@@ -619,7 +624,7 @@ Although $\hat{I}_N$ and $\hat{I}_N^{\mathrm{res}}$ generally differ for a parti
     \label{eq:unbiased_resampling}
     E\left[N^{(i)}\mid \tilde{w}_t^{(1:N)}\right] = N\tilde{w}_t^{(i)}, \qquad i=1,\ldots,N,
 \end{equation}
-where the expectation is taken with respect to the randomness introduced by resampling, conditional on the particles and their weights. All four schemes mentioned above satisfy this condition.
+where the expectation is taken with respect to the randomness introduced by resampling. All four schemes mentioned above satisfy this condition.
 
 \begin{proposition}
     \label{prop:resampling_unbiased}
@@ -630,7 +635,7 @@ where the expectation is taken with respect to the randomness introduced by resa
     where the expectation is taken with respect to the randomness introduced by resampling.
 \end{proposition}
 \begin{proof}
-    Since the particles $X_{0:t}^{(i)}$ are fixed given $\tilde{w}_t^{(1:N)}$, the values $g(X_{0:t}^{(i)})$ can be taken out of the conditional expectation, giving
+    Since the resampling process does not depend on the particles, the values $g(X_{0:t}^{(i)})$ can be taken out of the conditional expectation, giving
     \begin{align}
         E\left[\hat{I}_N^{\mathrm{res}} \mid \tilde{w}_t^{(1:N)}\right] &= E\left[\frac{1}{N} \sum_{i=1}^{N} N^{(i)}g(X_{0:t}^{(i)}) \,\middle|\, \tilde{w}_t^{(1:N)}\right] \\
         &= \frac{1}{N} \sum_{i=1}^{N} g(X_{0:t}^{(i)}) E\left[N^{(i)} \mid \tilde{w}_t^{(1:N)}\right] \\
@@ -663,6 +668,8 @@ where $p(x_t\mid x_{t-1},\theta)$ and $\chi(x_0\mid\theta)$ are the transition a
 The entire bootstrap particle filter algorithm is presented in Algorithm~\ref{alg:bootstrap_particle_filter}.
 Due to the resampling step, the particles at the end of each iteration become equally weighted.
 Expectations with respect to the empirical distribution can be calculated either by using the weighted particles before resampling or by using the equally weighted particles after resampling. The latter introduces additional Monte Carlo variability due to the randomness of the resampling step, so the former is generally preferred.
+The time complexity of the bootstrap particle filter is $O(N)$ per time step, since the weight update and resampling steps each take $O(N)$ time. In total, the time complexity is $O(NT)$.
+Similarly, the space complexity is $O(N)$ per time step, since for every time step, we need to store $N$ particles and their weights. But if we want entire trajectories, the space complexity is $O(NT)$, since we need to storeparticles for each time step.
 \begin{algorithm}[H]
 \caption{Bootstrap particle filter}
 \label{alg:bootstrap_particle_filter}
@@ -689,10 +696,342 @@ Expectations with respect to the empirical distribution can be calculated either
 \end{algorithmic}
 \end{algorithm}
 
-
 \section{Particle Markov chain Monte Carlo}
+\label{sec:particle_mcmc}
+So far, the model parameters $\theta$ have been assumed known. In practice they are not, and in the Bayesian framework they are treated as random variables with a prior density $p(\theta)$. The object of interest is then the posterior distribution of the parameters,
+\begin{equation}
+    p(\theta\mid y_{1:T}) = \frac{p(y_{1:T}\mid\theta)\,p(\theta)}{p(y_{1:T})} \propto p(y_{1:T}\mid\theta)\,p(\theta),
+    \label{eq:parameter_posterior}
+\end{equation}
+where $p(y_{1:T}\mid\theta)$ is the marginal likelihood from Definition~\ref{def:marginal_likelihood} and $p(y_{1:T}) = \int p(y_{1:T}\mid\theta)\,p(\theta)\,\mathrm{d}\theta$ is the (intractable) model evidence.
+The standard tool in such problems is Markov chain Monte Carlo (MCMC), which constructs a Markov chain whose long-run behaviour is governed by the target distribution.
+For state-space models, however, MCMC faces an additional obstacle: the marginal likelihood $p(y_{1:T}\mid\theta)$ is itself intractable.
+Particle Markov chain Monte Carlo (PMCMC) methods \cite{andrieu2010particle} resolve this by combining MCMC in the parameter space with particle filters in the state space.
+
+First, let's review the necessary Markov chain theory and the Metropolis-Hastings algorithm. 
+
+***************************************************************************
+***************************************************************************
+***************************************************************************
+***************************************************************************
+***************************************************************************
+
+TODO: Continue from here on. The content from here on is not yet complete. Think about if entire theory would need to be rewritten in more measure fundamental way. 
+
+***************************************************************************
+***************************************************************************
+***************************************************************************
+***************************************************************************
+***************************************************************************
+
+
+\subsection{Markov chains}
+\label{sec:markov_chains}
+Throughout this section, let $\pi(\theta)$ denote a target density on the parameter space $\Theta$. As in Section~\ref{sec:self_normalized_importance_sampling}, the target is typically known only up to a normalizing constant, $\pi(\theta) = \tilde{\pi}(\theta)/Z$, where $\tilde{\pi}$ can be evaluated pointwise.
+
+\begin{definition}
+    \label{def:transition_kernel}
+    Let $(\Theta,\mathcal{B}(\Theta))$ be a measurable space. A \emph{transition kernel} on $\Theta$ is a map $K\colon \mathcal{B}(\Theta)\times\Theta\to[0,1]$, such that
+    \begin{enumerate}
+        \item for every $\theta\in\Theta$, the map $A\mapsto K(A\mid\theta)$ is a probability measure on $(\Theta,\mathcal{B}(\Theta))$;
+        \item for every $A\in\mathcal{B}(\Theta)$, the map $\theta\mapsto K(A\mid\theta)$ is measurable.
+    \end{enumerate}
+\end{definition}
+In other words, a transition kernel is a probability kernel from $\Theta$ to itself. The first condition says that $K(\cdot\mid\theta)$ is a probability distribution over the next state given the current state $\theta$. This distribution may contain point masses, as is the case for the Metropolis-Hastings kernel below. The second condition ensures that quantities such as $\int K(A\mid\theta)\,\pi(\theta)\,\mathrm{d}\theta$ and $P(\theta_m\in A)$ are well defined. With a slight abuse of notation, we write $K(\theta'\mid\theta)$ for the density of $K(\cdot\mid\theta)$. A Markov chain is the sequence obtained by applying the kernel repeatedly.
+
+\begin{definition}
+    \label{def:markov_chain}
+    Let $K$ be a transition kernel on $\Theta$. A sequence of random variables $\theta_0,\theta_1,\theta_2,\ldots$ taking values in $\Theta$ is a \emph{Markov chain} with transition kernel $K$ if, for every $m\ge 1$,
+    \begin{equation}
+        \theta_m \mid \theta_{0:m-1} \sim K(\cdot\mid\theta_{m-1}).
+    \end{equation}
+\end{definition}
+In words, the distribution of $\theta_m$ depends only on the previous state $\theta_{m-1}$.
+
+\begin{definition}
+    A distribution $\pi$ is \emph{invariant} (or stationary) for the transition kernel $K$ if
+    \begin{equation}
+        \int \pi(\theta)\,K(\theta'\mid\theta)\,\mathrm{d}\theta = \pi(\theta') \quad \text{for all } \theta'\in\Theta.
+        \label{eq:invariance}
+    \end{equation}
+\end{definition}
+Hence, if $\theta_{m-1}\sim\pi$, then also $\theta_m\sim\pi$. Verifying~\eqref{eq:invariance} directly requires evaluating an integral, which is rarely possible. A stronger, but local and therefore easily verifiable, condition is the following.
+
+\begin{definition}
+    A transition kernel $K$ satisfies \emph{detailed balance} with respect to $\pi$ if
+    \begin{equation}
+        \pi(\theta)\,K(\theta'\mid\theta) = \pi(\theta')\,K(\theta\mid\theta') \quad \text{for all } \theta,\theta'\in\Theta.
+        \label{eq:detailed_balance}
+    \end{equation}
+    A Markov chain whose kernel satisfies detailed balance with respect to $\pi$ is called \emph{reversible} with respect to $\pi$.
+\end{definition}
+
+\begin{proposition}
+    \label{prop:detailed_balance_invariance}
+    If $K$ satisfies detailed balance with respect to $\pi$, then $\pi$ is invariant for $K$.
+\end{proposition}
+\begin{proof}
+    Integrating both sides of~\eqref{eq:detailed_balance} with respect to $\theta$ gives
+    \begin{equation}
+        \int \pi(\theta)\,K(\theta'\mid\theta)\,\mathrm{d}\theta = \pi(\theta') \int K(\theta\mid\theta')\,\mathrm{d}\theta = \pi(\theta'),
+    \end{equation}
+    since $K(\cdot\mid\theta')$ is a probability distribution.
+\end{proof}
+
+Invariance alone does not guarantee that the chain actually converges to $\pi$ from an arbitrary starting point. Two further properties are needed.
+
+\begin{definition}
+    \label{def:irreducibility}
+    A Markov chain with transition kernel $K$ is \emph{$\pi$-irreducible} if for every $\theta\in\Theta$ and every measurable set $A$ with $\pi(A)>0$ there exists an $n\ge 1$ such that
+    \begin{equation}
+        P(\theta_n\in A\mid\theta_0=\theta) > 0.
+    \end{equation}
+\end{definition}
+In words, from any starting point, every region that carries positive target probability is reached with positive probability after finitely many steps. Without this property the chain could remain trapped in a part of $\Theta$ and never explore the rest of the support of $\pi$.
+
+\begin{definition}
+    \label{def:aperiodicity}
+    A $\pi$-irreducible Markov chain with transition kernel $K$ is said to be \emph{periodic} with period $d\ge 2$ if there exist disjoint measurable sets $E_0,\ldots,E_{d-1}\subseteq\Theta$, each with $\pi(E_i)>0$, such that
+    \begin{equation}
+        K(E_{(i+1)\bmod d}\mid\theta) = 1 \quad \text{for all } \theta\in E_i,\ i=0,\ldots,d-1.
+    \end{equation}
+    The chain is \emph{aperiodic} if it is not periodic for any $d\ge 2$.
+\end{definition}
+A periodic chain cycles through the sets $E_0,E_1,\ldots,E_{d-1},E_0,\ldots$, so the distribution of $\theta_m$ keeps oscillating and cannot converge, even though time averages may still converge.
+
+\begin{theorem}[Ergodic theorem]
+    \label{thm:ergodic_theorem}
+    Let $\theta_0,\theta_1,\ldots$ be a $\pi$-irreducible Markov chain with invariant distribution $\pi$. Then $\pi$ is the unique invariant distribution, and the following hold for $\pi$-almost every starting point $\theta_0$.
+    \begin{enumerate}
+        \item \emph{Law of large numbers.} For every function $g$ with $E_\pi[|g(\theta)|]<\infty$,
+        \begin{equation}
+            \hat{I}_M^{\mathrm{MCMC}} = \frac{1}{M}\sum_{m=1}^{M} g(\theta_m) \xrightarrow[M\to\infty]{a.s.} E_\pi[g(\theta)].
+        \end{equation}
+        \item \emph{Convergence in distribution.} If the chain is in addition aperiodic, the distribution of the $m$-th state converges to $\pi$,
+        \begin{equation}
+            \sup_A \left|P(\theta_m\in A\mid\theta_0) - \pi(A)\right| \xrightarrow[m\to\infty]{} 0.
+        \end{equation}
+    \end{enumerate}
+\end{theorem}
+
+The two statements concern different objects. The first is about the average over the whole trajectory $\theta_1,\ldots,\theta_M$ as the number of iterations $M$ grows, and it does not require aperiodicity, since averaging over a full cycle removes any periodic behavior. The second is about the marginal distribution of a single state $\theta_m$ as its index $m$ grows, and it justifies treating late states of the chain as approximate draws from $\pi$. 
+
+The MCMC estimator $\hat{I}_M^{\mathrm{MCMC}}$ plays the same role as the Monte Carlo estimator~\eqref{eq:monte_carlo_estimator}, with the important difference that the samples are now dependent and only asymptotically distributed according to $\pi$. In practice, the first iterations (the \emph{burn-in}) are therefore discarded.
+
+\subsection{Metropolis-Hastings algorithm}
+\label{sec:metropolis_hastings}
+The Metropolis-Hastings (MH) algorithm \cite{metropolis1953equation,hastings1970monte} is a general recipe for constructing a transition kernel that satisfies detailed balance with respect to a given target $\pi$. It requires a \emph{proposal density} $q(\theta'\mid\theta)$, from which it is easy to sample, and which is not to be confused with the importance sampling proposals of the previous sections.
+
+\begin{definition}
+    \label{def:mh_acceptance_probability}
+    The \emph{Metropolis-Hastings acceptance probability} of moving from $\theta$ to $\theta'$ is
+    \begin{equation}
+        \alpha(\theta,\theta') = \min\left\{1,\, \frac{\pi(\theta')\,q(\theta\mid\theta')}{\pi(\theta)\,q(\theta'\mid\theta)}\right\} = \min\left\{1,\, \frac{\tilde{\pi}(\theta')\,q(\theta\mid\theta')}{\tilde{\pi}(\theta)\,q(\theta'\mid\theta)}\right\}.
+    \end{equation}
+\end{definition}
+
+The normalizing constant $Z$ cancels in the ratio, so, exactly as for self-normalized importance sampling, only the unnormalized density $\tilde{\pi}$ is required. The resulting procedure is given in Algorithm~\ref{alg:metropolis_hastings}.
+
+\begin{algorithm}[H]
+\caption{Metropolis-Hastings}
+\label{alg:metropolis_hastings}
+\begin{algorithmic}[1]
+    \REQUIRE Unnormalized target $\tilde{\pi}$, proposal density $q$, number of iterations $M$, initial state $\theta_0$ with $\tilde{\pi}(\theta_0)>0$.
+    \FOR{$m=1,\ldots,M$}
+        \STATE Sample $\theta' \sim q(\cdot\mid\theta_{m-1})$.
+        \STATE Compute $\alpha(\theta_{m-1},\theta')$
+        \STATE Sample $V \sim \mathcal{U}(0,1)$.
+        \IF{$V \le \alpha(\theta_{m-1},\theta')$}
+            \STATE Accept: set $\theta_m = \theta'$.
+        \ELSE
+            \STATE Reject: set $\theta_m = \theta_{m-1}$.
+        \ENDIF
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+A proposed move is accepted with probability $\alpha(\theta,\theta')$; otherwise the chain stays where it is. The probability of staying at $\theta$ is therefore
+\begin{equation}
+    r(\theta) = 1 - \int \alpha(\theta,\theta')\,q(\theta'\mid\theta)\,\mathrm{d}\theta',
+\end{equation}
+and the transition kernel of Algorithm~\ref{alg:metropolis_hastings} is
+\begin{equation}
+    K_{\mathrm{MH}}(\theta'\mid\theta) = \alpha(\theta,\theta')\,q(\theta'\mid\theta) + r(\theta)\,\delta(\theta'-\theta).
+    \label{eq:mh_kernel}
+\end{equation}
+The first term corresponds to accepted proposals, and the second term, a point mass at the current state, to rejections.
+
+\begin{theorem}
+    \label{thm:mh_detailed_balance}
+    The Metropolis-Hastings kernel~\eqref{eq:mh_kernel} satisfies detailed balance with respect to $\pi$. Consequently, $\pi$ is an invariant distribution of the Metropolis-Hastings chain.
+\end{theorem}
+\begin{proof}
+    Multiplying~\eqref{eq:mh_kernel} by $\pi(\theta)$ gives
+    \begin{equation}
+        \pi(\theta)\,K_{\mathrm{MH}}(\theta'\mid\theta) = \pi(\theta)\,\alpha(\theta,\theta')\,q(\theta'\mid\theta) + \pi(\theta)\,r(\theta)\,\delta(\theta'-\theta).
+    \end{equation}
+    We show that each of the two terms on the right-hand side is unchanged when $\theta$ and $\theta'$ are interchanged.
+
+    For the first term, we have
+    \begin{equation}
+        \pi(\theta)\,q(\theta'\mid\theta)\,\min\left\{1,\, \frac{\pi(\theta')\,q(\theta\mid\theta')}{\pi(\theta)\,q(\theta'\mid\theta)}\right\} = \min\left\{\pi(\theta)\,q(\theta'\mid\theta),\, \pi(\theta')\,q(\theta\mid\theta')\right\}.
+    \end{equation}
+    The right-hand side is symmetric in $\theta$ and $\theta'$, hence
+    \begin{equation}
+        \pi(\theta)\,\alpha(\theta,\theta')\,q(\theta'\mid\theta) = \pi(\theta')\,\alpha(\theta',\theta)\,q(\theta\mid\theta').
+    \end{equation}
+
+    Adding both terms gives $\pi(\theta)\,K_{\mathrm{MH}}(\theta'\mid\theta) = \pi(\theta')\,K_{\mathrm{MH}}(\theta\mid\theta')$. Invariance follows from Proposition~\ref{prop:detailed_balance_invariance}.
+\end{proof}
+
+The theorem holds for any proposal density $q$. However, invariance alone is not enough for Theorem~\ref{thm:ergodic_theorem}, which also requires irreducibility and aperiodicity, and these do depend on $q$. A simple sufficient condition is that $q(\theta'\mid\theta)>0$ for all $\theta,\theta'$ in the support of $\pi$. Then for every $\theta$ with $\pi(\theta)>0$ and every set $A$ with $\pi(A)>0$, the acceptance probability $\alpha(\theta,\theta')$ is positive for all $\theta'\in A$ with $\pi(\theta')>0$, so
+\begin{equation}
+    K_{\mathrm{MH}}(A\mid\theta) \ge \int_A \alpha(\theta,\theta')\,q(\theta'\mid\theta)\,\mathrm{d}\theta' > 0.
+\end{equation}
+Every set of positive target probability is therefore reached in a single step, which gives $\pi$-irreducibility with $n=1$ in Definition~\ref{def:irreducibility}. It also rules out periodicity. If sets $E_0,\ldots,E_{d-1}$ as in Definition~\ref{def:aperiodicity} existed, then for $\theta\in E_0$ we would have $K_{\mathrm{MH}}(E_0\mid\theta)>0$, contradicting $K_{\mathrm{MH}}(E_1\mid\theta)=1$ since $E_0$ and $E_1$ are disjoint. Beyond these qualitative properties, the choice of $q$ determines how quickly the chain explores $\Theta$ and hence how many iterations are needed in practice. A common choice is the Gaussian random walk proposal $q(\theta'\mid\theta) = \mathcal{N}(\theta';\theta,\Sigma)$, which is symmetric, $q(\theta'\mid\theta) = q(\theta\mid\theta')$, so that the proposal densities cancel in~\eqref{eq:mh_acceptance_probability}.
+
+Applied to Bayesian parameter inference with target~\eqref{eq:parameter_posterior}, we have $\tilde{\pi}(\theta) = p(y_{1:T}\mid\theta)\,p(\theta)$ and $Z = p(y_{1:T})$, so the acceptance probability becomes
+\begin{equation}
+    \alpha(\theta,\theta') = \min\left\{1,\, \frac{p(y_{1:T}\mid\theta')\,p(\theta')\,q(\theta\mid\theta')}{p(y_{1:T}\mid\theta)\,p(\theta)\,q(\theta'\mid\theta)}\right\}.
+    \label{eq:mh_acceptance_parameters}
+\end{equation}
+The intractable evidence $p(y_{1:T})$ cancels, but the marginal likelihood $p(y_{1:T}\mid\theta)$ does not. For the MSSV model, and for nonlinear state-space models in general, Algorithm~\ref{alg:metropolis_hastings} therefore cannot be implemented directly. A natural idea is to replace $p(y_{1:T}\mid\theta)$ in~\eqref{eq:mh_acceptance_parameters} by a particle filter estimate. Remarkably, if this is done correctly, the resulting chain still targets the exact posterior. The key property that makes this possible is unbiasedness of the estimator, established in Theorem~\ref{thm:pf_marginal_likelihood_unbiased}.
+
+\subsection{Pseudo-marginal Metropolis-Hastings}
+\label{sec:pseudo_marginal_mh}
+We now formalize what it means to replace the marginal likelihood in~\eqref{eq:mh_acceptance_parameters} by an estimate. Consider the following general setting \cite{andrieu2009pseudo}. For each $\theta$, let $U$ denote a collection of auxiliary random variables with distribution $\psi(u\mid\theta)$, and let $\hat{p}(y_{1:T}\mid\theta,u)$ be an estimator of the marginal likelihood computed from $U=u$, satisfying
+\begin{equation}
+    \hat{p}(y_{1:T}\mid\theta,u) \ge 0 \qquad \text{and} \qquad \int \hat{p}(y_{1:T}\mid\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u = p(y_{1:T}\mid\theta).
+    \label{eq:pseudo_marginal_unbiased}
+\end{equation}
+
+The \emph{pseudo-marginal Metropolis-Hastings} algorithm, given in Algorithm~\ref{alg:pseudo_marginal_mh}, is Algorithm~\ref{alg:metropolis_hastings} with $p(y_{1:T}\mid\theta)$ replaced by its estimate. It is crucial that the estimate associated with the current state is stored and reused in subsequent iterations, rather than recomputed. Recomputing it would yield a different algorithm that does not, in general, target the correct distribution.
+
+\begin{algorithm}[H]
+\caption{Pseudo-marginal Metropolis-Hastings}
+\label{alg:pseudo_marginal_mh}
+\begin{algorithmic}[1]
+    \REQUIRE Prior $p(\theta)$, proposal density $q$, auxiliary distribution $\psi$, estimator $\hat{p}$, number of iterations $M$, initial state $\theta_0$.
+    \STATE Sample $U_0 \sim \psi(\cdot\mid\theta_0)$ and compute $\hat{p}_0 = \hat{p}(y_{1:T}\mid\theta_0,U_0)$; repeat until $p(\theta_0)\,\hat{p}_0 > 0$.
+    \FOR{$m=1,\ldots,M$}
+        \STATE Sample $\theta' \sim q(\cdot\mid\theta_{m-1})$.
+        \STATE Sample $U' \sim \psi(\cdot\mid\theta')$ and compute $\hat{p}' = \hat{p}(y_{1:T}\mid\theta',U')$.
+        \STATE Compute
+        \begin{equation*}
+            \hat{\alpha} = \min\left\{1,\, \frac{\hat{p}'\,p(\theta')\,q(\theta_{m-1}\mid\theta')}{\hat{p}_{m-1}\,p(\theta_{m-1})\,q(\theta'\mid\theta_{m-1})}\right\}.
+        \end{equation*}
+        \STATE Sample $V \sim \mathcal{U}(0,1)$.
+        \IF{$V \le \hat{\alpha}$}
+            \STATE Accept: set $(\theta_m,\hat{p}_m) = (\theta',\hat{p}')$.
+        \ELSE
+            \STATE Reject: set $(\theta_m,\hat{p}_m) = (\theta_{m-1},\hat{p}_{m-1})$.
+        \ENDIF
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+At first sight, Algorithm~\ref{alg:pseudo_marginal_mh} appears to be merely an approximation of Algorithm~\ref{alg:metropolis_hastings}. The key insight is that it is an \emph{exact} Metropolis-Hastings algorithm, but on an extended space that includes the auxiliary variables.
+
+\begin{definition}
+    \label{def:extended_target}
+    The \emph{extended target} on the space of $(\theta,u)$ is defined as
+    \begin{equation}
+        \bar{\pi}(\theta,u) = \frac{p(\theta)\,\hat{p}(y_{1:T}\mid\theta,u)\,\psi(u\mid\theta)}{p(y_{1:T})}.
+        \label{eq:extended_target}
+    \end{equation}
+\end{definition}
+
+\begin{theorem}
+    \label{thm:pseudo_marginal_exact}
+    Assume that the estimator satisfies~\eqref{eq:pseudo_marginal_unbiased}. Then:
+    \begin{enumerate}
+        \item $\bar{\pi}$ is a probability density on the extended space;
+        \item the marginal of $\bar{\pi}$ in $\theta$ is the posterior distribution, $\int \bar{\pi}(\theta,u)\,\mathrm{d}u = p(\theta\mid y_{1:T})$;
+        \item the sequence $(\theta_m,U_m)_{m\ge 0}$ generated by Algorithm~\ref{alg:pseudo_marginal_mh}, where $U_m$ denotes the auxiliary variables associated with the accepted estimate $\hat{p}_m$, is a Metropolis-Hastings chain with target $\bar{\pi}$ and proposal
+        \begin{equation}
+            Q(\theta',u'\mid\theta,u) = q(\theta'\mid\theta)\,\psi(u'\mid\theta').
+        \end{equation}
+    \end{enumerate}
+    Consequently, $\bar{\pi}$ is invariant for $(\theta_m,U_m)_{m\ge 0}$, and if $(\theta_{m-1},U_{m-1}) \sim \bar{\pi}$, then $\theta_m \sim p(\theta\mid y_{1:T})$.
+\end{theorem}
+\begin{proof}
+    \emph{1.} Clearly $\bar{\pi}\ge 0$. Integrating first over $u$ and using~\eqref{eq:pseudo_marginal_unbiased},
+    \begin{equation}
+        \iint \bar{\pi}(\theta,u)\,\mathrm{d}u\,\mathrm{d}\theta = \frac{1}{p(y_{1:T})}\int p(\theta) \left(\int \hat{p}(y_{1:T}\mid\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u\right)\mathrm{d}\theta = \frac{\int p(\theta)\,p(y_{1:T}\mid\theta)\,\mathrm{d}\theta}{p(y_{1:T})} = 1.
+    \end{equation}
+
+    \emph{2.} Again by~\eqref{eq:pseudo_marginal_unbiased} and by~\eqref{eq:parameter_posterior},
+    \begin{equation}
+        \int \bar{\pi}(\theta,u)\,\mathrm{d}u = \frac{p(\theta)\,p(y_{1:T}\mid\theta)}{p(y_{1:T})} = p(\theta\mid y_{1:T}).
+    \end{equation}
+
+    \emph{3.} Consider Algorithm~\ref{alg:metropolis_hastings} on the extended space with target $\bar{\pi}$ and proposal $Q$. Proposing from $Q$ amounts to sampling $\theta'\sim q(\cdot\mid\theta)$ and then $u'\sim\psi(\cdot\mid\theta')$, which is precisely what Algorithm~\ref{alg:pseudo_marginal_mh} does. The Metropolis-Hastings ratio on the extended space is
+    \begin{align}
+        \frac{\bar{\pi}(\theta',u')\,Q(\theta,u\mid\theta',u')}{\bar{\pi}(\theta,u)\,Q(\theta',u'\mid\theta,u)}
+        &= \frac{p(\theta')\,\hat{p}(y_{1:T}\mid\theta',u')\,\psi(u'\mid\theta')\;q(\theta\mid\theta')\,\psi(u\mid\theta)}{p(\theta)\,\hat{p}(y_{1:T}\mid\theta,u)\,\psi(u\mid\theta)\;q(\theta'\mid\theta)\,\psi(u'\mid\theta')} \\
+        &= \frac{\hat{p}(y_{1:T}\mid\theta',u')\,p(\theta')\,q(\theta\mid\theta')}{\hat{p}(y_{1:T}\mid\theta,u)\,p(\theta)\,q(\theta'\mid\theta)},
+    \end{align}
+    since the evidence $p(y_{1:T})$ and the densities of the auxiliary variables $\psi$ cancel. This is exactly the ratio in $\hat{\alpha}$ of Algorithm~\ref{alg:pseudo_marginal_mh}, where $\hat{p}_{m-1} = \hat{p}(y_{1:T}\mid\theta_{m-1},U_{m-1})$. Moreover, on acceptance both $\theta$ and $u$ are replaced, and on rejection both are kept. Since the algorithm uses $u$ only through the value $\hat{p}(y_{1:T}\mid\theta,u)$, storing $\hat{p}_m$ is equivalent to storing $U_m$. Hence Algorithm~\ref{alg:pseudo_marginal_mh} is Algorithm~\ref{alg:metropolis_hastings} on the extended space.
+
+    By Theorem~\ref{thm:mh_detailed_balance}, the chain $(\theta_m,U_m)_{m\ge 0}$ satisfies detailed balance with respect to $\bar{\pi}$, so $\bar{\pi}$ is invariant. If $(\theta_{m-1},U_{m-1})\sim\bar{\pi}$, then $(\theta_m,U_m)\sim\bar{\pi}$, and by the second claim the marginal distribution of $\theta_m$ is $p(\theta\mid y_{1:T})$.
+\end{proof}
+
+The proof also explains why the estimate of the current state must not be recomputed. Reusing $\hat{p}_{m-1}$ corresponds to keeping $U_{m-1}$ as part of the state of the chain, whereas drawing a fresh $U$ for the current state at every iteration would alter the transition kernel, and the resulting kernel no longer satisfies detailed balance with respect to $\bar{\pi}$. The proof also shows that unbiasedness is exactly the property needed. Without it, the $\theta$-marginal of $\bar{\pi}$ would be proportional to $p(\theta)\,E_\psi[\hat{p}(y_{1:T}\mid\theta,U)]$ instead of to the posterior.
 
 \subsection{Particle marginal Metropolis-Hastings}
+\label{sec:pmmh}
+Particle marginal Metropolis-Hastings (PMMH) \cite{andrieu2010particle} is the pseudo-marginal Metropolis-Hastings algorithm in which the estimator is the particle filter marginal likelihood estimator~\eqref{eq:pf_marginal_likelihood_estimator}. Here the auxiliary variables $U$ consist of all the random variables generated by one run of the bootstrap particle filter at parameter $\theta$, that is, the initial particles, the propagated particles at every time step and the outcomes of all resampling steps. Their joint distribution $\psi(u\mid\theta)$ is implicitly defined by Algorithm~\ref{alg:bootstrap_particle_filter} and never needs to be evaluated, since it cancels in the acceptance ratio. The complete procedure is given in Algorithm~\ref{alg:pmmh}.
+
+\begin{algorithm}[H]
+\caption{Particle marginal Metropolis-Hastings}
+\label{alg:pmmh}
+\begin{algorithmic}[1]
+    \REQUIRE Observations $y_{1:T}$, number of particles $N$, prior $p(\theta)$, proposal density $q$, number of iterations $M$, initial state $\theta_0$.
+    \STATE Run Algorithm~\ref{alg:bootstrap_particle_filter} at $\theta_0$ and compute $\hat{p}_0 = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta_0)$.
+    \FOR{$m=1,\ldots,M$}
+        \STATE Sample $\theta' \sim q(\cdot\mid\theta_{m-1})$.
+        \STATE Run Algorithm~\ref{alg:bootstrap_particle_filter} at $\theta'$ and compute $\hat{p}' = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta')$.
+        \STATE Compute
+        \begin{equation*}
+            \hat{\alpha} = \min\left\{1,\, \frac{\hat{p}'\,p(\theta')\,q(\theta_{m-1}\mid\theta')}{\hat{p}_{m-1}\,p(\theta_{m-1})\,q(\theta'\mid\theta_{m-1})}\right\}.
+        \end{equation*}
+        \STATE Sample $V \sim \mathcal{U}(0,1)$.
+        \IF{$V \le \hat{\alpha}$}
+            \STATE Accept: set $(\theta_m,\hat{p}_m) = (\theta',\hat{p}')$.
+        \ELSE
+            \STATE Reject: set $(\theta_m,\hat{p}_m) = (\theta_{m-1},\hat{p}_{m-1})$.
+        \ENDIF
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\begin{theorem}
+    \label{thm:pmmh_exact}
+    For every number of particles $N\ge 1$, the particle marginal Metropolis-Hastings chain admits an invariant distribution whose marginal in $\theta$ is the exact posterior distribution $p(\theta\mid y_{1:T})$.
+\end{theorem}
+\begin{proof}
+    The estimator $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ is a product of averages of densities and is therefore non-negative. By Theorem~\ref{thm:pf_marginal_likelihood_unbiased}, it is unbiased for every $N\ge 1$ and every $\theta$, that is,
+    \begin{equation}
+        \int \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u = p(y_{1:T}\mid\theta),
+    \end{equation}
+    where the dependence on the particle filter randomness $u$ has been made explicit. Condition~\eqref{eq:pseudo_marginal_unbiased} is thus satisfied, and Algorithm~\ref{alg:pmmh} is a special case of Algorithm~\ref{alg:pseudo_marginal_mh}. The claim follows from Theorem~\ref{thm:pseudo_marginal_exact}.
+\end{proof}
+
+\begin{remark}
+    The auxiliary variables of the particle filter include discrete resampling indices, so $\psi(u\mid\theta)$ is in general not a density with respect to the Lebesgue measure. As with the Dirac delta notation used throughout this chapter, the integrals over $u$ should be understood with respect to the appropriate probability measure. The proofs of Theorems~\ref{thm:mh_detailed_balance} and~\ref{thm:pseudo_marginal_exact} carry over without change, since $\psi$ only ever appears as the distribution from which $u'$ is proposed and cancels in the acceptance ratio.
+\end{remark}
+
+Theorem~\ref{thm:pmmh_exact} shows that PMMH is not an approximation: the number of particles does not affect the invariant distribution, only how efficiently the chain explores it. Under mild additional conditions, essentially that the corresponding exact Metropolis-Hastings chain would be irreducible and aperiodic, the PMMH chain also converges to its invariant distribution \cite{andrieu2010particle}. The role of $N$ is best understood by noting that the acceptance ratio of PMMH equals the ideal ratio~\eqref{eq:mh_acceptance_parameters} multiplied by
+\begin{equation}
+    \frac{\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta')/p(y_{1:T}\mid\theta')}{\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)/p(y_{1:T}\mid\theta)}.
+\end{equation}
+If the estimate at the current state happens to be much larger than the true likelihood, this factor is small for most proposals, and the chain may get stuck at the same value for many iterations. A small $N$ produces noisy estimates and hence poor mixing, while a large $N$ makes every iteration expensive. As a rule of thumb, \cite{doucet2015efficient} recommend that $N$ should be chosen such that the standard deviation of $\log\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ around the posterior mode is approximately between $1$ and $1.7$.
+
+In practice, the acceptance ratio is computed on the logarithmic scale to avoid numerical underflow, since $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ is a product of $T$ factors. Moreover, if the proposed $\theta'$ lies outside the support of the prior, then $p(\theta')=0$ and the proposal can be rejected immediately, without running the particle filter.
+
+\begin{remark}
+    Algorithm~\ref{alg:pmmh} targets only the posterior distribution of the parameters. It is shown in \cite{andrieu2010particle} that PMMH can be extended to target the joint posterior $p(\theta,x_{0:T}\mid y_{1:T})$ as well. Each time the particle filter is run at a proposed $\theta'$, a trajectory $X_{0:T}'$ is additionally drawn from its empirical smoothing distribution, and this trajectory is accepted or rejected together with $\theta'$. The acceptance probability is unchanged.
+\end{remark}
 
 \subsection{Particle Gibbs}
 

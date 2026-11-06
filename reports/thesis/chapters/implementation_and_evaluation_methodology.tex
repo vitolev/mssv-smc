@@ -1,0 +1,293 @@
+\chapter{Implementation and Evaluation Methodology}
+
+The source code accompanying this thesis is publicly available on GitHub:
+\url{https://github.com/vitolev/mssv-smc}.
+The repository contains the implementation of the MSSV model and inference
+algorithms, as well as experiment scripts, configuration files, tests, and notebooks used
+to generate the results presented in this thesis.
+
+\section{Implementation of the MSSV model and inference algorithms}
+
+The implementation follows a layered design.  The common interfaces are defined in
+\texttt{src/models/base.py}.  \texttt{StateSpaceModel} specifies the operations
+needed by all inference algorithms: sampling the initial and next states, and
+evaluating observation and transition densities. The associated abstract class
+\texttt{StateSpaceModelParams} defines the container of parameters of the model, class
+\texttt{StateSpaceModelState} defines the state structure and operations on it, class
+\texttt{StateSpaceModelPrior} defines the prior of the model parameters and its densities
+and \texttt{StateSpaceModelProposal} defines the proposal distributions for the parameters, used in the PMMH, PG and SMC$^2$ algorithms.
+Consequently, the filters do not depend on the details of a particular state-space model.
+
+The MSSV model is implemented by the classes in
+\texttt{src/models/mssv.py}.  \texttt{MSSVParams} is an immutable parameter
+container.  It reconstructs the ordered regime means from
+$\mu_1$ and $\Delta_i$, validates the transition matrix, and provides
+constrained and unconstrained vector representations and conversions between them.
+\texttt{MSSVState} stores the continuous log-volatility
+\texttt{h\_t} and the discrete regime \texttt{s\_t} together, so that a particle
+is always a complete state.  \texttt{MSSVModel} implements the model specific
+sampling and density methods required by \texttt{StateSpaceModel}.  Its
+\texttt{MSSVPrior} supplies initial parameter particles, while
+\texttt{MSSVProposal} supplies random walk, independent, or trajectory
+conditional parameter updates.
+
+Particle filtering is represented by the abstract
+\texttt{ParticleFilter} class in \texttt{src/filters/smc/base\_pf.py}.  It owns
+the model, particle count, random-number generator, and resampling strategy,
+and also provides backward reconstruction of smoothing trajectories from the
+stored particle history.  \texttt{BootstrapParticleFilter} implements the
+standard bootstrap filter (Algorithm \ref{alg:bootstrap_particle_filter}) and its conditional version,
+which fixes one particle to a reference trajectory.  
+Resampling itself is kept independent in
+\texttt{resampling.py}.  Each
+filter history stores particles, normalized weights, ancestor indices, and the
+accumulated log marginal likelihood.
+
+The PMCMC layer composes these objects rather than duplicating model logic. The PMMH is defined in \texttt{src/pmcmc/pmmh.py}.
+Inside \texttt{PMMH\_Chain} owns one parameter chain.  At
+initialization it samples \texttt{MSSVParams} from \texttt{MSSVPrior}, runs the
+particle filter, and stores one smoothing trajectory \footnote{Actually, it samples from general definition of \texttt{StateSpaceModel}, as the implementation supports any state-space model.}.  Each subsequent step
+asks \texttt{MSSVProposal} for a parameter proposal, runs the same particle
+filter again, and accepts or rejects the proposed parameter and trajectory
+together. Entire experiment facing
+wrapper is defined as \texttt{ParticleMarginalMetropolisHastings}: it creates independent random-number streams, runs multiple
+\texttt{PMMH\_Chain} instances in parallel, and writes each chain to an HDF5
+file.  Similar structure is used for PG, except that \texttt{PGS\_Chain} in \texttt{src/pmcmc/pg.py} uses the conditional particle
+filter instead.  After each conditional filter run it samples a new
+trajectory and passes that trajectory to the conditional proposal in
+\texttt{MSSVProposal}. The entire wrapper is then defined as \texttt{ParticleGibbsSampler}, with a similar functionality as in PMMH.
+
+\texttt{SMC2} in \texttt{src/filters/smc2/smc2.py} adds a second particle
+population around the existing particle filter.  A \texttt{ThetaParticle}
+contains one parameter value, its associated state particles, and its
+parameter weight.  At every observation, \texttt{SMC2} propagates the state
+particles and adds their incremental particle filter likelihood to the
+parameter weight.  When the parameter effective sample size falls below the
+configured threshold, parameter particles are resampled and rejuvenated using
+\texttt{MSSVProposal}. The parameter histories, effective sample sizes, resampling times, state particles and final smoothing trajectories are stored in the separate HDF5 files.
+
+The scripts in \texttt{experiments/} run the experiments.  They read the
+settings from a YAML file, load the data, create the MSSV model and bootstrap
+particle filter, and then start PMMH, PG, or SMC$^2$.  The same source code is
+used for synthetic, Bitcoin, and S\&P~500 data; only the data and settings
+change.  Separate utilities generate synthetic data and produce diagnostic
+plots.  The scripts also set the random seed, logging, and output directories.
+
+\section{Datasets}
+
+\subsection{Synthetic Data}
+The synthetic data is generated from the MSSV model with known parameters. We generated six datasets, each with two regimes and $T=2000$ observations. The first three datasets share the parameters
+\begin{align*}
+    \mu_1 &= -5, \qquad \mu_2 = -2 \\
+    \sigma^2 &= 0.1, \qquad 
+    P = \begin{pmatrix}
+        0.99 & 0.01 \\
+        0.015 & 0.985
+    \end{pmatrix},
+\end{align*}
+but have different persistence parameters: $\phi=0.9$, $\phi=0.7$, and $\phi=0.5$, respectively. The remaining three datasets use
+\begin{align*}
+    \mu_1 &= -1, \qquad \mu_2 = 1 \\
+    \sigma^2 &= 0.05, \qquad 
+    P = \begin{pmatrix}
+        0.99 & 0.01 \\
+        0.05 & 0.95
+    \end{pmatrix},
+\end{align*}
+with the same three values of $\phi$. This produces datasets with different regime separation, transition probabilities, and persistence, allowing the robustness of the methods to be examined under several controlled settings.
+
+\subsection{Bitcoin Data}
+The Bitcoin data was obtained from the \emph{Bitcoin Historical Data} dataset
+published by Zielak on Kaggle \cite{zielak2017bitcoin}.  The dataset contains
+Bitcoin market data at one-minute intervals, including open, high, low, close,
+and volume fields spanning from January 1, 2012 to July 16, 2026.
+For every day we calculated its close-to-close log-return, that is being used as the input for the MSSV model.  
+The first observation, for which no preceding close exists, was removed. 
+In total this gives us $T=5310$ daily log-returns.  
+
+As the Bitcoin market is open 24/7 and we have access to intraday data, we can calculate its daily realized variance $RV_t^{(288)}$, where $288$ is the number of 5-minute intervals in a day.
+
+For prior elicitation we used another dataset of historical daily Bitcoin data
+obtained from CoinMarketCap's Bitcoin historical-data page
+\cite{coinmarketcap2026bitcoin}.  This dataset covers the period from
+July 13, 2010 to December 31, 2011.  It was used only for prior elicitation and
+was not combined with the Kaggle series.
+
+\subsection{S\&P~500 Data}
+Daily S\&P~500 data (ticker symbol \texttt{\textasciicircum SPX}) was obtained from Yahoo
+Finance's historical-data page \cite{yahoofinance2026sp500}. The dataset contains daily open, high, low, close, and volume fields spanning from December 30, 1927 to July 2, 2026. 
+We calculated close-to-close log-returns for every day, but because the market is closed on weekends and holidays, we end up with less observations than there is calendar days. 
+
+To obtain the realized-variance series, we used the Oxford-Man Institute
+realized volatility indices \cite{oxfordman2022realizedvolatility}.  The data
+were retrieved from the archived download of the Oxford-Man Institute
+website. The data contains already calculated realized variances for the S\&P~500 index, based on 5-minute intraday returns, from January 3, 2000 to February 25, 2022.
+Additionally, we managed to find a small dataset of 1 minute intraday values of S\&P~500 index from September 30, 2022 to September 29, 2023, which we used to calculate the realized variance for that period.
+Using these two datasets we calculated factor
+$$
+c = \frac{\frac{1}{T}\sum_{t=1}^T \left(Y_t - \hat{\mu}_t\right)^2}{\frac{1}{T}\sum_{t=1}^T RV_t^{(m)}} = 1.4254
+$$
+to account for the overnight effect, as described in Section \ref{sec:overnight_returns}. 
+
+The model was then fitted on the daily data from January 3, 2000 onwards, as we have the the realized variance for most of that period. This gives us $T=6663$ observations. The short period when the realized variance is not available was still used for fitting, but excluded from the evaluation of the latent volatility.
+The daily data before the fiting period was then used for prior elicitation.
+
+\section{Prior elicitation}
+We already defined and specified the prior distributions and their hyperparameters in Section \ref{sec:priors}. The only hyperparameter that was not specified is the mean value of first regime $a_0$ in the prior of $\mu_1$.
+For synthetic data we set $a_0$ to the average of the means of both regimes, which is $-3.5$.
+
+For both the Bitcoin and S\&P~500 data, we used the data before the
+start of the fitting period for prior elicitation.  Specifically, we
+calculated the standard deviation $\sigma_{\mathrm{prior}}$ of the log-returns
+in the corresponding prior dataset and set the mean of the first regime to
+the logarithm of the corresponding variance,
+$$
+a_0 = 2\log\left(\sigma_{\mathrm{prior}}\right)
+    = \log\left(\sigma_{\mathrm{prior}}^2\right).
+$$
+Thus, we set the prior mean of the first regime to the average historical volatility. For Bitcoin data this results in
+$$
+\sigma_{\mathrm{prior}} = 0.04098, \qquad a_0 = -6.3896,
+$$
+while for S\&P~500 data we get
+$$
+\sigma_{\mathrm{prior}} = 0.01216, \qquad a_0 = -8.8192.
+$$
+
+\section{Evaluation methodology}
+\label{sec:evaluation_methodology}
+
+The evaluation has two complementary objectives. First, the synthetic experiments
+assess whether the algorithms recover known parameters and latent states. Second,
+the Bitcoin and S\&P~500 experiments explore the smoothing, filtering, and predictive behaviour and assess whether the inferred latent volatility and regimes are consistent with realized variance and with known economic events.  
+
+\subsection{Synthetic data evaluation}
+
+Since the data-generating parameters and latent trajectories are known, they provide reference values for evaluating parameter and state inference.
+
+For each model parameter, posterior summaries are compared with the corresponding data-generating value. We report the posterior mean and central 95\% credible interval, and assess whether the true value is contained within the interval.
+
+Since $h_t$ represents the log variance, with $\sigma_t^2 = \exp(h_t)$, there are several possible ways to evaluate the accuracy of the inferred volatility. We focus on variance rather than volatility or log variance because realized variance, which is used as a proxy for the latent variance in the financial data application, is measured on the variance scale.
+We consider the following two losses:
+\begin{align*}
+    \operatorname{MSE} &=
+    \frac{1}{T}\sum_{t=1}^T
+    \left(\hat{\sigma}_t^2-\sigma_t^2\right)^2, \\
+    \operatorname{QLIKE} &=
+    \frac{1}{T}\sum_{t=1}^T
+    \left(
+    \log\hat{\sigma}_t^2+
+    \frac{\sigma_t^2}{\hat{\sigma}_t^2}
+    \right),
+\end{align*}
+where $\hat{\sigma}_t^2$ denotes the estimated variance, while $\sigma_t^2$ denotes the true variance. The first loss is the mean squared error of the variance, and the second is the QLIKE loss, a commonly used loss for evaluating volatility models.
+
+For PMMH and PG, which are offline methods, we can evaluate only the smoothing distribution
+$p(h_{1:T},s_{1:T}\mid y_{1:T})$, obtained after processing the complete dataset. The point estimate of the variance is obtained by transforming the posterior distribution and taking the expectations
+\[
+    \hat{\sigma}_{t|T}^2 = E[\exp(h_t)\mid y_{1:T}].
+\]
+Using the smoothing estimates, we calculate the two losses for the entire time series.
+
+In addition to smoothing, SMC$^2$ allows us to evaluate filtering and one-step-ahead predictive performance sequentially. We therefore report the two losses for the smoothing estimates over the entire time series, as well as the evolution of the filtering and predictive losses over time.
+
+For filtering, the posterior distribution at time $t$ is given by
+$p(h_t,s_t\mid y_{1:t})$. The corresponding point estimate of the variance then
+\[
+    \hat{\sigma}_{t|t}^2 = E[\exp(h_t)\mid y_{1:t}].
+\]
+At each time step, we compare these estimates with the corresponding true values and calculate the two losses. This allows us to examine how the accuracy of the filtered volatility estimates evolves as new observations become available.
+
+Similarly, SMC$^2$ enables us to compute the one-step-ahead predictive distributions
+$p(h_{t+1},s_{t+1}\mid y_{1:t})$. The predictive point estimate is obtained as
+\[
+    \hat{\sigma}_{t+1|t}^2 = E[\exp(h_{t+1})\mid y_{1:t}].
+\]
+These estimates are compared with the corresponding true values at time $t+1$, allowing us to evaluate the one-step-ahead predictive performance of the model as new observations become available.
+
+Finally, for the latent regime, we evaluate the smoothing estimates. We report the posterior probabilities of each regime, as well as the posterior mode
+\[
+    \hat{s}_{t|T}
+    =
+    \arg\max_{k\in\{1,\ldots,K\}}
+    P(s_t=k\mid y_{1:T}).
+\]
+Comparing the inferred regimes with the true regime sequence $s_{1:T}$, we calculate the proportion of correctly classified regimes.
+
+\subsection{Evaluation on financial data}
+
+Unlike the synthetic data experiments, the true parameter values and latent trajectories are unknown for real-world data. Consequently, parameter inference cannot be evaluated against known generating values, nor can the accuracy of the inferred latent volatility and regime sequences be assessed directly.
+
+For model parameters, we therefore report posterior summaries, consisting of the posterior mean and central 95\% credible interval, to describe the uncertainty associated with the parameter estimates.
+
+For the latent volatility, we evaluate the performance using the same two losses as in the synthetic data evaluation, but now the true variance is replaced by a proxy measure of realized variance, as justified in Section \ref{sec:realized_variance}. Specifically,
+\begin{align*}
+    \operatorname{MSE}_{RV} &=
+    \frac{1}{T}\sum_{t=1}^T
+    \left(\hat{\sigma}_{t}^2-RV_t\right)^2, \\
+    \operatorname{QLIKE}_{RV} &=
+    \frac{1}{T}\sum_{t=1}^T
+    \left(
+    \log\hat{\sigma}_{t}^2+
+    \frac{RV_t}{\hat{\sigma}_{t}^2}
+    \right).
+\end{align*}
+Since realized variance is an imperfect proxy for the latent variance, these losses should be interpreted as measures of agreement between the inferred variance and the realized variance proxy, rather than as direct measures of the accuracy of the latent variance estimates.
+
+The workflow for evaluating PMMH and PG is similar to that of the synthetic data and we only report the losses for the smoothing estimates over the entire time series. For SMC$^2$, we additionally report the evolution of the filtering and predictive losses over time, just as in the synthetic data evaluation. 
+
+Finally, for the latent regime, we report the posterior probabilities of each regime and the posterior mode obtained from the smoothing distributions. Since the regimes are unobservable modelling assumptions, there is no direct way to evaluate the accuracy of the inferred regime sequence. However, we can examine the timing of inferred regime changes and compare them with known economic events, such as financial crises or market shocks, to assess whether the identified regimes are consistent with real-world market conditions.
+
+
+\section{Simulation settings}
+\label{sec:simulation_settings}
+
+The computational settings were chosen before running the final experiments and
+were kept fixed within each data group.  For PMMH and PG, the number of
+particles refers to the bootstrap particle filter used inside every
+PMCMC iteration. The synthetic data experiments used $N=2000$
+particles, whereas the both real data experiments used $N=8000$ particles.
+The larger particle population reduces the variance of the particle filter
+likelihood estimate and is therefore particularly important for PMMH, whose
+acceptance probability depends directly on this estimate.  The same particle
+counts were used for PG to make the comparison between the two PMCMC
+methods more consistent.
+
+Each synthetic data PMMH and PG experiment consisted of $C=16$ independent
+parallel chains.  Each chain was run for $M=10000$ iterations, of which the
+first $5000$ were discarded as burn-in. On the other hand, the
+real data experiments used $C=32$ chains, $M=20000$ iterations per chain, and a burn-in
+of $10000$ iterations.  Thus, the retained output contains $5000$ draws per
+chain for synthetic data and $10000$ draws per chain for each real dataset.
+Across all chains this gives 80000 and 320000 retained draws, respectively.
+
+For the proposal distribution $q(\theta^* \mid \theta)$ used in PMMH step update, we use random walk on the unconstrained
+version of parameters such that $\theta^* = \theta + \varepsilon$, where $\varepsilon \sim \mathcal{N}(0, \Sigma)$ where 
+$\Sigma$ is a covariance matrix chosen as
+$$
+\Sigma = \begin{bmatrix}
+0.0400 & -0.0054 & -0.0029 & 0.0007 & 0.0136 & -0.0057 \\
+-0.0054 & 0.0225 & 0.0046 & -0.0041 & -0.0079 & 0.0147 \\
+-0.0029 & 0.0046 & 0.0100 & -0.0031 & -0.0031 & 0.0032 \\
+0.0007 & -0.0041 & -0.0031 & 0.0100 & 0.0047 & -0.0046 \\
+0.0136 & -0.0079 & -0.0031 & 0.0047 & 0.0900 & -0.0320 \\
+-0.0057 & 0.0147 & 0.0032 & -0.0046 & -0.0320 & 0.0900
+\end{bmatrix}
+$$
+This matrix was obtained by first running a shorter prior experiment and noting the correlation matrix of posterior samples $R$. Then we manually chose the diagonal matrix of standard deviations $D$, 
+such that we obtained reasonable step size for the random walk. The final covariance matrix is then $\Sigma = DRD$. The same covariance matrix was used for both synthetic and real data.
+
+SMC$^2$ uses a different computational structure and consequently has no
+separate burn-in or user-specified number of MCMC iterations.  It processes
+the data sequentially for all $T$ observations.  Every parameter particle
+contains an inner particle filter with $N_x$ state particles.  The outer
+population contains $N_\theta$ parameter particles.  For synthetic data we
+used $(N_x,N_\theta)=(2000,4000)$, while both real-data experiments used
+$(N_x,N_\theta)=(8000,8000)$.  Parameter particles were resampled whenever
+their effective sample size fell below $\gamma N_\theta$, with
+$\gamma=0.5$.  After each such resampling event, $R=10$ MCMC rejuvenation
+steps were applied to every parameter particle. The value
+\texttt{x\_save\_factor}=5 was used only to control how many state particles
+were stored in the HDF5 history, to reduce the size of the output files.
+
+All experiments were executed on the SLING computing cluster on nodes with AMD EPYC 9745 (128c, 2.4 GHz) processor and 1TB of RAM.
