@@ -43,16 +43,16 @@ Resampling itself is kept independent in
 filter history stores particles, normalized weights, ancestor indices, and the
 accumulated log marginal likelihood.
 
-The PMCMC layer composes these objects rather than duplicating model logic. The PMMH is defined in \texttt{src/pmcmc/pmmh.py}.
-Inside \texttt{PMMH\_Chain} owns one parameter chain.  At
+The PMCMC layer composes these objects rather than duplicating model logic. The PMMH is defined in \texttt{src/filters/pmcmc/pmmh.py}.
+Inside it, \texttt{PMMH\_Chain} owns one parameter chain.  At
 initialization it samples \texttt{MSSVParams} from \texttt{MSSVPrior}, runs the
 particle filter, and stores one smoothing trajectory \footnote{Actually, it samples from general definition of \texttt{StateSpaceModel}, as the implementation supports any state-space model.}.  Each subsequent step
 asks \texttt{MSSVProposal} for a parameter proposal, runs the same particle
 filter again, and accepts or rejects the proposed parameter and trajectory
-together. Entire experiment facing
+together. The experiment-facing
 wrapper is defined as \texttt{ParticleMarginalMetropolisHastings}: it creates independent random-number streams, runs multiple
 \texttt{PMMH\_Chain} instances in parallel, and writes each chain to an HDF5
-file.  Similar structure is used for PG, except that \texttt{PGS\_Chain} in \texttt{src/pmcmc/pg.py} uses the conditional particle
+file.  A similar structure is used for PG, except that \texttt{PGS\_Chain} in \texttt{src/filters/pmcmc/pg.py} uses the conditional particle
 filter instead.  After each conditional filter run it samples a new
 trajectory and passes that trajectory to the conditional proposal in
 \texttt{MSSVProposal}. The entire wrapper is then defined as \texttt{ParticleGibbsSampler}, with a similar functionality as in PMMH.
@@ -79,7 +79,7 @@ plots.  The scripts also set the random seed, logging, and output directories.
 The synthetic data is generated from the MSSV model with known parameters. We generated six datasets, each with two regimes and $T=2000$ observations. The first three datasets share the parameters
 \begin{align*}
     \mu_1 &= -5, \qquad \mu_2 = -2 \\
-    \sigma^2 &= 0.1, \qquad 
+    \eta^2 &= 0.1, \qquad 
     P = \begin{pmatrix}
         0.99 & 0.01 \\
         0.015 & 0.985
@@ -88,7 +88,7 @@ The synthetic data is generated from the MSSV model with known parameters. We ge
 but have different persistence parameters: $\phi=0.9$, $\phi=0.7$, and $\phi=0.5$, respectively. The remaining three datasets use
 \begin{align*}
     \mu_1 &= -1, \qquad \mu_2 = 1 \\
-    \sigma^2 &= 0.05, \qquad 
+    \eta^2 &= 0.05, \qquad 
     P = \begin{pmatrix}
         0.99 & 0.01 \\
         0.05 & 0.95
@@ -116,43 +116,43 @@ was not combined with the Kaggle series.
 \subsection{S\&P~500 Data}
 Daily S\&P~500 data (ticker symbol \texttt{\textasciicircum SPX}) was obtained from Yahoo
 Finance's historical-data page \cite{yahoofinance2026sp500}. The dataset contains daily open, high, low, close, and volume fields spanning from December 30, 1927 to July 2, 2026. 
-We calculated close-to-close log-returns for every day, but because the market is closed on weekends and holidays, we end up with less observations than there is calendar days. 
+We calculated close-to-close log-returns for every day, but because the market is closed on weekends and holidays, we end up with fewer observations than there are calendar days. 
 
 To obtain the realized-variance series, we used the Oxford-Man Institute
 realized volatility indices \cite{oxfordman2022realizedvolatility}.  The data
 were retrieved from the archived download of the Oxford-Man Institute
 website. The data contains already calculated realized variances for the S\&P~500 index, based on 5-minute intraday returns, from January 3, 2000 to February 25, 2022.
-Additionally, we managed to find a small dataset of 1 minute intraday values of S\&P~500 index from September 30, 2022 to September 29, 2023, which we used to calculate the realized variance for that period.
+Additionally, we managed to find a small dataset of 1-minute intraday values of the S\&P~500 index from September 30, 2022 to September 29, 2023. To stay consistent with the Oxford-Man data, we aggregated it to 5-minute intraday returns and calculated the realized variance for that period from those.
 Using these two datasets we calculated factor
-$$
+\[
 c = \frac{\frac{1}{T}\sum_{t=1}^T \left(Y_t - \hat{\mu}_t\right)^2}{\frac{1}{T}\sum_{t=1}^T RV_t^{(m)}} = 1.4254
-$$
+\]
 to account for the overnight effect, as described in Section \ref{sec:overnight_returns}. 
 
-The model was then fitted on the daily data from January 3, 2000 onwards, as we have the the realized variance for most of that period. This gives us $T=6663$ observations. The short period when the realized variance is not available was still used for fitting, but excluded from the evaluation of the latent volatility.
-The daily data before the fiting period was then used for prior elicitation.
+The model was then fitted on the daily data from January 3, 2000 onwards, as we have the realized variance for most of that period. This gives us $T=6663$ observations. The short period when the realized variance is not available was still used for fitting, but excluded from the evaluation of the latent volatility.
+The daily data before the fitting period was then used for prior elicitation.
 
 \section{Prior elicitation}
 We already defined and specified the prior distributions and their hyperparameters in Section \ref{sec:priors}. The only hyperparameter that was not specified is the mean value of first regime $a_0$ in the prior of $\mu_1$.
-For synthetic data we set $a_0$ to the average of the means of both regimes, which is $-3.5$.
+For synthetic data we set $a_0$ to the average of the means of both regimes, which is $-3.5$ for the first three datasets and $0$ for the remaining three.
 
 For both the Bitcoin and S\&P~500 data, we used the data before the
 start of the fitting period for prior elicitation.  Specifically, we
 calculated the standard deviation $\sigma_{\mathrm{prior}}$ of the log-returns
 in the corresponding prior dataset and set the mean of the first regime to
 the logarithm of the corresponding variance,
-$$
+\[
 a_0 = 2\log\left(\sigma_{\mathrm{prior}}\right)
     = \log\left(\sigma_{\mathrm{prior}}^2\right).
-$$
+\]
 Thus, we set the prior mean of the first regime to the average historical volatility. For Bitcoin data this results in
-$$
+\[
 \sigma_{\mathrm{prior}} = 0.04098, \qquad a_0 = -6.3896,
-$$
+\]
 while for S\&P~500 data we get
-$$
+\[
 \sigma_{\mathrm{prior}} = 0.01216, \qquad a_0 = -8.8192.
-$$
+\]
 
 \section{Evaluation methodology}
 \label{sec:evaluation_methodology}
@@ -183,7 +183,7 @@ We consider the following two losses:
 where $\hat{\sigma}_t^2$ denotes the estimated variance, while $\sigma_t^2$ denotes the true variance. The first loss is the mean squared error of the variance, and the second is the QLIKE loss, a commonly used loss for evaluating volatility models.
 
 For PMMH and PG, which are offline methods, we can evaluate only the smoothing distribution
-$p(h_{1:T},s_{1:T}\mid y_{1:T})$, obtained after processing the complete dataset. The point estimate of the variance is obtained by transforming the posterior distribution and taking the expectations
+$p(h_{0:T},s_{0:T}\mid y_{1:T})$, obtained after processing the complete dataset. The point estimate of the variance is obtained by transforming the posterior distribution and taking the expectations
 \[
     \hat{\sigma}_{t|T}^2 = E[\exp(h_t)\mid y_{1:T}].
 \]
@@ -232,7 +232,7 @@ For the latent volatility, we evaluate the performance using the same two losses
     \frac{RV_t}{\hat{\sigma}_{t}^2}
     \right).
 \end{align*}
-Since realized variance is an imperfect proxy for the latent variance, these losses should be interpreted as measures of agreement between the inferred variance and the realized variance proxy, rather than as direct measures of the accuracy of the latent variance estimates.
+For the S\&P~500 data, $RV_t$ here denotes the scaled realized variance $c\,RV_t^{(m)}$ with the factor $c$ from Section~\ref{sec:overnight_returns}, so that it is comparable with the close-to-close variance. For Bitcoin, which trades continuously, no scaling is needed. Since realized variance is an imperfect proxy for the latent variance, these losses should be interpreted as measures of agreement between the inferred variance and the realized variance proxy, rather than as direct measures of the accuracy of the latent variance estimates.
 
 The workflow for evaluating PMMH and PG is similar to that of the synthetic data and we only report the losses for the smoothing estimates over the entire time series. For SMC$^2$, we additionally report the evolution of the filtering and predictive losses over time, just as in the synthetic data evaluation. 
 
@@ -246,7 +246,7 @@ The computational settings were chosen before running the final experiments and
 were kept fixed within each data group.  For PMMH and PG, the number of
 particles refers to the bootstrap particle filter used inside every
 PMCMC iteration. The synthetic data experiments used $N=2000$
-particles, whereas the both real data experiments used $N=8000$ particles.
+particles, whereas both real data experiments used $N=8000$ particles.
 The larger particle population reduces the variance of the particle filter
 likelihood estimate and is therefore particularly important for PMMH, whose
 acceptance probability depends directly on this estimate.  The same particle
@@ -264,7 +264,7 @@ Across all chains this gives 80000 and 320000 retained draws, respectively.
 For the proposal distribution $q(\theta^* \mid \theta)$ used in PMMH step update, we use random walk on the unconstrained
 version of parameters such that $\theta^* = \theta + \varepsilon$, where $\varepsilon \sim \mathcal{N}(0, \Sigma)$ where 
 $\Sigma$ is a covariance matrix chosen as
-$$
+\[
 \Sigma = \begin{bmatrix}
 0.0400 & -0.0054 & -0.0029 & 0.0007 & 0.0136 & -0.0057 \\
 -0.0054 & 0.0225 & 0.0046 & -0.0041 & -0.0079 & 0.0147 \\
@@ -273,7 +273,7 @@ $$
 0.0136 & -0.0079 & -0.0031 & 0.0047 & 0.0900 & -0.0320 \\
 -0.0057 & 0.0147 & 0.0032 & -0.0046 & -0.0320 & 0.0900
 \end{bmatrix}
-$$
+\]
 This matrix was obtained by first running a shorter prior experiment and noting the correlation matrix of posterior samples $R$. Then we manually chose the diagonal matrix of standard deviations $D$, 
 such that we obtained reasonable step size for the random walk. The final covariance matrix is then $\Sigma = DRD$. The same covariance matrix was used for both synthetic and real data.
 

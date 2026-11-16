@@ -268,7 +268,7 @@ In order for the MSSV model to be well-defined, the following assumptions are ma
     \item The regime means are ordered such that $\mu_1 < \mu_2 < \ldots < \mu_K$.
 \end{enumerate}
 
-Assumption 1 ensures that the AR(1) process is stationary, as shown in the next proposition. This is needed to ensure that the log volatility does not diverge to infinity. Assumption 2 is necessary to avoid empty regimes, as otherwise some $\mu_i$ would be unidentified.
+Assumption 1 ensures that the AR(1) process is stationary. This is needed to ensure that the log volatility does not diverge to infinity. Assumption 2 is necessary to avoid empty regimes, as otherwise some $\mu_i$ would be unidentified.
 Assumption 3 is a common identification constraint in mixture models, which prevents label switching and ensures that the regimes are uniquely defined \cite{so1998stochastic}. 
 
 In this thesis, we ensure the identifiability of the regimes using the following parameterization:
@@ -300,20 +300,20 @@ Both targets are determined, up to normalizing constants, by the joint density o
 
 \begin{proposition}
     \label{prop:joint_density}
-    For the MSSV model, the joint density of the latent states and observations is
+    For a state-space model as in Definition~\ref{def:state_space_model}, and in particular for the MSSV model, the joint density of the latent states and observations is
     \begin{equation}
         \label{eq:joint_density}
-        p(x_{0:t}, y_{1:t} \mid \theta) = \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) f(y_i \mid x_i).
+        p(x_{0:t}, y_{1:t} \mid \theta) = \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) f(y_i \mid x_i, \theta).
     \end{equation}
     Consequently, with known parameters,
     \begin{equation}
         \label{eq:joint_posterior_known_parameters}
-        p(x_{0:t} \mid y_{1:t}, \theta) \propto \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) f(y_i \mid x_i),
+        p(x_{0:t} \mid y_{1:t}, \theta) \propto \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) f(y_i \mid x_i, \theta),
     \end{equation}
     and, given a prior $p(\theta)$, with unknown parameters,
     \begin{equation}
         \label{eq:joint_posterior_unknown_parameters}
-        p(x_{0:t}, \theta \mid y_{1:t}) \propto p(\theta) \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) f(y_i \mid x_i).
+        p(x_{0:t}, \theta \mid y_{1:t}) \propto p(\theta) \chi(x_0 \mid \theta) \prod_{i=1}^{t} p(x_i \mid x_{i-1}, \theta) f(y_i \mid x_i, \theta).
     \end{equation}
 \end{proposition}
 \begin{proof}
@@ -325,7 +325,7 @@ Both targets are determined, up to normalizing constants, by the joint density o
     \begin{align}
         p(y_{1:t} \mid x_{0:t}, \theta) &= p(y_t \mid y_{1:t-1}, x_{0:t}, \theta) p(y_{1:t-1} \mid x_{0:t}, \theta) \\
         &= f(y_t \mid x_t, \theta) p(y_{1:t-1} \mid x_{0:t-1}, \theta) \\
-        &= \prod_{i=1}^{t} f(y_i \mid x_i),
+        &= \prod_{i=1}^{t} f(y_i \mid x_i, \theta),
     \end{align}
     where we used the fact that each observation $y_i$ is conditionally independent of the other observations and states given $x_i$ (Definition~\ref{def:state_space_model}).
 
