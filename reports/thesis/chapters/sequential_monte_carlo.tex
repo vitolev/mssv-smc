@@ -730,7 +730,7 @@ Figure~\ref{fig:resampling} illustrates the effect of resampling on the particle
 
 \subsection{Marginal likelihood estimation}
 \label{sec:pf_marginal_likelihood}
-Parameter inference in Section~\ref{sec:particle_mcmc} requires an unbiased estimate of the marginal likelihood $p(y_{1:T}\mid\theta)$. The SIS estimator~\eqref{eq:marginal_likelihood_estimator}, the average of the unnormalized weights, is unbiased, but its variance typically grows exponentially in $T$ because of weight degeneracy. With resampling it is not even available, since resampling uses only the normalized weights and then resets all weights to $1/N$, so the scale of the unnormalized weights is lost.
+Parameter inference in Section~\ref{sec:pmmh} requires an unbiased estimate of the marginal likelihood $p(y_{1:T}\mid\theta)$. The SIS estimator~\eqref{eq:marginal_likelihood_estimator}, the average of the unnormalized weights, is unbiased, but its variance typically grows exponentially in $T$ because of weight degeneracy. With resampling it is not even available, since resampling uses only the normalized weights and then resets all weights to $1/N$, so the scale of the unnormalized weights is lost.
 
 The remedy is to keep track of the lost scale. If each resampled particle were assigned the average weight before resampling instead of $1/N$, the average weight would be preserved by resampling and multiplied by $\frac{1}{N}\sum_{i=1}^{N}\alpha_{t}^{(i)}$ at each time step. This motivates the following definition.
 
@@ -845,7 +845,7 @@ Unbiasedness of $\hat{p}^{\mathrm{PF}}_t$ does not follow directly from the resu
     and the right-hand side becomes $\int p(x_{0:t},y_{1:t}\mid\theta)\,\mathrm{d}x_{0:t} = p(y_{1:t}\mid\theta)$.
 \end{proof}
 
-Lemma~\ref{lem:pf_unnormalized_unbiased} is stated for functions of entire trajectories, although Theorem~\ref{thm:pf_marginal_likelihood_unbiased} only needs $\varphi\equiv 1$. The general form is used in Section~\ref{sec:pmmh_trajectories}, where the trajectories of the particle filter are used for inference about the latent states.
+Lemma~\ref{lem:pf_unnormalized_unbiased} is stated for functions of entire trajectories, although Theorem~\ref{thm:pf_marginal_likelihood_unbiased} only needs $\varphi\equiv 1$. The general form is used in Section~\ref{sec:latent_state_estimation}, where the trajectories of the particle filter are used for inference about the latent states.
 
 Unbiasedness does not carry over to the logarithm: by Jensen's inequality, $E[\log\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)] \le \log p(y_{1:T}\mid\theta)$. In contrast to SIS, under mild conditions the relative variance of $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ grows only linearly in $T$ for a fixed $N$ \cite{chopin2020smc}.
 
@@ -862,7 +862,7 @@ The incremental weights simplify to $\alpha_0^{(i)} = 1$ and $\alpha_t^{(i)} = f
 \end{equation}
 and it is unbiased by Theorem~\ref{thm:pf_marginal_likelihood_unbiased}. The complete procedure is given in Algorithm~\ref{alg:bootstrap_particle_filter}. Its time complexity is $O(NT)$. The space complexity is $O(N)$ if only the current particles are kept, and $O(NT)$ if entire trajectories are needed. Expectations are computed from the weighted particles before resampling, since resampling only adds Monte Carlo variability.
 
-\begin{algorithm}[H]
+\begin{algorithm}
 \caption{Bootstrap particle filter}
 \label{alg:bootstrap_particle_filter}
 \begin{algorithmic}[1]
@@ -880,8 +880,8 @@ and it is unbiased by Theorem~\ref{thm:pf_marginal_likelihood_unbiased}. The com
 \end{algorithmic}
 \end{algorithm}
 
-\section{Particle Markov chain Monte Carlo}
-\label{sec:particle_mcmc}
+\section{Markov chain Monte Carlo}
+\label{sec:mcmc}
 So far, the model parameters $\theta$ have been assumed known. In practice they are not, and in the Bayesian framework they are treated as random variables with a prior density $p(\theta)$. The object of interest is then the posterior distribution of the parameters,
 \begin{equation}
     p(\theta\mid y_{1:T}) = \frac{p(y_{1:T}\mid\theta)\,p(\theta)}{p(y_{1:T})} \propto p(y_{1:T}\mid\theta)\,p(\theta),
@@ -893,7 +893,7 @@ The standard tool in such problems is Markov chain Monte Carlo (MCMC), which con
 For state-space models, however, MCMC faces an additional obstacle: the marginal likelihood $p(y_{1:T}\mid\theta)$ is itself intractable.
 Particle Markov chain Monte Carlo (PMCMC) methods \cite{andrieu2010particle} resolve this by combining MCMC in the parameter space with particle filters in the state space.
 
-As in all previous sections, all distributions in this section are described by densities. An integral over a variable with continuous and discrete components is taken with respect to the product of the Lebesgue and counting measures, and $\delta(\cdot)$ still acts as a Dirac delta in continuous components (in discrete components, it actually acts as a Kronecker delta).
+As in all previous sections, all distributions in this and the following sections are described by densities. An integral over a variable with continuous and discrete components is taken with respect to the product of the Lebesgue and counting measures, and $\delta(\cdot)$ still acts as a Dirac delta in continuous components (in discrete components, it actually acts as a Kronecker delta).
 
 \subsection{Markov chains}
 \label{sec:markov_chains}
@@ -1089,7 +1089,7 @@ Applied to Bayesian parameter inference with target~\eqref{eq:parameter_posterio
 The intractable evidence $p(y_{1:T})$ cancels, but the marginal likelihood $p(y_{1:T}\mid\theta)$ does not. For the MSSV model, and for nonlinear state-space models in general, Algorithm~\ref{alg:metropolis_hastings} therefore cannot be implemented directly. A natural idea is to replace $p(y_{1:T}\mid\theta)$ in~\eqref{eq:mh_acceptance_parameters} by a particle filter estimate. Remarkably, if this is done correctly, the resulting chain still targets the exact posterior. The key property that makes this possible is that the particle filter estimator is unbiased (Theorem~\ref{thm:pf_marginal_likelihood_unbiased}).
 
 
-\subsection{Pseudo-marginal Metropolis-Hastings}
+\section{Pseudo-marginal Metropolis-Hastings}
 \label{sec:pseudo_marginal_mh}
 We now formalize what it means to replace the marginal likelihood in~\eqref{eq:mh_acceptance_parameters} by an estimate. Consider the following general setting \cite{andrieu2009pseudo}. Let $u$ denote a collection of \emph{auxiliary variables} in a space $\mathbb{U}$, which may have both continuous and discrete components, and let $\psi(u\mid\theta)$ be a probability density on $\mathbb{U}$ for every $\theta\in\Theta$. Let $\hat{Z}(\theta,u)\ge 0$ be a function such that
 \begin{equation}
@@ -1176,7 +1176,7 @@ Finally, the proof shows which property of the estimator is needed. Regardless o
 It is therefore the posterior if and only if $\int\hat{Z}(\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u = c\,p(y_{1:T}\mid\theta)$ for some constant $c>0$ that does not depend on $\theta$.
 Unbiasedness~\eqref{eq:pseudo_marginal_unbiased} is the case $c=1$. For general $c$, the estimator $\hat{Z}/c$ is unbiased and gives the same acceptance ratio, so the two algorithms coincide.
 
-\subsection{Particle marginal Metropolis-Hastings}
+\section{Particle marginal Metropolis-Hastings}
 \label{sec:pmmh}
 Particle marginal Metropolis-Hastings (PMMH) \cite{andrieu2010particle} is the pseudo-marginal Metropolis-Hastings algorithm in which the estimator is the particle filter marginal likelihood estimator~\eqref{eq:pf_marginal_likelihood_estimator}. 
 In this thesis, the bootstrap particle filter of Algorithm~\ref{alg:bootstrap_particle_filter} is used. The auxiliary variables are then all the random variables generated by one run of the filter at parameter $\theta$,
@@ -1194,9 +1194,9 @@ By Theorem~\ref{thm:pseudo_marginal_exact}, however, $\psi$ never needs to be ev
 \begin{equation}
     \hat{Z}(\theta,U) = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta) = \prod_{t=1}^{T}\left(\frac{1}{N}\sum_{i=1}^{N} f(y_t\mid X_t^{(i)},\theta)\right),
 \end{equation}
-as in~\eqref{eq:bootstrap_marginal_likelihood_estimator}. The complete procedure is given in Algorithm~\ref{alg:pmmh}. Besides the parameters, the chain also stores one trajectory $X_{0:T}[m]$ of the latent states per iteration. These trajectories do not affect the parameter chain and are explained in Section~\ref{sec:pmmh_trajectories}.
+as in~\eqref{eq:bootstrap_marginal_likelihood_estimator}. The complete procedure is given in Algorithm~\ref{alg:pmmh}. Besides the parameters, the chain also stores one trajectory $X_{0:T}[m]$ of the latent states per iteration. These trajectories do not affect the parameter chain and are explained in Section~\ref{sec:latent_state_estimation}.
 
-\begin{algorithm}[H]
+\begin{algorithm}
 \caption{Particle marginal Metropolis-Hastings}
 \label{alg:pmmh}
 \begin{algorithmic}[1]
@@ -1244,7 +1244,7 @@ In practice, the acceptance ratio is computed on the logarithmic scale to avoid 
 Accordingly, the averages are computed with the log-sum-exp trick, the chain stores $\log\hat{Z}_m$, and a proposal is accepted if $\log V\le\log\hat{\alpha}$.
 
 \subsection{Latent state estimation}
-\label{sec:pmmh_trajectories}
+\label{sec:latent_state_estimation}
 Theorem~\ref{thm:pmmh_exact} concerns only the parameters, but for the MSSV model we are equally interested in the latent states, that is, in the joint posterior
 \begin{equation}
     p(\theta,x_{0:T}\mid y_{1:T}) = p(x_{0:T}\mid y_{1:T},\theta)\,p(\theta\mid y_{1:T}).
@@ -1331,7 +1331,21 @@ The samples are used like any other MCMC output. Under the conditions of Theorem
 \end{equation}
 for a fixed $N$. For example, averaging $h_t$ estimates $E[h_t\mid y_{1:T}]$, and the fraction of samples with $s_t=j$ estimates $P(s_t=j\mid y_{1:T})$. Since $\theta$ varies along the chain, these estimates take the uncertainty about the parameters into account, unlike a particle filter run at a point estimate $\hat{\theta}$, whose error moreover vanishes only as $N\to\infty$.
 
-\subsection{Particle Gibbs}
+\subsection{Time and space complexity}
+\label{sec:pmmh_complexity}
+Each iteration of Algorithm~\ref{alg:pmmh} consists of drawing $\theta'$, evaluating the prior and the proposal density, running the bootstrap particle filter, selecting a trajectory, and the accept-reject step. For a parameter of fixed dimension, all steps except the filter take constant time. The filter takes $O(NT)$ time, since at each of the $T$ time steps the propagation, the weighting, the log-sum-exp average and systematic resampling all take $O(N)$ operations. Drawing the index $B'$ takes $O(N)$ time, and tracing back the selected trajectory $O(T)$. The time complexity of PMMH with $M$ iterations, including the burn-in, is therefore
+\begin{equation}
+    O(MNT).
+\end{equation}
+With the recommended choice $N\propto T$, this becomes $O(MT^2)$, so doubling the length of the time series makes every iteration roughly four times as expensive. The iterations themselves are inherently sequential, since every iteration depends on the previous state of the chain.
+
+The memory consists of two parts. The first is the working memory of the particle filter, which is reused in every iteration. To trace back the selected trajectory at the end of a run, the filter must store the particles and the ancestor indices of all $T$ time steps, which takes $O(NT)$ memory. The second part is the output of the chain. At every iteration, the chain stores one parameter value and one trajectory of length $T+1$, which takes $O(MT)$ memory over all $M$ iterations. The total space complexity is therefore
+\begin{equation}
+    O(NT + MT).
+\end{equation}
+Since $M$ is typically much larger than $N$, the output usually dominates. If only the parameters are of interest, the filter only needs the particles at the current time step and the chain only stores the parameters, so the memory reduces to $O(N+M)$.
+
+\section{Particle Gibbs}
 \label{sec:particle_gibbs}
 
 \section{SMC$^2$}
