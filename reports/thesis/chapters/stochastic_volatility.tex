@@ -261,15 +261,19 @@ At first, it may seem that such a conditional definition breaks the Markov prope
     \end{align}
 \end{proof}
 
-In order for the MSSV model to be well-defined, the following assumptions are made.
-\begin{enumerate}
-    \item The persistence $\phi$ lies in the range $(-1, 1)$.
-    \item Each regime corresponds to at least one time point.
-    \item The regime means are ordered such that $\mu_1 < \mu_2 < \ldots < \mu_K$.
-\end{enumerate}
+In order for the MSSV model to be well-defined, the following assumption is made.
+\begin{assumption}
+    \label{ass:mssv}
+    The MSSV model satisfies the following conditions.
+    \begin{enumerate}
+        \item The persistence $\phi$ lies in the range $(-1, 1)$.
+        \item Each regime corresponds to at least one time point.
+        \item The regime means are ordered such that $\mu_1 < \mu_2 < \ldots < \mu_K$.
+    \end{enumerate}
+\end{assumption}
 
-Assumption 1 ensures that the AR(1) process is stationary. This is needed to ensure that the log volatility does not diverge to infinity. Assumption 2 is necessary to avoid empty regimes, as otherwise some $\mu_i$ would be unidentified.
-Assumption 3 is a common identification constraint in mixture models, which prevents label switching and ensures that the regimes are uniquely defined \cite{so1998stochastic}. 
+The first condition of Assumption~\ref{ass:mssv} ensures that the AR(1) process is stationary. This is needed to ensure that the log volatility does not diverge to infinity. The second condition is necessary to avoid empty regimes, as otherwise some $\mu_i$ would be unidentified.
+The third condition is a common identification constraint in mixture models, which prevents label switching and ensures that the regimes are uniquely defined \cite{so1998stochastic}. 
 
 In this thesis, we ensure the identifiability of the regimes using the following parameterization:
 \begin{equation}

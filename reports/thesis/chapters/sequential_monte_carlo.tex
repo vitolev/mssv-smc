@@ -373,9 +373,6 @@ As a result the marginal likelihood estimator can therefore be written as
     Alternatively, $\hat{p}(y_{1:T}\mid\theta)$ is the (ordinary) importance sampling estimator $\hat{I}_N^{\mathrm{IS}}$ with $g\equiv 1$, hence the proofs of Propositions~\ref{prop:importance_sampling_unbiased} and~\ref{prop:importance_sampling_consistent} carry over directly.
 \end{proof}
 
-\subsection{Smoothing distribution}
-\label{sec:smoothing_distribution}
-
 \begin{definition}
     The \emph{smoothing distribution} is the posterior distribution of the entire latent trajectory given all available observations,
     \begin{equation}
@@ -431,9 +428,6 @@ The smoothing distribution is thus a target known only up to the normalizing con
     Bias and consistency therefore follow from Propositions~\ref{prop:self_normalized_importance_sampling_biased} and~\ref{prop:self_normalized_importance_sampling_consistent}.
 \end{proof}
 
-\subsection{Filtering distribution}
-\label{sec:filtering_distribution}
-
 \begin{definition}
     The \emph{filtering distribution} is the marginal of the smoothing distribution,
     \begin{equation}
@@ -482,9 +476,6 @@ which leads to the following definition.
     \end{equation}
     Thus, $\hat{I}_N^{\mathrm{filt}}$ is the smoothing estimator $\hat{I}_N^{\mathrm{smth}}$ applied to $\bar{g}$, and its bias and consistency follow from Proposition~\ref{prop:smoothing_estimator}.
 \end{proof}
-
-\subsection{Predictive distribution}
-\label{sec:predictive_distribution}
 
 \begin{definition}
     The (one-step) \emph{predictive distribution} is obtained by propagating the filtering distribution through the transition density,
@@ -559,7 +550,7 @@ a mixture of transition densities weighted by the normalized weights. A particle
     Bias and consistency follow from Propositions~\ref{prop:self_normalized_importance_sampling_biased} and~\ref{prop:self_normalized_importance_sampling_consistent}.
 \end{proof}
 
-\begin{algorithm}[H]
+\begin{algorithm}
 \caption{Sequential importance sampling}
 \label{alg:sequential_importance_sampling}
 \begin{algorithmic}[1]
@@ -588,51 +579,146 @@ The main limitation of SIS is \emph{weight degeneracy}. As the number of observa
 
 \section{Sequential importance sampling with resampling}
 \label{sec:sequential_importance_sampling_with_resampling}
-Sequential importance sampling with resampling (SISR), also known as particle filtering, mitigates weight degeneracy by adding a resampling step to SIS. After the weights are updated, particles with low weights are discarded and particles with high weights are replicated, so that the computational effort is concentrated on regions of high posterior probability. Each iteration thus consists of three steps: propagation, weighting and resampling.
+Sequential importance sampling with resampling (SISR), also known as particle filtering, mitigates weight degeneracy by adding a resampling step to SIS. After the weights are updated, particles with low weights are discarded and particles with high weights are replicated, so that the computational effort is concentrated on regions of high posterior probability. Each iteration thus consists of three steps: resampling, propagation and weighting.
 
-Resampling at time $t$ draws \emph{ancestor indices} $A_t^{(1)},\ldots,A_t^{(N)}\in\{1,\ldots,N\}$ according to the normalized weights $\tilde{w}_t^{(1:N)}$. The $i$-th particle after resampling is a copy of $X_t^{(A_t^{(i)})}$, and all resampled particles receive the weight $1/N$. The number of offspring of particle $j$ is $N_t^{(j)} = |\{i : A_t^{(i)} = j\}|$, so that $\sum_{j=1}^{N}N_t^{(j)} = N$. A resampling scheme is called \emph{unbiased} if
-\begin{equation}
-    \label{eq:unbiased_resampling}
-    E\left[N_t^{(i)}\mid \tilde{w}_t^{(1:N)}\right] = N\tilde{w}_t^{(i)}, \qquad i=1,\ldots,N,
-\end{equation}
-where the expectation is taken with respect to the randomness introduced by resampling. The common schemes, namely multinomial, stratified, residual and systematic resampling, are all unbiased. Systematic resampling is used in this thesis.
+\subsection{Resampling}
+\label{sec:resampling}
+Consider particles $X^{(1)},\ldots,X^{(N)}$ with normalized weights $\tilde{w}^{(1)},\ldots,\tilde{w}^{(N)}$, where the time index is omitted for the moment.
 
-Resampling replaces the weighted particles by equally weighted ones. For a measurable function $g$ with finite expectation, the estimate before resampling and the corresponding estimate after resampling are
+\begin{definition}
+    \label{def:resampling}
+    A \emph{resampling scheme} draws random \emph{ancestor indices}
+    \begin{equation}
+        A^{(1)},\ldots,A^{(N)} \in \{1,\ldots,N\}
+    \end{equation}
+    according to the normalized weights $\tilde{w}^{(1:N)}$. The $i$-th particle after resampling is a copy of the particle $X^{(A^{(i)})}$, its \emph{ancestor}, and all resampled particles receive the weight $1/N$. The number of \emph{offspring} of particle $j$ is
+    \begin{equation}
+        N^{(j)} = \left|\left\{i : A^{(i)} = j\right\}\right|, \qquad \sum_{j=1}^{N} N^{(j)} = N.
+    \end{equation}
+    A resampling scheme is \emph{unbiased} if
+    \begin{equation}
+        E\left[N^{(j)}\mid \tilde{w}^{(1:N)}\right] = N\tilde{w}^{(j)}, \qquad j=1,\ldots,N,
+        \label{eq:unbiased_resampling}
+    \end{equation}
+    where the expectation is taken with respect to the randomness introduced by resampling.
+\end{definition}
+
+The unbiasedness condition states that, on average, each particle is copied a number of times proportional to its weight. The most common resampling schemes are multinomial, stratified, systematic and residual resampling, which are all unbiased. 
+Systematic resampling is used in this thesis. It requires only one uniform random variable and $O(N)$ operations, and it typically introduces less additional variance than multinomial resampling.
+
+Resampling replaces the weighted particles by equally weighted ones. In terms of empirical distributions, the self-normalized weighted empirical distribution is replaced by the \emph{resampled empirical distribution},
 \begin{equation}
-    \hat{I}_N = \sum_{i=1}^{N} \tilde{w}_t^{(i)} g(X_{0:t}^{(i)}) \qquad \text{and} \qquad \hat{I}_N^{\mathrm{res}} = \frac{1}{N} \sum_{i=1}^{N} N_t^{(i)}g(X_{0:t}^{(i)}).
+    \sum_{i=1}^{N}\tilde{w}^{(i)}\delta(x-X^{(i)}) \quad \longrightarrow \quad \frac{1}{N}\sum_{i=1}^{N}\delta(x-X^{(A^{(i)})}) = \frac{1}{N}\sum_{j=1}^{N}N^{(j)}\delta(x-X^{(j)}).
+    \label{eq:resampled_empirical_distribution}
 \end{equation}
+For a function $g$, the estimate before resampling and the corresponding estimate after resampling are therefore
+\begin{align}
+    \hat{I}_N &= \sum_{i=1}^{N} \tilde{w}^{(i)} g(X^{(i)}), \\
+    \hat{I}_N^{\mathrm{res}} &= \frac{1}{N} \sum_{i=1}^{N} g(X^{(A^{(i)})}) = \frac{1}{N} \sum_{j=1}^{N} N^{(j)}g(X^{(j)}).
+\end{align}
 The two generally differ for a particular resampling outcome, but they agree on average.
 
 \begin{proposition}
     \label{prop:resampling_unbiased}
     For an unbiased resampling scheme, the resampled estimator is conditionally unbiased,
     \begin{equation}
-        E\left[\hat{I}_N^{\mathrm{res}} \mid X_{0:t}^{(1:N)}, \tilde{w}_t^{(1:N)}\right] = \hat{I}_N.
+        E\left[\hat{I}_N^{\mathrm{res}} \mid X^{(1:N)}, \tilde{w}^{(1:N)}\right] = \hat{I}_N.
     \end{equation}
 \end{proposition}
 \begin{proof}
-    Given the normalized weights, resampling does not depend on the particles, so by~\eqref{eq:unbiased_resampling},
+    Given the particles and the weights, the values $g(X^{(j)})$ are fixed, and the only randomness comes from the offspring counts, which depend only on the weights. By the linearity of expectation and~\eqref{eq:unbiased_resampling},
     \begin{align}
-        E\left[\hat{I}_N^{\mathrm{res}} \mid X_{0:t}^{(1:N)}, \tilde{w}_t^{(1:N)}\right] &= \frac{1}{N} \sum_{i=1}^{N} g(X_{0:t}^{(i)})\, E\left[N_t^{(i)} \mid \tilde{w}_t^{(1:N)}\right] \\
-        &= \sum_{i=1}^{N} \tilde{w}_t^{(i)} g(X_{0:t}^{(i)}) = \hat{I}_N.
+        E\left[\hat{I}_N^{\mathrm{res}} \mid X^{(1:N)}, \tilde{w}^{(1:N)}\right] &= \frac{1}{N} \sum_{j=1}^{N} g(X^{(j)})\, E\left[N^{(j)} \mid \tilde{w}^{(1:N)}\right] \\
+        &= \frac{1}{N} \sum_{j=1}^{N} g(X^{(j)})\, N\tilde{w}^{(j)} = \hat{I}_N.
     \end{align}
 \end{proof}
 
-In general, resampling can be performed adaptively, only when the \emph{effective sample size}
+Resampling thus leaves the estimates unchanged in expectation, but it adds Monte Carlo variability. By the law of total variance,
 \begin{equation}
-    \mathrm{ESS}_t = \frac{1}{\sum_{i=1}^{N} \left(\tilde{w}_t^{(i)}\right)^2}
+    \mathrm{Var}\left(\hat{I}_N^{\mathrm{res}}\right) = \mathrm{Var}\left(\hat{I}_N\right) + E\left[\mathrm{Var}\left(\hat{I}_N^{\mathrm{res}} \mid X^{(1:N)}, \tilde{w}^{(1:N)}\right)\right] \ge \mathrm{Var}\left(\hat{I}_N\right).
 \end{equation}
-falls below a chosen threshold. It satisfies $1 \le \mathrm{ESS}_t \le N$, with $\mathrm{ESS}_t = N$ for equal weights and $\mathrm{ESS}_t = 1$ when all the weight is concentrated on a single particle. In this thesis, the particle filter resamples at every time step. SISR then samples $X_0^{(i)}\sim q_0(x_0\mid\theta)$ with $\alpha_0^{(i)} = \chi(X_0^{(i)}\mid\theta)/q_0(X_0^{(i)}\mid\theta)$ and, for $t\ge 1$, propagates the resampled particles,
+Estimates at the current time step should therefore be computed from the weighted particles, before resampling. The benefit of resampling lies in the future: particles with negligible weights are no longer propagated, and the particles at later time steps are more diverse. Resampling is thus beneficial only when the weights are sufficiently unequal. A common measure of weight inequality is the following.
+
+\begin{definition}
+    \label{def:ess}
+    The \emph{effective sample size} of the normalized weights $\tilde{w}^{(1:N)}$ is defined as
+    \begin{equation}
+        \mathrm{ESS} = \frac{1}{\sum_{i=1}^{N} \left(\tilde{w}^{(i)}\right)^2}.
+        \label{eq:ess}
+    \end{equation}
+\end{definition}
+
+The effective sample size can be interpreted as the number of equally weighted particles that would give a comparable approximation. Resampling can be performed adaptively, only when the effective sample size falls below a chosen threshold. In this thesis, however, we resample at every time step, which is what we assume from now on.
+
+\subsection{Particle filter}
+\label{sec:particle_filter}
+We now return to the sequential setting and add the time index, so that $A_t^{(i)}$ and $N_t^{(i)}$ denote the ancestor indices and the offspring counts of the resampling step that is applied to the particles at time $t$. SISR samples the initial particles exactly as SIS,
+\begin{equation}
+    X_0^{(i)} \sim q_0(x_0\mid\theta), \qquad \alpha_0^{(i)} = \frac{\chi(X_0^{(i)}\mid\theta)}{q_0(X_0^{(i)}\mid\theta)},
+\end{equation}
+and, for $t\ge 1$, it first resamples the particles at time $t-1$ and then propagates the resampled particles,
 \begin{equation}
     \begin{aligned}
         X_t^{(i)} &\sim q_t\left(x_t\mid X_{0:t-1}^{(A_{t-1}^{(i)})},y_{1:t},\theta\right), \\
-        \alpha_t^{(i)} &= \frac{f(y_t\mid X_t^{(i)},\theta)\,p(X_t^{(i)}\mid X_{t-1}^{(A_{t-1}^{(i)})},\theta)}{q_t\left(X_t^{(i)}\mid X_{0:t-1}^{(A_{t-1}^{(i)})},y_{1:t},\theta\right)},
+        \alpha_t^{(i)} &= \frac{f(y_t\mid X_t^{(i)},\theta)\,p\left(X_t^{(i)}\mid X_{t-1}^{(A_{t-1}^{(i)})},\theta\right)}{q_t\left(X_t^{(i)}\mid X_{0:t-1}^{(A_{t-1}^{(i)})},y_{1:t},\theta\right)},
     \end{aligned}
     \label{eq:sisr_propagation}
 \end{equation}
-independently for $i=1,\ldots,N$. Here $X_{0:t}^{(j)}$ denotes the trajectory ending in $X_t^{(j)}$, which is reconstructed by following the ancestor indices backwards. Since all weights equal $1/N$ after resampling, the normalized weights are simply $\tilde{w}_t^{(i)} = \alpha_t^{(i)}/\sum_{j=1}^{N}\alpha_t^{(j)}$. We assume that the incremental weights are strictly positive, so that the normalized weights are always well defined.
+independently for $i=1,\ldots,N$. Here $X_{0:t}^{(i)}$ denotes the trajectory ending in $X_t^{(i)}$, defined recursively by
+\begin{equation}
+    X_{0:t}^{(i)} = \left(X_{0:t-1}^{(A_{t-1}^{(i)})},\, X_t^{(i)}\right).
+    \label{eq:sisr_trajectory}
+\end{equation}
+In practice, the trajectories are not copied at every resampling step. Instead, the ancestor indices are stored, and the trajectory of any particle is reconstructed by following its ancestor indices backwards in time.
 
-Figure~\ref{fig:resampling} illustrates the effect of resampling on the particle trajectories. A side effect of repeated resampling is \emph{path degeneracy}: going backwards in time, the trajectories coalesce to only a few common ancestors, so the approximation of the smoothing distribution $p(x_{0:t}\mid y_{1:t},\theta)$ deteriorates for early states, even though the approximation of the filtering distribution remains accurate.
+In SIS, the weight of a particle is the product of all its incremental weights, $w_t^{(i)} = w_{t-1}^{(i)}\alpha_t^{(i)}$. In SISR, all weights equal $1/N$ after resampling, so the normalized weights depend only on the latest incremental weights,
+\begin{equation}
+    \tilde{w}_t^{(i)} = \frac{\frac{1}{N}\alpha_t^{(i)}}{\sum_{j=1}^{N}\frac{1}{N}\alpha_t^{(j)}} = \frac{\alpha_t^{(i)}}{\sum_{j=1}^{N}\alpha_t^{(j)}}.
+    \label{eq:sisr_normalized_weights}
+\end{equation}
+The complete procedure is given in Algorithm~\ref{alg:sisr}. The quantities $\hat{p}^{\mathrm{PF}}_t$ computed along the way are explained in Section~\ref{sec:pf_marginal_likelihood}.
+
+\begin{algorithm}
+\caption{Sequential importance sampling with resampling (particle filter)}
+\label{alg:sisr}
+\begin{algorithmic}[1]
+    \REQUIRE Observations $y_{1:T}$, number of particles $N$, parameters $\theta$, proposal densities $q_0,q_t$, model densities $\chi,p,f$, and an unbiased resampling scheme.
+
+    \FOR{$i=1,\ldots,N$}
+        \STATE Sample $X_0^{(i)} \sim q_0(x_0 \mid \theta)$.
+        \STATE Compute $\alpha_0^{(i)} = \dfrac{\chi(X_0^{(i)}\mid \theta)}{q_0(X_0^{(i)} \mid \theta)}$.
+    \ENDFOR
+    \STATE Set $\hat{p}^{\mathrm{PF}}_0 = \frac{1}{N}\sum_{j=1}^{N}\alpha_0^{(j)}$.
+    \STATE Normalize $\tilde{w}_0^{(i)} = \alpha_0^{(i)} / \sum_{j=1}^{N} \alpha_0^{(j)}$ for $i=1,\ldots,N$.
+
+    \FOR{$t=1,\ldots,T$}
+        \STATE Resample: draw ancestor indices $A_{t-1}^{(1:N)}$ according to $\tilde{w}_{t-1}^{(1:N)}$.
+        \FOR{$i=1,\ldots,N$}
+            \STATE Propagate $X_t^{(i)} \sim q_t(\cdot\mid X_{0:t-1}^{(A_{t-1}^{(i)})},y_{1:t},\theta)$ and set $X_{0:t}^{(i)} = \big(X_{0:t-1}^{(A_{t-1}^{(i)})}, X_t^{(i)}\big)$.
+            \STATE Compute $\alpha_t^{(i)} = \dfrac{f(y_t\mid X_t^{(i)}, \theta)\,p(X_t^{(i)}\mid X_{t-1}^{(A_{t-1}^{(i)})}, \theta)}{q_t(X_t^{(i)}\mid X_{0:t-1}^{(A_{t-1}^{(i)})},y_{1:t}, \theta)}$.
+        \ENDFOR
+        \STATE Update $\hat{p}^{\mathrm{PF}}_t = \hat{p}^{\mathrm{PF}}_{t-1}\cdot\frac{1}{N}\sum_{j=1}^{N} \alpha_t^{(j)}$.
+        \STATE Normalize $\tilde{w}_t^{(i)} = \alpha_t^{(i)} / \sum_{j=1}^{N} \alpha_t^{(j)}$ for $i=1,\ldots,N$.
+    \ENDFOR
+    \RETURN Particles $X_{0:T}^{(1:N)}$, normalized weights $\tilde{w}_T^{(1:N)}$ and $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$.
+\end{algorithmic}
+\end{algorithm}
+
+The smoothing, filtering and predictive distributions are approximated in the same way as in SIS, with the trajectories~\eqref{eq:sisr_trajectory} and the normalized weights~\eqref{eq:sisr_normalized_weights}. At every time $t$, the empirical smoothing and filtering distributions of the particle filter are
+\begin{align}
+    \hat{p}_N^{\mathrm{smth}}(x_{0:t}\mid y_{1:t},\theta) &= \sum_{i=1}^{N} \tilde{w}_t^{(i)} \delta(x_{0:t}-X_{0:t}^{(i)}), \label{eq:pf_empirical_smoothing_distribution}\\
+    \hat{p}_N^{\mathrm{filt}}(x_t\mid y_{1:t},\theta) &= \sum_{i=1}^{N} \tilde{w}_t^{(i)} \delta(x_t-X_t^{(i)}), \label{eq:pf_empirical_filtering_distribution}
+\end{align}
+and the corresponding estimators are $\hat{I}_N^{\mathrm{smth}} = \sum_{i=1}^{N}\tilde{w}_t^{(i)}g(X_{0:t}^{(i)})$ and $\hat{I}_N^{\mathrm{filt}} = \sum_{i=1}^{N}\tilde{w}_t^{(i)}g(X_t^{(i)})$. For the predictive distribution, each particle is propagated through the transition density, $X_{t+1}^{(i)}\sim p(x_{t+1}\mid X_t^{(i)},\theta)$, which gives
+\begin{equation}
+    \hat{p}_N^{\mathrm{pred}}(x_{t+1}\mid y_{1:t},\theta) = \sum_{i=1}^{N} \tilde{w}_t^{(i)} \delta(x_{t+1}-X_{t+1}^{(i)})
+    \label{eq:pf_empirical_predictive_distribution}
+\end{equation}
+and $\hat{I}_N^{\mathrm{pred}} = \sum_{i=1}^{N}\tilde{w}_t^{(i)}g(X_{t+1}^{(i)})$, exactly as in~\eqref{eq:predictive_estimator} and~\eqref{eq:empirical_predictive_distribution}.
+
+There is, however, an important difference in the justification of these estimators. Resampling makes the particles dependent, since several particles may share the same ancestor. The trajectories are therefore no longer i.i.d.\ draws from a fixed proposal, and Propositions~\ref{prop:smoothing_estimator}, \ref{prop:filtering_estimator} and~\ref{prop:predictive_estimator}, which rely on the strong law of large numbers for i.i.d.\ samples, no longer apply. The estimators are still self-normalized and thus, in general, biased. They remain consistent as $N\to\infty$ under mild conditions, but the proof requires an induction over the time steps and is considerably more involved; see \cite[Chapter~11]{chopin2020smc}.
+
+Figure~\ref{fig:resampling} illustrates the effect of resampling on the particle trajectories. A side effect of repeated resampling is \emph{path degeneracy}: going backwards in time, the trajectories coalesce to only a few common ancestors, and eventually to a single one. The empirical smoothing distribution~\eqref{eq:pf_empirical_smoothing_distribution} therefore has very few distinct values for the early states, and its approximation of $p(x_{0:t}\mid y_{1:t},\theta)$ deteriorates for those states, even though the approximation of the filtering distribution remains accurate. Resampling thus trades weight degeneracy, which affects all estimates, for path degeneracy, which affects only the estimates that involve states far in the past.
 \begin{figure}
     \centering
     \resizebox{0.8\textwidth}{!}{
@@ -644,80 +730,127 @@ Figure~\ref{fig:resampling} illustrates the effect of resampling on the particle
 
 \subsection{Marginal likelihood estimation}
 \label{sec:pf_marginal_likelihood}
-Parameter inference in Section~\ref{sec:particle_mcmc} requires an unbiased estimate of the marginal likelihood $p(y_{1:T}\mid\theta)$. The SIS estimator~\eqref{eq:marginal_likelihood_estimator}, the average of the unnormalized weights, is unbiased, but its variance typically grows exponentially in $T$ because of weight degeneracy. With resampling it is not even available, since resampling uses only the normalized weights and then resets all weights to $1/N$, so the size of the unnormalized weights is lost.
+Parameter inference in Section~\ref{sec:particle_mcmc} requires an unbiased estimate of the marginal likelihood $p(y_{1:T}\mid\theta)$. The SIS estimator~\eqref{eq:marginal_likelihood_estimator}, the average of the unnormalized weights, is unbiased, but its variance typically grows exponentially in $T$ because of weight degeneracy. With resampling it is not even available, since resampling uses only the normalized weights and then resets all weights to $1/N$, so the scale of the unnormalized weights is lost.
 
-The remedy is to keep track of the lost scale. If each resampled particle were assigned the average weight before resampling instead of $1/N$, the average weight would be preserved by resampling and multiplied by $\frac{1}{N}\sum_{i}\alpha_{t}^{(i)}$ at each time step. This motivates the following definition.
+The remedy is to keep track of the lost scale. If each resampled particle were assigned the average weight before resampling instead of $1/N$, the average weight would be preserved by resampling and multiplied by $\frac{1}{N}\sum_{i=1}^{N}\alpha_{t}^{(i)}$ at each time step. This motivates the following definition.
 
 \begin{definition}
     \label{def:pf_marginal_likelihood_estimator}
-    Let $\alpha_t^{(i)}$ be the incremental weights of SISR with resampling at every time step. The \emph{particle filter marginal likelihood estimator} is defined as
+    Let $\alpha_t^{(i)}$ be the incremental weights of Algorithm~\ref{alg:sisr}. The \emph{particle filter marginal likelihood estimator} is defined as
     \begin{equation}
         \hat{p}^{\mathrm{PF}}_t = \hat{p}^{\mathrm{PF}}(y_{1:t}\mid\theta) = \prod_{s=0}^{t} \left(\frac{1}{N}\sum_{i=1}^{N} \alpha_s^{(i)}\right), \qquad t=0,\ldots,T.
         \label{eq:pf_marginal_likelihood_estimator}
     \end{equation}
 \end{definition}
-The SIS estimator is an average over particles of products of incremental weights, whereas $\hat{p}^{\mathrm{PF}}_T$ is a product over time of averages. For $t\ge 1$, each factor can be interpreted as an estimate of $p(y_t\mid y_{1:t-1},\theta)$.
+The SIS estimator is an average over particles of products of incremental weights, whereas $\hat{p}^{\mathrm{PF}}_t$ is a product over time of averages. The two coincide for $N=1$. For $s\ge 1$, each factor can be interpreted as an estimate of the conditional density $p(y_s\mid y_{1:s-1},\theta)$, in line with the decomposition
+\begin{equation}
+    p(y_{1:t}\mid\theta) = \prod_{s=1}^{t} p(y_s\mid y_{1:s-1},\theta).
+\end{equation}
 
-Unbiasedness of $\hat{p}^{\mathrm{PF}}_T$ does not follow directly from the results so far. Proposition~\ref{prop:marginal_likelihood_estimator_unbiased_consistent} requires i.i.d.\ trajectories, which resampling destroys, and Proposition~\ref{prop:resampling_unbiased} covers a single resampling step for a self-normalized estimate. Nor are the individual factors unbiased, since the particles only approximate the predictive distribution. The following lemma chains the resampling and propagation steps. Multiplying by $\hat{p}^{\mathrm{PF}}_t$ cancels the normalization of the weights, which makes Proposition~\ref{prop:resampling_unbiased} applicable to unnormalized quantities.
+Unbiasedness of $\hat{p}^{\mathrm{PF}}_t$ does not follow directly from the results so far. Proposition~\ref{prop:marginal_likelihood_estimator_unbiased_consistent} requires i.i.d.\ trajectories, which resampling destroys. Nor are the individual factors unbiased, since the particles only approximate the predictive distribution, and even if they were, the factors are dependent, so the expectation of their product is not the product of their expectations. The following lemma instead chains the resampling and propagation steps. Multiplying by $\hat{p}^{\mathrm{PF}}_{t-1}$ cancels the normalization of the weights, which is what makes the argument work.
 
 \begin{lemma}
     \label{lem:pf_unnormalized_unbiased}
-    Assume that the proposals satisfy the support condition of importance sampling and that, given $\tilde{w}_t^{(1:N)}$, the resampling at time $t$ is unbiased and independent of everything generated before it. Then for every non-negative function $\varphi$ on the state space and every $t=0,\ldots,T$,
+    Assume that the proposals satisfy the support condition of importance sampling, that the incremental weights are strictly positive, and that the resampling scheme is unbiased and, given the normalized weights, independent of everything generated before the resampling step. Then for every $t=0,\ldots,T$ and every non-negative function $\varphi$ of trajectories $x_{0:t}$,
     \begin{equation}
-        E\left[\hat{p}^{\mathrm{PF}}_t \, \frac{1}{N}\sum_{i=1}^{N} N_t^{(i)}\varphi(X_t^{(i)})\right] = \int \varphi(x_t)\,p(x_t,y_{1:t}\mid\theta)\,\mathrm{d}x_t,
+        E\left[\hat{p}^{\mathrm{PF}}_{t-1} \, \frac{1}{N}\sum_{i=1}^{N} \alpha_t^{(i)}\varphi(X_{0:t}^{(i)})\right] = \int \varphi(x_{0:t})\,p(x_{0:t},y_{1:t}\mid\theta)\,\mathrm{d}x_{0:t},
         \label{eq:pf_unnormalized_unbiased}
     \end{equation}
-    where $p(x_0,y_{1:0}\mid\theta) = \chi(x_0\mid\theta)$.
+    with the conventions $\hat{p}^{\mathrm{PF}}_{-1} = 1$ and $p(x_{0:0},y_{1:0}\mid\theta) = \chi(x_0\mid\theta)$.
 \end{lemma}
 \begin{proof}
-    Let $\mathcal{F}_t$ denote all variables generated up to and including the resampling at time $t$, and $\mathcal{F}_t^{-}$ those generated before this resampling.
+    The proof is by induction on $t$.
 
-    \emph{Resampling.} By Proposition~\ref{prop:resampling_unbiased} with $g(x_{0:t}) = \varphi(x_t)$, and since $\hat{p}^{\mathrm{PF}}_t = \hat{p}^{\mathrm{PF}}_{t-1}\,\frac{1}{N}\sum_{j}\alpha_t^{(j)}$ is a function of $\mathcal{F}_t^{-}$,
-    \begin{equation}
-        \begin{aligned}
-            E\left[\hat{p}^{\mathrm{PF}}_t\,\frac{1}{N}\sum_{i=1}^{N}N_t^{(i)}\varphi(X_t^{(i)}) \,\middle|\, \mathcal{F}_t^{-}\right] &= \hat{p}^{\mathrm{PF}}_t\sum_{i=1}^{N} \tilde{w}_t^{(i)}\,\varphi(X_t^{(i)}) \\
-            &= \hat{p}^{\mathrm{PF}}_{t-1}\,\frac{1}{N}\sum_{i=1}^{N} \alpha_t^{(i)}\,\varphi(X_t^{(i)}).
-        \end{aligned}
-        \label{eq:pf_resampling_step}
-    \end{equation}
-
-    \emph{Propagation.} Let $t\ge 1$. Given $\mathcal{F}_{t-1}$, $X_t^{(i)}$ is drawn from the proposal in~\eqref{eq:sisr_propagation}, which cancels against the denominator of $\alpha_t^{(i)}$, so
-    \begin{equation}
-        E\left[\alpha_t^{(i)}\,\varphi(X_t^{(i)})\,\middle|\,\mathcal{F}_{t-1}\right] = \bar{\varphi}(X_{t-1}^{(A_{t-1}^{(i)})}),
-    \end{equation}
-    where $\bar{\varphi}(x_{t-1}) = \int f(y_t\mid x_t,\theta)\,\varphi(x_t)\,p(x_t\mid x_{t-1},\theta)\,\mathrm{d}x_t$.
-    Since $\hat{p}^{\mathrm{PF}}_{t-1}$ is a function of $\mathcal{F}_{t-1}$ and particle $j$ is the ancestor of $N_{t-1}^{(j)}$ particles,
-    \begin{equation}
-        E\left[\hat{p}^{\mathrm{PF}}_{t-1}\,\frac{1}{N}\sum_{i=1}^{N} \alpha_t^{(i)}\,\varphi(X_t^{(i)}) \,\middle|\, \mathcal{F}_{t-1}\right] = \frac{\hat{p}^{\mathrm{PF}}_{t-1}}{N}\sum_{j=1}^{N} N_{t-1}^{(j)}\,\bar{\varphi}(X_{t-1}^{(j)}).
-        \label{eq:pf_propagation_step}
-    \end{equation}
-
-    \emph{Induction.} For $t=0$, the particles are i.i.d.\ from $q_0$, so the right-hand side of~\eqref{eq:pf_resampling_step} has expectation $\int\varphi(x_0)\,\chi(x_0\mid\theta)\,\mathrm{d}x_0$ by Proposition~\ref{prop:importance_sampling_unbiased}, which proves the claim. For $t\ge 1$, taking expectations in~\eqref{eq:pf_resampling_step} and~\eqref{eq:pf_propagation_step} and applying the claim at time $t-1$ to the non-negative function $\bar{\varphi}$ gives
+    \emph{Base case.} For $t=0$, the trajectories $X_{0:0}^{(i)} = X_0^{(i)}$ are i.i.d.\ draws from $q_0$ with importance weights $\alpha_0^{(i)}$, so the left-hand side of~\eqref{eq:pf_unnormalized_unbiased} is the expectation of an ordinary importance sampling estimator with unnormalized target $\chi$. As in the proof of Proposition~\ref{prop:importance_sampling_unbiased},
     \begin{align}
-        E\left[\hat{p}^{\mathrm{PF}}_t\,\frac{1}{N}\sum_{i=1}^{N}N_t^{(i)}\varphi(X_t^{(i)})\right] &= \int \bar{\varphi}(x_{t-1})\,p(x_{t-1},y_{1:t-1}\mid\theta)\,\mathrm{d}x_{t-1} \\
-        &= \int\varphi(x_t)\,p(x_t,y_{1:t}\mid\theta)\,\mathrm{d}x_t.
+        E\left[\frac{1}{N}\sum_{i=1}^{N} \alpha_0^{(i)}\varphi(X_0^{(i)})\right] &= \int \varphi(x_0)\frac{\chi(x_0\mid\theta)}{q_0(x_0\mid\theta)}q_0(x_0\mid\theta)\,\mathrm{d}x_0 \\
+        &= \int \varphi(x_0)\,\chi(x_0\mid\theta)\,\mathrm{d}x_0.
     \end{align}
-    The last equality uses Tonelli's theorem and the identity
+
+    \emph{Induction step.} Let $t\ge 1$ and assume that the claim holds at time $t-1$ for every non-negative function. Let $\mathcal{F}_{t-1}$ denote all random variables generated up to and including the resampling of the particles at time $t-1$, that is, the particles $X_{0:t-1}^{(1:N)}$ and the ancestor indices $A_{0:t-1}^{(1:N)}$, and let $\mathcal{F}_{t-1}^{-}$ denote those generated before this resampling step, that is, $\mathcal{F}_{t-1}$ without $A_{t-1}^{(1:N)}$.
+
+    \emph{Propagation.} Given $\mathcal{F}_{t-1}$, the particle $X_t^{(i)}$ is drawn from the proposal in~\eqref{eq:sisr_propagation}, which cancels against the denominator of $\alpha_t^{(i)}$. By~\eqref{eq:sisr_trajectory}, $X_{0:t}^{(i)} = (X_{0:t-1}^{(A_{t-1}^{(i)})},X_t^{(i)})$, so
+    \begin{align}
+        E\left[\alpha_t^{(i)}\,\varphi(X_{0:t}^{(i)})\,\middle|\,\mathcal{F}_{t-1}\right] &= \int f(y_t\mid x_t,\theta)\,\varphi\left(X_{0:t-1}^{(A_{t-1}^{(i)})},x_t\right) \\
+        &\qquad\quad \times p\left(x_t\mid X_{t-1}^{(A_{t-1}^{(i)})},\theta\right)\mathrm{d}x_t \\
+        &= \bar{\varphi}\left(X_{0:t-1}^{(A_{t-1}^{(i)})}\right),
+    \end{align}
+    where
     \begin{equation}
-        p(x_{t-1},y_{1:t-1}\mid\theta)\,p(x_t\mid x_{t-1},\theta)\,f(y_t\mid x_t,\theta) = p(x_{t-1:t},y_{1:t}\mid\theta),
+        \bar{\varphi}(x_{0:t-1}) = \int f(y_t\mid x_t,\theta)\,\varphi(x_{0:t-1},x_t)\,p(x_t\mid x_{t-1},\theta)\,\mathrm{d}x_t
     \end{equation}
-    which follows from Proposition~\ref{prop:joint_density}.
+    is again a non-negative function of trajectories, now of length $t$. The support condition ensures that no part of the integral is lost. Since $\hat{p}^{\mathrm{PF}}_{t-1}$ is a function of $\mathcal{F}_{t-1}$ and trajectory $j$ is the ancestor of $N_{t-1}^{(j)}$ trajectories,
+    \begin{align}
+        E\left[\hat{p}^{\mathrm{PF}}_{t-1}\,\frac{1}{N}\sum_{i=1}^{N} \alpha_t^{(i)}\,\varphi(X_{0:t}^{(i)}) \,\middle|\, \mathcal{F}_{t-1}\right] &= \hat{p}^{\mathrm{PF}}_{t-1}\,\frac{1}{N}\sum_{i=1}^{N} \bar{\varphi}\left(X_{0:t-1}^{(A_{t-1}^{(i)})}\right) \\
+        &= \hat{p}^{\mathrm{PF}}_{t-1}\,\frac{1}{N}\sum_{j=1}^{N} N_{t-1}^{(j)}\,\bar{\varphi}(X_{0:t-1}^{(j)}).
+        \label{eq:pf_propagation_step}
+    \end{align}
+
+    \emph{Resampling.} The estimator $\hat{p}^{\mathrm{PF}}_{t-1}$ is a function of $\mathcal{F}_{t-1}^{-}$, and since the resampling is independent of everything generated before it given the normalized weights, conditioning on $\mathcal{F}_{t-1}^{-}$ affects the offspring counts only through the normalized weights. Proposition~\ref{prop:resampling_unbiased}, applied to the trajectories $X_{0:t-1}^{(1:N)}$ with $g = \bar{\varphi}$, therefore gives
+    \begin{align}
+        E\left[\hat{p}^{\mathrm{PF}}_{t-1}\,\frac{1}{N}\sum_{j=1}^{N}N_{t-1}^{(j)}\,\bar{\varphi}(X_{0:t-1}^{(j)}) \,\middle|\, \mathcal{F}_{t-1}^{-}\right] &= \hat{p}^{\mathrm{PF}}_{t-1}\sum_{j=1}^{N} \tilde{w}_{t-1}^{(j)}\,\bar{\varphi}(X_{0:t-1}^{(j)}) \\
+        &= \hat{p}^{\mathrm{PF}}_{t-2}\,\frac{1}{N}\sum_{j=1}^{N} \alpha_{t-1}^{(j)}\,\bar{\varphi}(X_{0:t-1}^{(j)}),
+        \label{eq:pf_resampling_step}
+    \end{align}
+    where the last equality follows from
+    \begin{equation}
+        \hat{p}^{\mathrm{PF}}_{t-1}\,\tilde{w}_{t-1}^{(j)} = \hat{p}^{\mathrm{PF}}_{t-2}\left(\frac{1}{N}\sum_{k=1}^{N}\alpha_{t-1}^{(k)}\right)\frac{\alpha_{t-1}^{(j)}}{\sum_{k=1}^{N}\alpha_{t-1}^{(k)}} = \hat{p}^{\mathrm{PF}}_{t-2}\,\frac{\alpha_{t-1}^{(j)}}{N}.
+        \label{eq:pf_weight_identity}
+    \end{equation}
+
+    \emph{Conclusion.} It remains to combine the two steps. Write
+    \begin{equation}
+        Z_t = \hat{p}^{\mathrm{PF}}_{t-1}\,\frac{1}{N}\sum_{i=1}^{N}\alpha_t^{(i)}\varphi(X_{0:t}^{(i)})
+    \end{equation}
+    for the random variable inside the expectation in~\eqref{eq:pf_unnormalized_unbiased}. Since $\mathcal{F}_{t-1}^{-}$ is contained in $\mathcal{F}_{t-1}$, the law of total expectation allows us to average out the randomness in two stages, first the propagation at time $t$ and then the resampling at time $t-1$,
+    \begin{equation}
+        E\left[Z_t\right] = E\left[E\left[E\left[Z_t\mid\mathcal{F}_{t-1}\right]\,\middle|\,\mathcal{F}_{t-1}^{-}\right]\right].
+    \end{equation}
+    The innermost conditional expectation is given by~\eqref{eq:pf_propagation_step}, and the conditional expectation of the result given $\mathcal{F}_{t-1}^{-}$ is given by~\eqref{eq:pf_resampling_step}. Therefore
+    \begin{equation}
+        E\left[Z_t\right] = E\left[\hat{p}^{\mathrm{PF}}_{t-2}\,\frac{1}{N}\sum_{j=1}^{N} \alpha_{t-1}^{(j)}\,\bar{\varphi}(X_{0:t-1}^{(j)})\right].
+    \end{equation}
+    The right-hand side has exactly the form of the left-hand side of~\eqref{eq:pf_unnormalized_unbiased}, only at time $t-1$ and with the function $\bar{\varphi}$ in place of $\varphi$. Because $\bar{\varphi}$ is non-negative, the induction hypothesis applies and gives
+    \begin{equation}
+        E\left[Z_t\right] = \int \bar{\varphi}(x_{0:t-1})\,p(x_{0:t-1},y_{1:t-1}\mid\theta)\,\mathrm{d}x_{0:t-1}.
+    \end{equation}
+    Inserting the definition of $\bar{\varphi}$ turns this into a double integral,
+    \begin{equation}
+        E\left[Z_t\right] = \iint \varphi(x_{0:t})\,f(y_t\mid x_t,\theta)\,p(x_t\mid x_{t-1},\theta)\,p(x_{0:t-1},y_{1:t-1}\mid\theta)\,\mathrm{d}x_t\,\mathrm{d}x_{0:t-1}.
+    \end{equation}
+    By Proposition~\ref{prop:joint_density}, extending the joint density by one time step multiplies it by the transition and observation densities,
+    \begin{equation}
+        p(x_{0:t},y_{1:t}\mid\theta) = p(x_{0:t-1},y_{1:t-1}\mid\theta)\,p(x_t\mid x_{t-1},\theta)\,f(y_t\mid x_t,\theta),
+    \end{equation}
+    so the product of the three densities in the double integral is the joint density of $(x_{0:t},y_{1:t})$, and
+    \begin{equation}
+        E\left[Z_t\right] = \int\varphi(x_{0:t})\,p(x_{0:t},y_{1:t}\mid\theta)\,\mathrm{d}x_{0:t},
+    \end{equation}
+    which is the claim at time $t$. The order of integration may be exchanged because all integrands are non-negative.
 \end{proof}
 
 \begin{theorem}
     \label{thm:pf_marginal_likelihood_unbiased}
-    Under the assumptions of Lemma~\ref{lem:pf_unnormalized_unbiased}, the particle filter marginal likelihood estimator is unbiased for every $N\ge 1$,
+    Under the assumptions of Lemma~\ref{lem:pf_unnormalized_unbiased}, the particle filter marginal likelihood estimator is unbiased for every number of particles $N\ge 1$ and every $t=1,\ldots,T$,
     \begin{equation}
-        E\left[\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)\right] = p(y_{1:T}\mid\theta).
+        E\left[\hat{p}^{\mathrm{PF}}(y_{1:t}\mid\theta)\right] = p(y_{1:t}\mid\theta).
     \end{equation}
+    In particular, $E\left[\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)\right] = p(y_{1:T}\mid\theta)$.
 \end{theorem}
 \begin{proof}
-    Take $t=T$ and $\varphi\equiv 1$ in Lemma~\ref{lem:pf_unnormalized_unbiased} and use $\sum_{i=1}^{N}N_T^{(i)} = N$.
+    Take $\varphi\equiv 1$ in Lemma~\ref{lem:pf_unnormalized_unbiased}. The left-hand side of~\eqref{eq:pf_unnormalized_unbiased} becomes
+    \begin{equation}
+        E\left[\hat{p}^{\mathrm{PF}}_{t-1} \, \frac{1}{N}\sum_{i=1}^{N} \alpha_t^{(i)}\right] = E\left[\hat{p}^{\mathrm{PF}}_t\right],
+    \end{equation}
+    and the right-hand side becomes $\int p(x_{0:t},y_{1:t}\mid\theta)\,\mathrm{d}x_{0:t} = p(y_{1:t}\mid\theta)$.
 \end{proof}
+
+Lemma~\ref{lem:pf_unnormalized_unbiased} is stated for functions of entire trajectories, although Theorem~\ref{thm:pf_marginal_likelihood_unbiased} only needs $\varphi\equiv 1$. The general form is used in Section~\ref{sec:pmmh_trajectories}, where the trajectories of the particle filter are used for inference about the latent states.
 
 Unbiasedness does not carry over to the logarithm: by Jensen's inequality, $E[\log\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)] \le \log p(y_{1:T}\mid\theta)$. In contrast to SIS, under mild conditions the relative variance of $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ grows only linearly in $T$ for a fixed $N$ \cite{chopin2020smc}.
 
 \subsection{Bootstrap particle filter}
+\label{sec:bootstrap_particle_filter}
 The simplest and most widely used particle filter is the bootstrap particle filter, which proposes from the model itself,
 \begin{equation}
     q_t(x_t\mid x_{0:t-1},y_{1:t},\theta) = p(x_t\mid x_{t-1},\theta), \qquad q_0(x_0\mid\theta) = \chi(x_0\mid\theta).
@@ -733,7 +866,7 @@ and it is unbiased by Theorem~\ref{thm:pf_marginal_likelihood_unbiased}. The com
 \caption{Bootstrap particle filter}
 \label{alg:bootstrap_particle_filter}
 \begin{algorithmic}[1]
-    \REQUIRE Observations $y_{1:T}$, number of particles $N$, parameters $\theta$, model densities $\chi$, $p$, $f$.
+    \REQUIRE Observations $y_{1:T}$, number of particles $N$, parameters $\theta$, model densities $\chi$, $p$, $f$ and an unbiased resampling scheme.
     \STATE Sample $X_0^{(i)} \sim \chi(x_0 \mid \theta)$ and set $A_0^{(i)} = i$ for $i=1,\ldots,N$.
     \STATE Set $\hat{p}^{\mathrm{PF}}_0 = 1$.
     \FOR{$t=1,\ldots,T$}
@@ -743,7 +876,7 @@ and it is unbiased by Theorem~\ref{thm:pf_marginal_likelihood_unbiased}. The com
         \STATE Normalize $\tilde{w}_t^{(i)} = \alpha_t^{(i)} / \sum_{j=1}^{N} \alpha_t^{(j)}$ for $i=1,\ldots,N$.
         \STATE Resample: draw ancestor indices $A_t^{(1:N)}$ according to $\tilde{w}_t^{(1:N)}$.
     \ENDFOR
-    \RETURN $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta) = \hat{p}^{\mathrm{PF}}_T$.
+    \RETURN Particles $X_{0:T}^{(1:N)}$, normalized weights $\tilde{w}_T^{(1:N)}$ and $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$.
 \end{algorithmic}
 \end{algorithm}
 
@@ -785,14 +918,10 @@ In words, if $\theta_{m-1}\sim\pi$, then also $\theta_m\sim\pi$. Verifying~\eqre
         \pi(\theta)\,K(\theta'\mid\theta) = \pi(\theta')\,K(\theta\mid\theta').
         \label{eq:detailed_balance}
     \end{equation}
-    Alternatively, $K$ satisfies detailed balance with respect to $\pi$ if for every bounded function $g$ on $\Theta\times\Theta$,
-    \begin{equation}
-        \iint g(\theta,\theta')\,\pi(\theta)\,K(\theta'\mid\theta)\,\mathrm{d}\theta'\,\mathrm{d}\theta = \iint g(\theta',\theta)\,\pi(\theta)\,K(\theta'\mid\theta)\,\mathrm{d}\theta'\,\mathrm{d}\theta.
-        \label{eq:detailed_balance_integrated}
-    \end{equation}
-\end{definition}
-If $\theta_{m-1}\sim\pi$, the pair $(\theta_{m-1},\theta_m)$ has joint density $\pi(\theta)\,K(\theta'\mid\theta)$, and~\eqref{eq:detailed_balance_integrated} states that $E[g(\theta_{m-1},\theta_m)] = E[g(\theta_m,\theta_{m-1})]$. In other words, the stationary chain looks the same forwards and backwards in time.
 
+\end{definition}
+Such definiton tells us that the joint density of $(\theta_{m-1},\theta_m)$ is symmetric, so the chain is reversible in time. 
+    
 \begin{proposition}
     \label{prop:detailed_balance_invariance}
     If $K$ satisfies detailed balance with respect to $\pi$, then $\pi$ is invariant for $K$.
@@ -879,7 +1008,7 @@ where the unnormalized density $\tilde{\pi}\ge 0$ can be evaluated pointwise. Th
 
 The normalizing constant $Z$ cancels in the ratio, so, exactly as for self-normalized importance sampling, only the unnormalized density $\tilde{\pi}$ is required. The resulting procedure is given in Algorithm~\ref{alg:metropolis_hastings}.
 
-\begin{algorithm}[H]
+\begin{algorithm}
 \caption{Metropolis-Hastings}
 \label{alg:metropolis_hastings}
 \begin{algorithmic}[1]
@@ -959,267 +1088,250 @@ Applied to Bayesian parameter inference with target~\eqref{eq:parameter_posterio
 \end{equation}
 The intractable evidence $p(y_{1:T})$ cancels, but the marginal likelihood $p(y_{1:T}\mid\theta)$ does not. For the MSSV model, and for nonlinear state-space models in general, Algorithm~\ref{alg:metropolis_hastings} therefore cannot be implemented directly. A natural idea is to replace $p(y_{1:T}\mid\theta)$ in~\eqref{eq:mh_acceptance_parameters} by a particle filter estimate. Remarkably, if this is done correctly, the resulting chain still targets the exact posterior. The key property that makes this possible is that the particle filter estimator is unbiased (Theorem~\ref{thm:pf_marginal_likelihood_unbiased}).
 
+
 \subsection{Pseudo-marginal Metropolis-Hastings}
 \label{sec:pseudo_marginal_mh}
-We now formalize what it means to replace the marginal likelihood in~\eqref{eq:mh_acceptance_parameters} by an estimate. Consider the following general setting \cite{andrieu2009pseudo}. Let $U$ be a vector of auxiliary random variables with density $\psi(u\mid\theta)$, and let $\hat{p}(y_{1:T}\mid\theta,u)$ be an estimator of the marginal likelihood computed from $U=u$, satisfying
+We now formalize what it means to replace the marginal likelihood in~\eqref{eq:mh_acceptance_parameters} by an estimate. Consider the following general setting \cite{andrieu2009pseudo}. Let $u$ denote a collection of \emph{auxiliary variables} in a space $\mathbb{U}$, which may have both continuous and discrete components, and let $\psi(u\mid\theta)$ be a probability density on $\mathbb{U}$ for every $\theta\in\Theta$. Let $\hat{Z}(\theta,u)\ge 0$ be a function such that
 \begin{equation}
-    \hat{p}(y_{1:T}\mid\theta,u) \ge 0 \qquad \text{and} \qquad \int \hat{p}(y_{1:T}\mid\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u = p(y_{1:T}\mid\theta)
+    \int \hat{Z}(\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u = p(y_{1:T}\mid\theta) \qquad \text{for all } \theta\in\Theta.
     \label{eq:pseudo_marginal_unbiased}
 \end{equation}
-for all $\theta$ and $u$. The auxiliary variables may contain both continuous and discrete components. For the particle filter, $U$ will include the discrete ancestor indices. The density $\psi$ only needs to be sampled from, never evaluated.
+In words, if $U\sim\psi(\cdot\mid\theta)$, then $\hat{Z}(\theta,U)$ is a non-negative unbiased estimator of the marginal likelihood at $\theta$. For the particle filter, $U$ will contain all the random variables generated by one run of the filter, including the discrete ancestor indices, and $\psi(\cdot\mid\theta)$ will be their joint density. The density $\psi$ only needs to be sampled from, which amounts to running the filter. As we will see, it never needs to be evaluated.
 
-The \emph{pseudo-marginal Metropolis-Hastings} algorithm, given in Algorithm~\ref{alg:pseudo_marginal_mh}, is Algorithm~\ref{alg:metropolis_hastings} with $p(y_{1:T}\mid\theta)$ replaced by its estimate. It is crucial that the estimate associated with the current state is stored and reused in subsequent iterations, rather than recomputed.
+The \emph{pseudo-marginal Metropolis-Hastings} algorithm is the Metropolis-Hastings algorithm with $p(y_{1:T}\mid\theta)$ replaced by its estimate, and it is given in Algorithm~\ref{alg:pseudo_marginal_mh}. It is crucial that the estimate associated with the current state is stored and reused in subsequent iterations, rather than recomputed.
 
-\begin{algorithm}[H]
+\begin{algorithm}
 \caption{Pseudo-marginal Metropolis-Hastings}
 \label{alg:pseudo_marginal_mh}
 \begin{algorithmic}[1]
-    \REQUIRE Prior density $p(\theta)$, proposal density $q$, auxiliary density $\psi$, estimator $\hat{p}$, number of iterations $M$, initial state $\theta_0$.
-    \STATE Sample $U_0 \sim \psi(\cdot\mid\theta_0)$ and compute $\hat{p}_0 = \hat{p}(y_{1:T}\mid\theta_0,U_0)$; repeat until $p(\theta_0)\,\hat{p}_0 > 0$.
+    \REQUIRE Prior density $p(\theta)$, proposal density $q$, auxiliary density $\psi$, estimator $\hat{Z}$, number of iterations $M$, initial state $\theta_0$.
+    \STATE Sample $U_0\sim\psi(\cdot\mid\theta_0)$ and compute $\hat{Z}_0 = \hat{Z}(\theta_0,U_0)$; repeat until $p(\theta_0)\,\hat{Z}_0>0$.
     \FOR{$m=1,\ldots,M$}
-        \STATE Sample $\theta' \sim q(\cdot\mid\theta_{m-1})$.
-        \STATE Sample $U' \sim \psi(\cdot\mid\theta')$ and compute $\hat{p}' = \hat{p}(y_{1:T}\mid\theta',U')$.
+        \STATE Sample $\theta'\sim q(\cdot\mid\theta_{m-1})$.
+        \STATE Sample $U'\sim\psi(\cdot\mid\theta')$ and compute $\hat{Z}' = \hat{Z}(\theta',U')$.
         \STATE Compute
         \begin{equation*}
-            \hat{\alpha} = \min\left\{1,\, \frac{\hat{p}'\,p(\theta')\,q(\theta_{m-1}\mid\theta')}{\hat{p}_{m-1}\,p(\theta_{m-1})\,q(\theta'\mid\theta_{m-1})}\right\}.
+            \hat{\alpha} = \min\left\{1,\, \frac{\hat{Z}'\,p(\theta')\,q(\theta_{m-1}\mid\theta')}{\hat{Z}_{m-1}\,p(\theta_{m-1})\,q(\theta'\mid\theta_{m-1})}\right\}.
         \end{equation*}
-        \STATE Sample $V \sim \mathcal{U}(0,1)$.
-        \IF{$V \le \hat{\alpha}$}
-            \STATE Accept: set $(\theta_m,U_m,\hat{p}_m) = (\theta',U',\hat{p}')$.
+        \STATE Sample $V\sim\mathcal{U}(0,1)$.
+        \IF{$V\le\hat{\alpha}$}
+            \STATE Accept: set $(\theta_m,U_m,\hat{Z}_m) = (\theta',U',\hat{Z}')$.
         \ELSE
-            \STATE Reject: set $(\theta_m,U_m,\hat{p}_m) = (\theta_{m-1},U_{m-1},\hat{p}_{m-1})$.
+            \STATE Reject: set $(\theta_m,U_m,\hat{Z}_m) = (\theta_{m-1},U_{m-1},\hat{Z}_{m-1})$.
         \ENDIF
     \ENDFOR
 \end{algorithmic}
 \end{algorithm}
 
-At first sight, Algorithm~\ref{alg:pseudo_marginal_mh} appears to be merely an approximation of Algorithm~\ref{alg:metropolis_hastings}. The key insight is that it is an \emph{exact} Metropolis-Hastings algorithm, but on an extended space that includes the auxiliary variables.
+At first sight, Algorithm~\ref{alg:pseudo_marginal_mh} appears to be merely an approximation of Algorithm~\ref{alg:metropolis_hastings}. The key insight is that it is an \emph{exact} Metropolis-Hastings algorithm, but on an extended space $\Theta\times\mathbb{U}$ that includes the auxiliary variables.
 
 \begin{definition}
     \label{def:extended_target}
-    The \emph{extended target} is the density on pairs $(\theta,u)$ given by
+    The \emph{extended target} is the density on $\Theta\times\mathbb{U}$ given by
     \begin{equation}
-        \bar{\pi}(\theta,u) = \frac{p(\theta)\,\psi(u\mid\theta)\,\hat{p}(y_{1:T}\mid\theta,u)}{p(y_{1:T})}.
+        \bar{\pi}(\theta,u) = \frac{p(\theta)\,\psi(u\mid\theta)\,\hat{Z}(\theta,u)}{p(y_{1:T})}.
         \label{eq:extended_target}
     \end{equation}
 \end{definition}
 
+The extended target can be read as the joint density of $(\theta,U)$ when $\theta$ is drawn from the prior and $U$ from $\psi(\cdot\mid\theta)$, reweighted by the estimate $\hat{Z}(\theta,U)$, in the same way as the posterior~\eqref{eq:parameter_posterior} is the prior reweighted by the marginal likelihood.
+
 \begin{theorem}
     \label{thm:pseudo_marginal_exact}
-    Assume that the estimator satisfies~\eqref{eq:pseudo_marginal_unbiased}. Then:
+    Assume that the estimator satisfies~\eqref{eq:pseudo_marginal_unbiased}. Then
     \begin{enumerate}
-        \item $\bar{\pi}$ is a probability density;
-        \item the marginal of $\bar{\pi}$ in $\theta$ is the posterior density, $\int\bar{\pi}(\theta,u)\,\mathrm{d}u = p(\theta\mid y_{1:T})$;
-        \item the sequence $(\theta_m,U_m)_{m\ge 0}$ generated by Algorithm~\ref{alg:pseudo_marginal_mh} is a Metropolis-Hastings chain with target density $\bar{\pi}$ and proposal density
+        \item $\bar{\pi}$ is a probability density on $\Theta\times\mathbb{U}$;
+        \item the $\theta$-marginal of $\bar{\pi}$ is the posterior, $\int \bar{\pi}(\theta,u)\,\mathrm{d}u = p(\theta\mid y_{1:T})$;
+        \item the sequence $(\theta_m,U_m)_{m\ge 0}$ generated by Algorithm~\ref{alg:pseudo_marginal_mh} is a Metropolis-Hastings chain on $\Theta\times\mathbb{U}$ with target density $\bar{\pi}$ and proposal density
         \begin{equation}
             \bar{q}(\theta',u'\mid\theta,u) = q(\theta'\mid\theta)\,\psi(u'\mid\theta').
+            \label{eq:extended_proposal}
         \end{equation}
     \end{enumerate}
-    Consequently, $\bar{\pi}$ is invariant for $(\theta_m,U_m)_{m\ge 0}$, and if $(\theta_{m-1},U_{m-1}) \sim \bar{\pi}$, then $\theta_m \sim p(\theta\mid y_{1:T})$.
+    Consequently, $\bar{\pi}$ is an invariant density of $(\theta_m,U_m)_{m\ge0}$, and if $(\theta_{m-1},U_{m-1})\sim\bar{\pi}$, then $\theta_m\sim p(\theta\mid y_{1:T})$.
 \end{theorem}
 \begin{proof}
-    \emph{1 and 2.} Clearly $\bar{\pi}\ge 0$, and by~\eqref{eq:pseudo_marginal_unbiased},
+    \emph{1 and 2.} Clearly $\bar{\pi}\ge 0$. Integrating out the auxiliary variables and using~\eqref{eq:pseudo_marginal_unbiased} gives
     \begin{align}
-        \int\bar{\pi}(\theta,u)\,\mathrm{d}u &= \frac{p(\theta)}{p(y_{1:T})}\int \hat{p}(y_{1:T}\mid\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u \\
-        &= \frac{p(\theta)\,p(y_{1:T}\mid\theta)}{p(y_{1:T})} = p(\theta\mid y_{1:T}),
+        \int \bar{\pi}(\theta,u)\,\mathrm{d}u &= \frac{p(\theta)}{p(y_{1:T})}\int \hat{Z}(\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u \\
+        &= \frac{p(y_{1:T}\mid\theta)\,p(\theta)}{p(y_{1:T})} = p(\theta\mid y_{1:T}),
     \end{align}
-    which proves the second claim. Integrating over $\theta$ gives total mass one, which proves the first.
+    which proves the second claim. Integrating additionally over $\theta$ gives total mass one, which proves the first.
 
-    \emph{3.} Algorithm~\ref{alg:pseudo_marginal_mh} proposes by first drawing $\theta'\sim q(\cdot\mid\theta)$ and then $U'\sim\psi(\cdot\mid\theta')$, which is exactly a draw from $\bar{q}(\cdot\mid\theta,u)$. The Metropolis-Hastings ratio~\eqref{eq:mh_acceptance_probability} on the extended space is
+    \emph{3.} Algorithm~\ref{alg:pseudo_marginal_mh} proposes by first drawing $\theta'\sim q(\cdot\mid\theta)$ and then $U'\sim\psi(\cdot\mid\theta')$, so the joint proposal density of $(\theta',U')$ is~\eqref{eq:extended_proposal}. It does not depend on the current auxiliary variables $u$. The Metropolis-Hastings ratio~\eqref{eq:mh_acceptance_probability} on the extended space is therefore
     \begin{align}
         \frac{\bar{\pi}(\theta',u')\,\bar{q}(\theta,u\mid\theta',u')}{\bar{\pi}(\theta,u)\,\bar{q}(\theta',u'\mid\theta,u)}
-        &= \frac{p(\theta')\,\psi(u'\mid\theta')\,\hat{p}(y_{1:T}\mid\theta',u')\;q(\theta\mid\theta')\,\psi(u\mid\theta)}{p(\theta)\,\psi(u\mid\theta)\,\hat{p}(y_{1:T}\mid\theta,u)\;q(\theta'\mid\theta)\,\psi(u'\mid\theta')} \\
-        &= \frac{\hat{p}(y_{1:T}\mid\theta',u')\,p(\theta')\,q(\theta\mid\theta')}{\hat{p}(y_{1:T}\mid\theta,u)\,p(\theta)\,q(\theta'\mid\theta)},
+        &= \frac{p(\theta')\,\psi(u'\mid\theta')\,\hat{Z}(\theta',u')\;q(\theta\mid\theta')\,\psi(u\mid\theta)}{p(\theta)\,\psi(u\mid\theta)\,\hat{Z}(\theta,u)\;q(\theta'\mid\theta)\,\psi(u'\mid\theta')} \\
+        &= \frac{\hat{Z}(\theta',u')\,p(\theta')\,q(\theta\mid\theta')}{\hat{Z}(\theta,u)\,p(\theta)\,q(\theta'\mid\theta)},
     \end{align}
-    since the auxiliary densities and the evidence $p(y_{1:T})$ cancel. This is exactly the ratio in $\hat{\alpha}$, where $\hat{p}_{m-1} = \hat{p}(y_{1:T}\mid\theta_{m-1},U_{m-1})$. The chain is started at a state with $\bar{\pi}(\theta_0,U_0)>0$, and a proposal with $\bar{\pi}(\theta',U')=0$ has $\hat{\alpha}=0$ and is rejected, so the convention in Definition~\ref{def:mh_acceptance_probability} is never invoked. Moreover, on acceptance both $\theta$ and $u$ are replaced, and on rejection both are kept. Hence Algorithm~\ref{alg:pseudo_marginal_mh} is Algorithm~\ref{alg:metropolis_hastings} on the extended space. Since the algorithm uses $u$ only through the value $\hat{p}(y_{1:T}\mid\theta,u)$, storing $\hat{p}_m$ is equivalent to storing $U_m$.
+    since the evidence $p(y_{1:T})$ and both auxiliary densities cancel, which is exactly the ratio in $\hat{\alpha}$. The cancellation is valid because $U$ and $U'$ are drawn from $\psi(\cdot\mid\theta)$ and $\psi(\cdot\mid\theta')$, so $\psi(U\mid\theta)>0$ and $\psi(U'\mid\theta')>0$.
 
     By Theorem~\ref{thm:mh_detailed_balance}, $\bar{\pi}$ is invariant for $(\theta_m,U_m)_{m\ge 0}$. If $(\theta_{m-1},U_{m-1})\sim\bar{\pi}$, then $(\theta_m,U_m)\sim\bar{\pi}$, and by the second claim, $\theta_m\sim p(\theta\mid y_{1:T})$.
 \end{proof}
 
-The cancellation of $\psi$ is what makes the method practical: the density of the auxiliary variables, which for the particle filter would be very complicated, never has to be evaluated. The proof also explains why the estimate of the current state must not be recomputed. Reusing $\hat{p}_{m-1}$ corresponds to keeping $U_{m-1}$ as part of the state of the chain, whereas drawing a fresh $U$ for the current state at every iteration would alter the transition density, which would then no longer satisfy detailed balance with respect to $\bar{\pi}$. Finally, the proof shows why unbiasedness matters. The $\theta$-marginal of $\bar{\pi}$ is proportional to $p(\theta)\int\hat{p}(y_{1:T}\mid\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u$, which is proportional to the posterior density only if the expectation of the estimator equals $p(y_{1:T}\mid\theta)$ up to a constant that does not depend on $\theta$.
+The extended proposal~\eqref{eq:extended_proposal} is what makes the method practical. The density of the auxiliary variables appears in both the extended target and the extended proposal, so it cancels from the acceptance ratio and never has to be evaluated. This is important, since for the particle filter $\psi$ is the joint density of all the particles and ancestor indices, which is complicated and, for resampling schemes such as systematic resampling, not even available in a convenient form.
+
+The proof also explains why the estimate of the current state must not be recomputed. Reusing $\hat{Z}_{m-1}$ corresponds to keeping $U_{m-1}$ as part of the state of the chain. Drawing a fresh $U$ for the current state at every iteration would instead change the transition density, which would then no longer satisfy detailed balance with respect to $\bar{\pi}$, and the resulting chain would, in general, not target the posterior. 
+Finally, the proof shows which property of the estimator is needed. Regardless of the estimator, the chain targets the normalized version of $p(\theta)\,\psi(u\mid\theta)\,\hat{Z}(\theta,u)$, and the $\theta$-marginal of this target is proportional to $p(\theta)\int\hat{Z}(\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u$.
+It is therefore the posterior if and only if $\int\hat{Z}(\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u = c\,p(y_{1:T}\mid\theta)$ for some constant $c>0$ that does not depend on $\theta$.
+Unbiasedness~\eqref{eq:pseudo_marginal_unbiased} is the case $c=1$. For general $c$, the estimator $\hat{Z}/c$ is unbiased and gives the same acceptance ratio, so the two algorithms coincide.
 
 \subsection{Particle marginal Metropolis-Hastings}
 \label{sec:pmmh}
-Particle marginal Metropolis-Hastings (PMMH) \cite{andrieu2010particle} is the pseudo-marginal Metropolis-Hastings algorithm in which the estimator is the bootstrap particle filter marginal likelihood estimator~\eqref{eq:bootstrap_marginal_likelihood_estimator}. Here the auxiliary variables are all the random variables generated by one run of the bootstrap particle filter at parameter $\theta$,
+Particle marginal Metropolis-Hastings (PMMH) \cite{andrieu2010particle} is the pseudo-marginal Metropolis-Hastings algorithm in which the estimator is the particle filter marginal likelihood estimator~\eqref{eq:pf_marginal_likelihood_estimator}. 
+In this thesis, the bootstrap particle filter of Algorithm~\ref{alg:bootstrap_particle_filter} is used. The auxiliary variables are then all the random variables generated by one run of the filter at parameter $\theta$,
 \begin{equation}
-    U = \left(X_{0:T}^{(1:N)},\, A_{1:T-1}^{(1:N)}\right),
+    U = \left(X_{0:T}^{(1:N)},\,A_{1:T-1}^{(1:N)}\right),
 \end{equation}
-that is, the particles at every time step and the ancestor indices of all resampling steps that affect the estimate. Writing $a_0^{(i)} = i$ and letting $\rho(a_t^{(1:N)}\mid\tilde{w}_t^{(1:N)})$ denote the probability mass function of the ancestor indices produced by the resampling scheme, the auxiliary density is
-\begin{align}
-    \psi(u\mid\theta) &= \prod_{i=1}^{N}\chi(x_0^{(i)}\mid\theta)\;\prod_{t=1}^{T}\prod_{i=1}^{N} p\left(x_t^{(i)}\mid x_{t-1}^{(a_{t-1}^{(i)})},\theta\right) \\
-    &\quad \times \prod_{t=1}^{T-1} \rho\left(a_t^{(1:N)}\mid\tilde{w}_t^{(1:N)}\right),
+that is, the particles at every time step and the ancestor indices of all resampling steps that affect the estimate. The indices $A_0^{(i)} = i$ are fixed, and the indices $A_T^{(1:N)}$ are drawn after the last estimate has been computed, so neither is included. 
+The space $\mathbb{U}$ thus contains both continuous and discrete components. Writing $a_{t-1}^{(1:N)}$ and $x_t^{(1:N)}$ for the values of the ancestor indices and the particles, with $a_0^{(i)} = i$, the density of $U$ is
+\begin{equation}
+    \psi(u\mid\theta) = \prod_{i=1}^{N}\chi(x_0^{(i)}\mid\theta)\prod_{t=1}^{T}\left(r\left(a_{t-1}^{(1:N)}\mid x_{t-1}^{(1:N)},\theta\right)\prod_{i=1}^{N} p\left(x_t^{(i)}\mid x_{t-1}^{(a_{t-1}^{(i)})},\theta\right)\right),
     \label{eq:pf_auxiliary_density}
-\end{align}
-where the normalized weights $\tilde{w}_t^{(1:N)}$ are functions of $x_t^{(1:N)}$. It is a density with respect to the product of the reference measures on the states and the counting measure on the indices, and, by Theorem~\ref{thm:pseudo_marginal_exact}, it never needs to be evaluated. The estimator $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta,u) = \prod_{t=1}^{T}\frac{1}{N}\sum_{i=1}^{N}f(y_t\mid x_t^{(i)},\theta)$ is a function of $(\theta,u)$. The complete procedure is given in Algorithm~\ref{alg:pmmh}.
+\end{equation}
+where $r(\cdot\mid x_{t-1}^{(1:N)},\theta)$ is the probability mass function of the ancestor indices given the normalized weights $\tilde{w}_{t-1}^{(1:N)}$, which are themselves functions of $x_{t-1}^{(1:N)}$ and $\theta$, with $r = 1$ for $t=1$. 
+By Theorem~\ref{thm:pseudo_marginal_exact}, however, $\psi$ never needs to be evaluated, and~\eqref{eq:pf_auxiliary_density} only serves to show that it exists. The estimator is
+\begin{equation}
+    \hat{Z}(\theta,U) = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta) = \prod_{t=1}^{T}\left(\frac{1}{N}\sum_{i=1}^{N} f(y_t\mid X_t^{(i)},\theta)\right),
+\end{equation}
+as in~\eqref{eq:bootstrap_marginal_likelihood_estimator}. The complete procedure is given in Algorithm~\ref{alg:pmmh}. Besides the parameters, the chain also stores one trajectory $X_{0:T}[m]$ of the latent states per iteration. These trajectories do not affect the parameter chain and are explained in Section~\ref{sec:pmmh_trajectories}.
 
 \begin{algorithm}[H]
 \caption{Particle marginal Metropolis-Hastings}
 \label{alg:pmmh}
 \begin{algorithmic}[1]
     \REQUIRE Observations $y_{1:T}$, number of particles $N$, prior density $p(\theta)$, proposal density $q$, number of iterations $M$, initial state $\theta_0$ with $p(\theta_0)>0$.
-    \STATE Run Algorithm~\ref{alg:bootstrap_particle_filter} at $\theta_0$ and compute $\hat{p}_0 = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta_0)$.
+    \STATE Run Algorithm~\ref{alg:bootstrap_particle_filter} at $\theta_0$ and set $\hat{Z}_0 = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta_0)$.
+    \STATE Draw $B$ with $P(B=b) = \tilde{w}_T^{(b)}$ and set $X_{0:T}[0] = X_{0:T}^{(B)}$.
     \FOR{$m=1,\ldots,M$}
-        \STATE Sample $\theta' \sim q(\cdot\mid\theta_{m-1})$.
-        \STATE Run Algorithm~\ref{alg:bootstrap_particle_filter} at $\theta'$ and compute $\hat{p}' = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta')$.
+        \STATE Sample $\theta'\sim q(\cdot\mid\theta_{m-1})$.
+        \STATE Run Algorithm~\ref{alg:bootstrap_particle_filter} at $\theta'$ and set $\hat{Z}' = \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta')$.
+        \STATE Draw $B'$ with $P(B'=b) = \tilde{w}_T'^{(b)}$ and set $X'_{0:T} = X_{0:T}'^{(B')}$.
         \STATE Compute
         \begin{equation*}
-            \hat{\alpha} = \min\left\{1,\, \frac{\hat{p}'\,p(\theta')\,q(\theta_{m-1}\mid\theta')}{\hat{p}_{m-1}\,p(\theta_{m-1})\,q(\theta'\mid\theta_{m-1})}\right\}.
+            \hat{\alpha} = \min\left\{1,\, \frac{\hat{Z}'\,p(\theta')\,q(\theta_{m-1}\mid\theta')}{\hat{Z}_{m-1}\,p(\theta_{m-1})\,q(\theta'\mid\theta_{m-1})}\right\}.
         \end{equation*}
-        \STATE Sample $V \sim \mathcal{U}(0,1)$.
-        \IF{$V \le \hat{\alpha}$}
-            \STATE Accept: set $(\theta_m,\hat{p}_m) = (\theta',\hat{p}')$.
+        \STATE Sample $V\sim\mathcal{U}(0,1)$.
+        \IF{$V\le\hat{\alpha}$}
+            \STATE Accept: set $(\theta_m,X_{0:T}[m],\hat{Z}_m) = (\theta',X'_{0:T},\hat{Z}')$.
         \ELSE
-            \STATE Reject: set $(\theta_m,\hat{p}_m) = (\theta_{m-1},\hat{p}_{m-1})$.
+            \STATE Reject: set $(\theta_m,X_{0:T}[m],\hat{Z}_m) = (\theta_{m-1},X_{0:T}[m-1],\hat{Z}_{m-1})$.
         \ENDIF
     \ENDFOR
+    \RETURN Samples $(\theta_m,X_{0:T}[m])$, $m=1,\ldots,M$.
 \end{algorithmic}
 \end{algorithm}
 
 \begin{theorem}
     \label{thm:pmmh_exact}
-    For every number of particles $N\ge 1$, the particle marginal Metropolis-Hastings chain admits an invariant density whose marginal in $\theta$ is the exact posterior density $p(\theta\mid y_{1:T})$.
+    For every number of particles $N\ge 1$, the particle marginal Metropolis-Hastings chain of Algorithm~\ref{alg:pmmh} admits an invariant density whose $\theta$-marginal is the exact posterior $p(\theta\mid y_{1:T})$.
 \end{theorem}
 \begin{proof}
-    The estimator $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta,u)$ is a product of averages of densities and is therefore non-negative. The bootstrap particle filter proposes from the model, so the support condition holds trivially, and its incremental weights are strictly positive for the MSSV model. With an unbiased resampling scheme, the assumptions of Theorem~\ref{thm:pf_marginal_likelihood_unbiased} are thus satisfied, and for each fixed $\theta$,
+    The estimator $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ is a product of averages of non-negative observation densities and is therefore non-negative. The bootstrap particle filter satisfies the assumptions of Lemma~\ref{lem:pf_unnormalized_unbiased}, as noted in Section~\ref{sec:bootstrap_particle_filter}. By Theorem~\ref{thm:pf_marginal_likelihood_unbiased}, applied for each fixed $\theta$,
     \begin{equation}
-        \int \hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u = p(y_{1:T}\mid\theta).
+        \int \hat{Z}(\theta,u)\,\psi(u\mid\theta)\,\mathrm{d}u = E\left[\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)\right] = p(y_{1:T}\mid\theta).
     \end{equation}
     Condition~\eqref{eq:pseudo_marginal_unbiased} is thus satisfied, and Algorithm~\ref{alg:pmmh} is a special case of Algorithm~\ref{alg:pseudo_marginal_mh}. The claim follows from Theorem~\ref{thm:pseudo_marginal_exact}.
 \end{proof}
 
-Theorem~\ref{thm:pmmh_exact} shows that PMMH is not an approximation: the number of particles does not affect the invariant distribution, only how efficiently the chain explores it. Under mild additional conditions, essentially that the corresponding exact Metropolis-Hastings chain would be irreducible and aperiodic, the PMMH chain also converges to its invariant distribution \cite{andrieu2010particle}. The role of $N$ is best understood by noting that the acceptance ratio of PMMH equals the ideal ratio in~\eqref{eq:mh_acceptance_parameters} multiplied by
+Theorem~\ref{thm:pmmh_exact} shows that PMMH is not an approximation: the number of particles does not affect the invariant distribution, only how efficiently the chain explores it. The role of $N$ is best understood by noting that the acceptance ratio of PMMH equals the ideal ratio in~\eqref{eq:mh_acceptance_parameters} multiplied by
 \begin{equation}
-    \frac{\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta')/p(y_{1:T}\mid\theta')}{\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)/p(y_{1:T}\mid\theta)}.
+    \frac{\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta')\,/\,p(y_{1:T}\mid\theta')}{\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)\,/\,p(y_{1:T}\mid\theta)},
 \end{equation}
-If the estimate at the current state happens to be much larger than the true likelihood, this factor is small for most proposals, and the chain may get stuck at the same value for many iterations. A small $N$ produces noisy estimates and hence poor mixing, while a large $N$ makes every iteration expensive. As a rule of thumb, \cite{doucet2015efficient} recommend choosing $N$ such that the standard deviation of $\log\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ around the posterior mode is approximately between $1$ and $1.7$.
+the ratio of the relative errors of the two estimates. If the estimate at the current state happens to be much larger than the true marginal likelihood, this factor is small for most proposals, and the chain may get stuck at the same value for many iterations. A small $N$ produces noisy estimates and hence poor mixing, while a large $N$ makes every iteration expensive, since each iteration requires a full run of the particle filter at cost $O(NT)$. As $N\to\infty$, the estimates converge to the true marginal likelihood, and PMMH approaches the ideal Metropolis-Hastings algorithm with acceptance probability~\eqref{eq:mh_acceptance_parameters}. Balancing the two effects, \cite{doucet2015efficient} recommend choosing $N$ such that the standard deviation of $\log\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ at a central value of $\theta$, such as the posterior mean, is approximately $1.2$, and in any case between $1$ and $1.7$. By the remark after Theorem~\ref{thm:pf_marginal_likelihood_unbiased}, this standard deviation grows with $T$ for a fixed $N$, so longer time series require more particles, roughly $N\propto T$.
 
-In practice, the acceptance ratio is computed on the logarithmic scale to avoid numerical underflow, since $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ is a product of $T$ factors. Moreover, if the proposed $\theta'$ lies outside the support of the prior, then $p(\theta')=0$ and the proposal can be rejected immediately, without running the particle filter.
+In practice, the acceptance ratio is computed on the logarithmic scale to avoid numerical underflow, since $\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta)$ is a product of $T$ factors, each of which is an average of observation densities. 
+Accordingly, the averages are computed with the log-sum-exp trick, the chain stores $\log\hat{Z}_m$, and a proposal is accepted if $\log V\le\log\hat{\alpha}$.
 
-\begin{remark}
-    \label{rem:pmmh_trajectories}
-    Algorithm~\ref{alg:pmmh} targets the posterior distribution of the parameters only. It can be extended to target the joint posterior $p(\theta,x_{0:T}\mid y_{1:T})$ at no additional cost \cite{andrieu2010particle}. Each time the particle filter is run at a proposed $\theta'$, a trajectory $X_{0:T}'$ is additionally drawn from its empirical smoothing distribution, and this trajectory is accepted or rejected together with $\theta'$. The acceptance probability is unchanged. The justification is given by Lemma~\ref{lem:csmc_extended_target} in the next subsection.
-\end{remark}
+\subsection{Latent state estimation}
+\label{sec:pmmh_trajectories}
+Theorem~\ref{thm:pmmh_exact} concerns only the parameters, but for the MSSV model we are equally interested in the latent states, that is, in the joint posterior
+\begin{equation}
+    p(\theta,x_{0:T}\mid y_{1:T}) = p(x_{0:T}\mid y_{1:T},\theta)\,p(\theta\mid y_{1:T}).
+    \label{eq:joint_posterior}
+\end{equation}
+To see how the latent states can be obtained from PMMH, recall from the proof of Theorem~\ref{thm:pseudo_marginal_exact} that the state of the chain at iteration $m$ is not only $\theta_m$, but the pair $(\theta_m,U_m)$, where $U_m$ are the auxiliary variables of the run of the filter that was last accepted. Algorithm~\ref{alg:pmmh} only records $\hat{Z}_m$, but $U_m$ is implicitly part of the chain. By definition, $U_m$ contains all particles $X_{0:T}^{(1:N)}$ and all ancestor indices of this run. Following the ancestor indices backwards as in~\eqref{eq:sisr_trajectory}, $U_m$ thus contains $N$ complete trajectories $X_{0:T}^{(1)},\ldots,X_{0:T}^{(N)}$, and together with $\theta_m$ it also determines their normalized weights $\tilde{w}_T^{(1:N)} = \tilde{w}_T^{(1:N)}(\theta_m,U_m)$.
+
+At every iteration we therefore have $N$ weighted trajectories, and the question is how to extract from them a sample of the latent states. We select one trajectory according to its weight: we draw an index $B_m\in\{1,\ldots,N\}$ with
+\begin{equation}
+    P\left(B_m=b\mid\theta_m,U_m\right) = \tilde{w}_T^{(b)}(\theta_m,U_m),
+    \label{eq:trajectory_selection}
+\end{equation}
+and set $X_{0:T}[m] = X_{0:T}^{(B_m)}$. The following theorem shows that this gives exact samples of the latent states.
+
+\begin{theorem}
+    \label{thm:pmmh_joint}
+    Let $(\theta_m,U_m)_{m\ge0}$ be the PMMH chain of Algorithm~\ref{alg:pmmh}, and let $X_{0:T}[m]$ be selected from $U_m$ according to~\eqref{eq:trajectory_selection}. If $(\theta_m,U_m)\sim\bar{\pi}$, then
+    \begin{equation}
+        \left(\theta_m,X_{0:T}[m]\right)\sim p(\theta,x_{0:T}\mid y_{1:T}),
+    \end{equation}
+    for every number of particles $N\ge1$.
+\end{theorem}
+\begin{proof}
+    Since $(\theta_m,U_m)\sim\bar{\pi}(\theta,u)$ and $B_m$ is drawn according to~\eqref{eq:trajectory_selection}, the triple $(\theta_m,U_m,B_m)$ has the density
+    \begin{equation}
+        \bar{\pi}(\theta,u,b) = \bar{\pi}(\theta,u)\,\tilde{w}_T^{(b)}(\theta,u) = \frac{p(\theta)\,\psi(u\mid\theta)\,\hat{Z}(\theta,u)\,\tilde{w}_T^{(b)}(\theta,u)}{p(y_{1:T})}.
+        \label{eq:extended_target_index}
+    \end{equation}
+    Let $g$ be any non-negative function of $(\theta,x_{0:T})$, and write $x_{0:T}^{(b)}$ for the trajectories contained in $u$. The selected trajectory is $X_{0:T}[m] = X_{0:T}^{(B_m)}$, so the expectation of $g(\theta_m,X_{0:T}[m])$ is obtained by integrating $g(\theta,x_{0:T}^{(b)})$ against the density~\eqref{eq:extended_target_index}, that is, by integrating over $\theta$ and $u$ and summing over $b$,
+    \begin{equation}
+        E\left[g\left(\theta_m,X_{0:T}[m]\right)\right] = \int\frac{p(\theta)}{p(y_{1:T})}\,I(\theta)\,\mathrm{d}\theta,
+        \label{eq:pmmh_trajectory_expectation}
+    \end{equation}
+    where
+    \begin{equation}
+        I(\theta) = \int\psi(u\mid\theta)\,\hat{Z}(\theta,u)\sum_{b=1}^{N}\tilde{w}_T^{(b)}(\theta,u)\,g\left(\theta,x_{0:T}^{(b)}\right)\mathrm{d}u.
+        \label{eq:pmmh_trajectory_inner}
+    \end{equation}
+    It remains to compute $I(\theta)$ for a fixed $\theta$. We do this in three steps.
+
+    \emph{(a) $I(\theta)$ is an expectation over one run of the filter.} Recall that $\psi(\cdot\mid\theta)$ is the density of all random variables $U$ generated by one run of the filter at $\theta$. By the definition of the expectation, $\int h(u)\,\psi(u\mid\theta)\,\mathrm{d}u = E[h(U)]$ for $U\sim\psi(\cdot\mid\theta)$, so
+    \begin{equation}
+        I(\theta) = E\left[\hat{Z}(\theta,U)\sum_{b=1}^{N}\tilde{w}_T^{(b)}\,g\left(\theta,X_{0:T}^{(b)}\right)\right],
+    \end{equation}
+    where the expectation is over one ordinary run of the filter at $\theta$, and $X_{0:T}^{(b)}$ and $\tilde{w}_T^{(b)}$ are the trajectories and the weights of this run.
+
+    \emph{(b) Removing the normalization of the weights.} By Definition~\ref{def:pf_marginal_likelihood_estimator}, $\hat{Z}(\theta,U) = \hat{p}^{\mathrm{PF}}_T$ is the product of the averages of the incremental weights, so its last factor is $\frac{1}{N}\sum_{k=1}^{N}\alpha_T^{(k)}$, that is, $\hat{p}^{\mathrm{PF}}_T = \hat{p}^{\mathrm{PF}}_{T-1}\cdot\frac{1}{N}\sum_{k=1}^{N}\alpha_T^{(k)}$. The normalized weights are $\tilde{w}_T^{(b)} = \alpha_T^{(b)}/\sum_{k=1}^{N}\alpha_T^{(k)}$ by~\eqref{eq:sisr_normalized_weights}. In the product, the sum of the incremental weights cancels,
+    \begin{equation}
+        \hat{Z}(\theta,U)\,\tilde{w}_T^{(b)} = \hat{p}^{\mathrm{PF}}_{T-1}\left(\frac{1}{N}\sum_{k=1}^{N}\alpha_T^{(k)}\right)\frac{\alpha_T^{(b)}}{\sum_{k=1}^{N}\alpha_T^{(k)}} = \hat{p}^{\mathrm{PF}}_{T-1}\,\frac{\alpha_T^{(b)}}{N},
+    \end{equation}
+    which is the identity~\eqref{eq:pf_weight_identity} at $t=T$. Inserting this into the expectation from step (a) gives
+    \begin{equation}
+        I(\theta) = E\left[\hat{p}^{\mathrm{PF}}_{T-1}\,\frac{1}{N}\sum_{b=1}^{N}\alpha_T^{(b)}\,g\left(\theta,X_{0:T}^{(b)}\right)\right].
+    \end{equation}
+    The self-normalized weights, which are the source of the bias of a single run, have been replaced by the unnormalized incremental weights.
+
+    \emph{(c) Applying the lemma.} The last expectation has exactly the form of the left-hand side of~\eqref{eq:pf_unnormalized_unbiased} at $t=T$, with the non-negative function $\varphi(x_{0:T}) = g(\theta,x_{0:T})$, in which $\theta$ is fixed. The bootstrap filter satisfies the assumptions of Lemma~\ref{lem:pf_unnormalized_unbiased}, as noted in the proof of Theorem~\ref{thm:pmmh_exact}, so the lemma gives
+    \begin{equation}
+        I(\theta) = \int g(\theta,x_{0:T})\,p(x_{0:T},y_{1:T}\mid\theta)\,\mathrm{d}x_{0:T}.
+    \end{equation}
+
+    Inserting this into~\eqref{eq:pmmh_trajectory_expectation} and using Bayes' theorem, $p(\theta)\,p(x_{0:T},y_{1:T}\mid\theta)/p(y_{1:T}) = p(\theta,x_{0:T}\mid y_{1:T})$, we obtain
+    \begin{equation}
+        E\left[g\left(\theta_m,X_{0:T}[m]\right)\right] = \iint g(\theta,x_{0:T})\,p(\theta,x_{0:T}\mid y_{1:T})\,\mathrm{d}x_{0:T}\,\mathrm{d}\theta.
+    \end{equation}
+    Since this holds for every non-negative $g$, in particular for indicator functions of sets, $(\theta_m,X_{0:T}[m])$ is distributed according to the joint posterior.
+\end{proof}
+
+Theorem~\ref{thm:pmmh_joint} is not obvious. For a finite $N$, the weighted trajectories of a single run of the filter only approximate $p(x_{0:T}\mid y_{1:T},\theta)$, because the weights are self-normalized, so a trajectory selected from an ordinary run $U\sim\psi(\cdot\mid\theta)$ is not exact. However, $U_m$ is not an ordinary run. Dividing~\eqref{eq:extended_target} by $p(\theta\mid y_{1:T})$ shows that at stationarity, given $\theta_m=\theta$, the run $U_m$ has the density
+\begin{equation}
+    \bar{\pi}(u\mid\theta) = \frac{\psi(u\mid\theta)\,\hat{Z}(\theta,u)}{p(y_{1:T}\mid\theta)},
+    \label{eq:stationary_run_density}
+\end{equation}
+so the chain keeps runs with probability proportional to their likelihood estimate. As step (b) of the proof shows, this factor $\hat{Z}$ cancels the normalization of the weights, and the bias is thus corrected by the accept-reject step of the chain, not by the filter. In the extreme case $N=1$, the filter simply simulates one path from the prior dynamics, and $\hat{Z}$ is the likelihood of this path. PMMH is then an ordinary Metropolis-Hastings algorithm on $(\theta,x_{0:T})$ in which the latent states are proposed from their prior, which clearly targets the joint posterior.
+
+As for the parameters, $N$ does not affect the distribution of the samples, only the efficiency of the chain. The selected trajectory changes only when a proposal is accepted, so with a small $N$, the samples $X_{0:T}[m]$ are strongly correlated.
+
+Storing the whole $U_m$ at every iteration would require $O(NT)$ memory per iteration. Since $B_m$ depends only on $(\theta_m,U_m)$ and $\hat{\alpha}$ does not depend on $B_m$, the index can be drawn already when the filter is run at $\theta'$, and the selected trajectory is then accepted or rejected together with $\theta'$, as in Algorithm~\ref{alg:pmmh}. Only one trajectory is kept per iteration, and tracing it back from the stored ancestor indices costs $O(T)$. The trajectory must, however, come from the run that belongs to the current state of the chain. Running the filter again at the sampled $\theta_m$ after the chain has finished would give an ordinary run instead of~\eqref{eq:stationary_run_density}, and the samples would not be exact for a finite $N$.
+
+The samples are used like any other MCMC output. Under the conditions of Theorem~\ref{thm:ergodic_theorem},
+\begin{equation}
+    \frac{1}{M}\sum_{m=1}^{M} g\left(X_{0:T}[m]\right) \xrightarrow[M\to\infty]{a.s.} E\left[g(x_{0:T})\mid y_{1:T}\right]
+    \label{eq:pmmh_state_estimator}
+\end{equation}
+for a fixed $N$. For example, averaging $h_t$ estimates $E[h_t\mid y_{1:T}]$, and the fraction of samples with $s_t=j$ estimates $P(s_t=j\mid y_{1:T})$. Since $\theta$ varies along the chain, these estimates take the uncertainty about the parameters into account, unlike a particle filter run at a point estimate $\hat{\theta}$, whose error moreover vanishes only as $N\to\infty$.
 
 \subsection{Particle Gibbs}
 \label{sec:particle_gibbs}
-PMMH targets the parameter posterior by integrating out the latent states through an unbiased estimate. An alternative is to target the joint posterior $p(\theta,x_{0:T}\mid y_{1:T})$ directly and to update the parameters and the latent states in turn, which is the idea of the Gibbs sampler. The following proposition states why such blockwise updates are valid.
 
-\begin{proposition}
-    \label{prop:blockwise_invariance}
-    Let $\pi(\theta,x)$ be a joint density with conditional densities $\pi(\theta\mid x)$ and $\pi(x\mid\theta)$. Suppose that for every $x$, the transition density $K_x(\theta'\mid\theta)$ leaves $\pi(\theta\mid x)$ invariant. Then the transition that updates $\theta' \sim K_x(\cdot\mid\theta)$ and keeps $x$ fixed leaves $\pi(\theta,x)$ invariant. The same holds with the roles of $\theta$ and $x$ exchanged, and a composition of transitions that leave $\pi$ invariant leaves $\pi$ invariant.
-\end{proposition}
-\begin{proof}
-    If $(\theta,x)\sim\pi$, then the updated pair $(\theta',x)$ has density
-    \begin{equation}
-        \int \pi(\theta,x)\,K_x(\theta'\mid\theta)\,\mathrm{d}\theta = \pi(x)\int\pi(\theta\mid x)\,K_x(\theta'\mid\theta)\,\mathrm{d}\theta = \pi(x)\,\pi(\theta'\mid x) = \pi(\theta',x),
-    \end{equation}
-    where $\pi(x)$ is the marginal density of $x$. The second statement follows by symmetry, and the third by applying the transitions one after another.
-\end{proof}
-
-The simplest choice is $K_x(\theta'\mid\theta) = \pi(\theta'\mid x)$, which is invariant trivially. Another valid choice is a Metropolis-Hastings step targeting $\pi(\theta\mid x)$, which leaves it invariant by Theorem~\ref{thm:mh_detailed_balance}, and is used when the conditional cannot be sampled directly. This is known as \emph{Metropolis-within-Gibbs}. The same applies to updating the components of $\theta$ one at a time, provided that each component is updated given the current values of all the others.
-
-For the joint posterior $p(\theta,x_{0:T}\mid y_{1:T})$, the parameter update requires $p(\theta\mid x_{0:T},y_{1:T})\propto p(\theta)\,p(x_{0:T},y_{1:T}\mid\theta)$, which, with the latent states given, is a standard Bayesian problem. For the MSSV model with the priors of Section~\ref{sec:priors}, most of these conditionals are available in closed form. The difficulty lies in the latent state update, which requires sampling from the smoothing distribution $p(x_{0:T}\mid y_{1:T},\theta)$. This cannot be done exactly, and replacing it by a draw from a particle filter would only be approximately correct. The solution of \cite{andrieu2010particle} is a modified particle filter, the \emph{conditional particle filter}, which is not an exact sampler from $p(x_{0:T}\mid y_{1:T},\theta)$, but a transition that leaves it invariant, which, by Proposition~\ref{prop:blockwise_invariance}, is all that is needed.
-
-The conditional particle filter, given in Algorithm~\ref{alg:conditional_particle_filter}, runs the bootstrap particle filter with $N-1$ free particles, while one particle is forced to follow a given \emph{reference trajectory} $x_{0:T}^{*}$ throughout, including its ancestry. At the end, a trajectory is drawn from the resulting empirical smoothing distribution. For simplicity, the reference is placed at index $1$ and multinomial resampling is used, that is, the free ancestor indices are drawn independently from the categorical distribution $\mathcal{C}(\tilde{w}_{t}^{(1:N)})$ with probabilities $\tilde{w}_t^{(1)},\ldots,\tilde{w}_t^{(N)}$.
-
-\begin{algorithm}[H]
-\caption{Conditional bootstrap particle filter}
-\label{alg:conditional_particle_filter}
-\begin{algorithmic}[1]
-    \REQUIRE Observations $y_{1:T}$, number of particles $N$, parameters $\theta$, reference trajectory $x_{0:T}^{*}$.
-    \STATE Set $X_0^{(1)} = x_0^{*}$ and sample $X_0^{(i)} \sim \chi(x_0\mid\theta)$ for $i=2,\ldots,N$.
-    \STATE Set $A_0^{(i)} = i$ for $i=1,\ldots,N$.
-    \FOR{$t=1,\ldots,T$}
-        \IF{$t\ge 2$}
-            \STATE Set $A_{t-1}^{(1)} = 1$ and sample $A_{t-1}^{(i)} \sim \mathcal{C}(\tilde{w}_{t-1}^{(1:N)})$ independently for $i=2,\ldots,N$.
-        \ENDIF
-        \STATE Set $X_t^{(1)} = x_t^{*}$ and sample $X_t^{(i)} \sim p(\cdot\mid X_{t-1}^{(A_{t-1}^{(i)})},\theta)$ for $i=2,\ldots,N$.
-        \STATE Compute $\alpha_t^{(i)} = f(y_t\mid X_t^{(i)},\theta)$ and $\tilde{w}_t^{(i)} = \alpha_t^{(i)} / \sum_{j=1}^{N} \alpha_t^{(j)}$ for $i=1,\ldots,N$.
-    \ENDFOR
-    \STATE Sample $B_T \sim \mathcal{C}(\tilde{w}_T^{(1:N)})$, set $B_{t-1} = A_{t-1}^{(B_t)}$ for $t=T,\ldots,2$ and $B_0 = B_1$.
-    \RETURN $X_{0:T}' = \left(X_0^{(B_0)},X_1^{(B_1)},\ldots,X_T^{(B_T)}\right)$.
-\end{algorithmic}
-\end{algorithm}
-
-To show that Algorithm~\ref{alg:conditional_particle_filter} leaves the smoothing distribution invariant, we relate it to the unconditional particle filter with multinomial resampling, whose auxiliary density~\eqref{eq:pf_auxiliary_density} has $\rho(a_t^{(1:N)}\mid\tilde{w}_t^{(1:N)}) = \prod_{i=1}^{N}\tilde{w}_t^{(a_t^{(i)})}$. Fix $\theta$ and let $u = (x_{0:T}^{(1:N)}, a_{1:T-1}^{(1:N)})$. For an index $k\in\{1,\ldots,N\}$, define its \emph{lineage} $b_{0:T}$ by $b_T = k$, $b_{t-1} = a_{t-1}^{(b_t)}$ for $t = T,\ldots,2$ and $b_0 = b_1$, and the corresponding trajectory $x_{0:T}^{[k]} = (x_0^{(b_0)},\ldots,x_T^{(b_T)})$. Denote by $u^{-}$ all components of $u$ other than $x_{0:T}^{[k]}$ and the lineage ancestor indices $a_{t-1}^{(b_t)}$, $t=2,\ldots,T$.
-
-\begin{lemma}
-    \label{lem:csmc_extended_target}
-    The density
-    \begin{equation}
-        \tilde{\pi}(u,k) = \frac{\psi(u\mid\theta)\,\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta,u)\,\tilde{w}_T^{(k)}}{p(y_{1:T}\mid\theta)}
-        \label{eq:csmc_extended_target}
-    \end{equation}
-    can be written as
-    \begin{equation}
-        \tilde{\pi}(u,k) = \frac{1}{N^{T}}\;p\left(x_{0:T}^{[k]}\mid y_{1:T},\theta\right)\;c\left(u^{-}\mid b_{1:T},x_{0:T}^{[k]}\right),
-        \label{eq:csmc_factorization}
-    \end{equation}
-    where
-    \begin{align}
-        c\left(u^{-}\mid b_{1:T},x_{0:T}^{[k]}\right) &= \prod_{i\neq b_0}\chi(x_0^{(i)}\mid\theta)\prod_{i\neq b_1} p\left(x_1^{(i)}\mid x_0^{(i)},\theta\right) \\
-        &\quad \times \prod_{t=2}^{T}\prod_{i\neq b_t} \tilde{w}_{t-1}^{(a_{t-1}^{(i)})}\,p\left(x_t^{(i)}\mid x_{t-1}^{(a_{t-1}^{(i)})},\theta\right)
-    \end{align}
-    is the density of $u^{-}$ generated by Algorithm~\ref{alg:conditional_particle_filter} with the reference $x_{0:T}^{[k]}$ placed at the indices $b_{0:T}$ instead of at index $1$.
-\end{lemma}
-\begin{proof}
-    The factors of $\psi(u\mid\theta)$ that are missing in $c$ are exactly those belonging to the lineage, so
-    \begin{equation}
-        \psi(u\mid\theta) = c\left(u^{-}\mid b_{1:T},x_{0:T}^{[k]}\right)\,\chi(x_0^{(b_0)}\mid\theta)\prod_{t=1}^{T}p\left(x_t^{(b_t)}\mid x_{t-1}^{(b_{t-1})},\theta\right)\prod_{t=1}^{T-1}\tilde{w}_t^{(b_t)}.
-    \end{equation}
-    By Proposition~\ref{prop:joint_density}, the product of $\chi$ and the transition densities equals $p(x_{0:T}^{[k]}\mid y_{1:T},\theta)\,p(y_{1:T}\mid\theta)/\prod_{t=1}^{T}f(y_t\mid x_t^{(b_t)},\theta)$. Writing $\hat{z}_t = \frac{1}{N}\sum_{j=1}^{N}f(y_t\mid x_t^{(j)},\theta)$, the definition of the normalized weights gives $f(y_t\mid x_t^{(b_t)},\theta) = N\,\hat{z}_t\,\tilde{w}_t^{(b_t)}$, so that
-    \begin{equation}
-        \prod_{t=1}^{T}f(y_t\mid x_t^{(b_t)},\theta) = N^{T}\,\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta,u)\prod_{t=1}^{T}\tilde{w}_t^{(b_t)}.
-    \end{equation}
-    Combining the last three equations and recalling $b_T = k$,
-    \begin{equation}
-        \psi(u\mid\theta) = c\left(u^{-}\mid b_{1:T},x_{0:T}^{[k]}\right)\frac{p(x_{0:T}^{[k]}\mid y_{1:T},\theta)\,p(y_{1:T}\mid\theta)}{N^{T}\,\hat{p}^{\mathrm{PF}}(y_{1:T}\mid\theta,u)\,\tilde{w}_T^{(k)}},
-    \end{equation}
-    which rearranges to~\eqref{eq:csmc_factorization}.
-\end{proof}
-
-The map $(u,k)\mapsto(b_{1:T},x_{0:T}^{[k]},u^{-})$ only relabels the variables and is one-to-one, so~\eqref{eq:csmc_factorization} gives the following description of $\tilde{\pi}$. The lineage $b_{1:T}$ is uniformly distributed on $\{1,\ldots,N\}^{T}$, the selected trajectory $x_{0:T}^{[k]}$ is independently distributed according to the smoothing distribution, and, given both, the remaining variables are distributed as in the conditional particle filter. In particular, $\tilde{\pi}$ is a probability density. On the other hand, \eqref{eq:csmc_extended_target} shows that, given $u$, the index $k$ is distributed according to $\mathcal{C}(\tilde{w}_T^{(1:N)})$.
-
-\begin{theorem}
-    \label{thm:csmc_invariance}
-    For every $\theta$ and every $N\ge 1$, the transition $x_{0:T}^{*}\mapsto X_{0:T}'$ defined by Algorithm~\ref{alg:conditional_particle_filter} leaves the smoothing distribution $p(x_{0:T}\mid y_{1:T},\theta)$ invariant.
-\end{theorem}
-\begin{proof}
-    Let $x_{0:T}^{*}\sim p(x_{0:T}\mid y_{1:T},\theta)$. First, assume that the reference is placed at uniformly drawn indices $b_{1:T}$, with $b_0 = b_1$, rather than at index $1$, and let $k = b_T$. By the description of $\tilde{\pi}$ above, the resulting $(u,k)$ is distributed according to $\tilde{\pi}$. Drawing a new index $k'\sim\mathcal{C}(\tilde{w}_T^{(1:N)})$ is a draw from the conditional of $k$ given $u$ under $\tilde{\pi}$, so $(u,k')$ is again distributed according to $\tilde{\pi}$, by Proposition~\ref{prop:blockwise_invariance}. Hence the returned trajectory $x_{0:T}^{[k']}$ has the marginal distribution of the selected trajectory under $\tilde{\pi}$, which is $p(x_{0:T}\mid y_{1:T},\theta)$.
-
-    It remains to remove the randomization of the reference indices. Multinomial resampling and the propagation step treat all free particles identically, so for any permutations $\sigma_t$ of $\{1,\ldots,N\}$ with $\sigma_t(1) = b_t$, relabeling the particles at time $t$ by $\sigma_t$ maps the particle system generated with the reference at index $1$ to one with the same distribution as the system generated with the reference at indices $b_{0:T}$. The returned trajectory is drawn according to the weights and the genealogy, which do not depend on the labels, so its distribution is the same in both cases.
-\end{proof}
-
-The complete particle Gibbs (PG) sampler \cite{andrieu2010particle} alternates the conditional particle filter with an update of the parameters, as given in Algorithm~\ref{alg:particle_gibbs}. The initial trajectory can be drawn, for instance, from the empirical smoothing distribution of an ordinary particle filter run at $\theta_0$.
-
-\begin{algorithm}[H]
-\caption{Particle Gibbs}
-\label{alg:particle_gibbs}
-\begin{algorithmic}[1]
-    \REQUIRE Observations $y_{1:T}$, number of particles $N$, prior density $p(\theta)$, number of iterations $M$, initial state $(\theta_0,X_{0:T}[0])$.
-    \FOR{$m=1,\ldots,M$}
-        \STATE Run Algorithm~\ref{alg:conditional_particle_filter} at $\theta_{m-1}$ with reference $X_{0:T}[m-1]$ and set $X_{0:T}[m]$ to the returned trajectory.
-        \STATE Sample $\theta_m \sim p(\theta\mid X_{0:T}[m],y_{1:T})$, or update $\theta_{m-1}$ to $\theta_m$ by a transition that leaves $p(\theta\mid X_{0:T}[m],y_{1:T})$ invariant.
-    \ENDFOR
-\end{algorithmic}
-\end{algorithm}
-
-\begin{theorem}
-    \label{thm:pg_invariance}
-    For every number of particles $N\ge 1$, the joint posterior density $p(\theta,x_{0:T}\mid y_{1:T})$ is invariant for the particle Gibbs chain $(\theta_m,X_{0:T}[m])_{m\ge 0}$.
-\end{theorem}
-\begin{proof}
-    By Theorem~\ref{thm:csmc_invariance}, the first step leaves the conditional $p(x_{0:T}\mid y_{1:T},\theta)$ invariant for every $\theta$, and by construction, the second step leaves $p(\theta\mid x_{0:T},y_{1:T})$ invariant for every $x_{0:T}$. The claim follows from Proposition~\ref{prop:blockwise_invariance}.
-\end{proof}
-
-As for PMMH, the number of particles does not affect the invariant distribution. For $N\ge 2$ and under mild additional conditions, the conditional particle filter is also irreducible and aperiodic, so the particle Gibbs chain converges to the joint posterior \cite{andrieu2010particle}. With $N=1$, the conditional particle filter always returns the reference trajectory and the chain never updates the latent states. In contrast to PMMH, particle Gibbs requires neither a likelihood estimate nor a proposal for the parameters, which makes it attractive when the conditionals $p(\theta\mid x_{0:T},y_{1:T})$ are tractable.
-
-The efficiency of particle Gibbs is, however, limited by path degeneracy (Section~\ref{sec:sequential_importance_sampling_with_resampling}). Going backwards in time, the free trajectories coalesce, and with high probability they coalesce with the reference trajectory, which never dies out. The early part of the returned trajectory therefore often coincides with the early part of the reference, and the latent states, especially at early times, mix slowly unless $N$ is large compared to $T$. In addition, as in any Gibbs sampler, strong posterior dependence between $\theta$ and $x_{0:T}$ slows down the exploration, since each block is updated with the other held fixed. Both issues can be mitigated by \emph{ancestor sampling} \cite{lindsten2014ancestor}, in which the ancestor index of the reference particle is resampled at each time step instead of being fixed.
-
-\begin{remark}
-    Algorithm~\ref{alg:conditional_particle_filter} uses multinomial resampling, since the free ancestor indices must be drawn from their conditional distribution given the reference indices. For multinomial resampling, this conditional is again multinomial, because the indices are independent. For other schemes, such as systematic resampling, the indices are dependent, and a dedicated conditional version of the scheme is required \cite{chopin2020smc}. Simply resampling all $N$ particles and then overwriting the reference index does not, in general, give the correct conditional distribution.
-\end{remark}
-
-Lemma~\ref{lem:csmc_extended_target} also justifies Remark~\ref{rem:pmmh_trajectories}. Extending the PMMH target~\eqref{eq:extended_target} with the index $k$ of the selected trajectory gives the density $p(\theta)\,p(y_{1:T}\mid\theta)\,\tilde{\pi}(u,k)/p(y_{1:T})$, which reduces to~\eqref{eq:extended_target} after summing over $k$, so the acceptance probability is unchanged. By~\eqref{eq:csmc_factorization}, the marginal of $(\theta,x_{0:T}^{[k]})$ under this density is $p(\theta\mid y_{1:T})\,p(x_{0:T}^{[k]}\mid y_{1:T},\theta) = p(\theta,x_{0:T}^{[k]}\mid y_{1:T})$. For other unbiased resampling schemes, the same conclusion holds \cite{andrieu2010particle}. Applying a uniformly random permutation to the ancestor indices does not change the distribution of the selected trajectory, which depends only on the weights and the genealogy, and after such a permutation each ancestor index is marginally distributed according to $\mathcal{C}(\tilde{w}_t^{(1:N)})$ by~\eqref{eq:unbiased_resampling}, which is the property used in \cite{andrieu2010particle}.
-
-\section{SMC\texorpdfstring{$^2$}{2}}
+\section{SMC$^2$}
